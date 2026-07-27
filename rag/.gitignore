@@ -1,0 +1,9 @@
+# Isolated Python env (rebuilt via: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
+.venv/
+
+# Built index (rebuilt via: .venv/bin/python index_builder.py)
+index.db
+
+# Python caches
+__pycache__/
+*.pyc

@@ -1,0 +1,210 @@
+#!/bin/zsh
+set -uo pipefail
+
+cd /Users/mst/ZCodeProject/openclaw-job-search
+
+if ! curl -fsS --max-time 2 http://127.0.0.1:9222/json/version >/dev/null; then
+  print -u2 "Chrome CDP is not reachable at http://127.0.0.1:9222. Start the existing campaign Chrome first."
+  exit 2
+fi
+
+TRACKER=/Users/mst/Downloads/job-search/job-apply/tracker.json
+
+# Target: CLI override (first arg of form N=1300) else tracker.targetApplications (default 1200).
+TARGET_OVERRIDE=""
+if [[ "${1:-}" == N=* ]]; then
+  TARGET_OVERRIDE="${1#N=}"
+  shift
+fi
+
+message="${*:-Continue the campaign. Apply exactly ONE job this tick. Read campaign/AGENT_TICK.md and campaign/CONTEXT.md first. Use the existing logged-in Chrome through Playwright MCP at http://127.0.0.1:9222 (do NOT launch or close Chrome). Follow the dedupe + scoring + Gmail 60-day gates, single-tab discipline, and verify an explicit confirmation/thank-you in the browser before running update_tracker.py submitted.
+
+Allowed boards/sites (these are all permitted; prefer the listed primary portals first, then fall back to others):
+- IL (remote/hybrid/on-site all OK, incl. central Israel): AllJobs, Drushim, JobMaster, Jobnet, Janglo, Secret Tel Aviv, TopStartups.io, TechJob, DevJobs IL, Nefesh B'Nefesh, NoFluffJobs PL (IL listings); LinkedIn Easy Apply (IL java/spring, node/react, php).
+- EU/PL (full remote only, B2B >=15k PLN when salary listed): No Fluff Jobs, Just Join IT, theProtocol, Bulldogjob, Pracuj, plus global remote (We Work Remotely, EU Remote Jobs, Working Nomads, Arc, RemotifyEurope, Remote in Europe, EuroRemote, 4DayWeek.io EU).
+Prefer the primary listed portals above; other reputable boards/sites are allowed if they surface a valid in-policy role. Always score against the CV and pass the Gmail 60-day gate.
+
+Work the order: IL remote/hybrid -> EU/PL full remote -> other EU full remote. Stop after one confirmed submission. Wait for the global submitted count to reach the target before finishing.}"
+
+# Inner rate-limit retry settings (per single apply attempt).
+INNER_MAX_FAILS=200
+INNER_SLEEP=4
+
+# Outer-level backoff: when the inner retries are exhausted on a transient error,
+# wait this long and re-enter the outer loop (do NOT abort the whole campaign).
+OUTER_BACKOFF=60
+
+# Rotate to a fresh session EVERY tick so the transcript/context stays bounded and
+# we never hit "Context overflow: prompt too large" / "Compaction timed out". A fresh
+# session is safe: dedupe + Gmail gates are enforced by the Python scripts against the
+# tracker, not by session memory, so losing per-tick context costs nothing.
+SESSION_ROTATE_EVERY_TICK=1
+
+# Outer loop: keep applying until the tracker target is reached.
+# Worst case: INNER_MAX_FAILS (200) rate-limit retries per remaining app × 208 apps = 41600.
+OUTER_MAX_TICKS=41600
+tick=0
+
+# Session identity. Start with the persistent campaign session; rotate on overflow.
+SESSION_KEY="agent:main:job-search-campaign"
+SESSION_ID=""
+
+# Run one openclaw agent turn. Pass --session-id only when we have a rotated id;
+# otherwise rely on --session-key (persistent session). Invoked directly (no
+# command substitution) so the quoted --message survives intact.
+run_agent() {
+  if [[ -n "$SESSION_ID" ]]; then
+    /Users/mst/bin/openclaw agent \
+      --agent main \
+      --model free \
+      --timeout 1200 \
+      --thinking medium \
+      --session-id "$SESSION_ID" \
+      --message "$message"
+  else
+    /Users/mst/bin/openclaw agent \
+      --agent main \
+      --model free \
+      --timeout 1200 \
+      --thinking medium \
+      --session-key "$SESSION_KEY" \
+      --message "$message"
+  fi
+}
+
+# Rotate to a brand-new session (fresh context) to recover from overflow/compaction.
+rotate_session() {
+  SESSION_ID="$(uuidgen | tr 'A-Z' 'a-z')"
+  print -u2 "[$(ts)] Rotating to a fresh session ($SESSION_ID) to clear bloated context."
+}
+
+# Timestamped console helpers.
+ts() { date '+%H:%M:%S' }
+log()  { print "[$(ts)] $*" }            # informational (stdout)
+warn() { print -u2 "[$(ts)] $*" }        # warnings/retries (stderr)
+
+# Classify an agent failure output.
+#   echo "rate"      -> plain rate limit / timeout / transient gateway (retry same session)
+#   echo "context"   -> context overflow / compaction (rotate session, retry)
+#   echo "transient" -> other transient provider errors (model-not-found, failover, API limit) (retry, outer backoff)
+#   echo "fatal"     -> genuinely non-recoverable (auth/config/no-credits hard stop)
+classify_failure() {
+  local o="$1"
+  if echo "$o" | grep -qiE 'context overflow|prompt too large|compaction failed|Compaction timed out|token.*(limit|too large)|maximum context'; then
+    print "context"; return
+  fi
+  if echo "$o" | grep -qiE 'rate limit|Retry-After|429|Too Many Requests|timed out|timeout|transient|GatewayClient|ECONN|ETIMEDOUT|socket'; then
+    print "rate"; return
+  fi
+  if echo "$o" | grep -qiE 'FailoverError|model was not found|API rate limit reached|rate limit reached|service unavailable|503|502|Upstream'; then
+    print "transient"; return
+  fi
+  print "fatal"
+}
+
+get_submitted() {
+  python3 - "$TRACKER" <<'PY'
+import json, sys
+t = json.load(open(sys.argv[1]))
+s = t.get("stats", {})
+print(s.get("submitted", 0))
+PY
+}
+
+get_target() {
+  python3 - "$TRACKER" "$TARGET_OVERRIDE" <<'PY'
+import json, sys
+t = json.load(open(sys.argv[1]))
+override = sys.argv[2]
+print(int(override) if override else t.get("targetApplications", 1200))
+PY
+}
+
+TARGET=$(get_target)
+log "Target applications: $TARGET (tracker: $TRACKER)"
+log "Model: free (openclaw prefixes openrouter/). Session: $SESSION_KEY (persistent, rotated per tick)."
+
+while (( tick < OUTER_MAX_TICKS )); do
+  submitted=$(get_submitted)
+  if (( submitted >= TARGET )); then
+    print "CAMPAIGN COMPLETE: submitted $submitted >= target $TARGET."
+    exit 0
+  fi
+  log "=== Tick $((tick+1)): submitted=$submitted / target=$TARGET ($(($TARGET - $submitted)) to go) ==="
+
+  fail_count=0
+  inner_result="exhausted"   # exhausted | success | fatal
+  while (( fail_count < INNER_MAX_FAILS )); do
+    sess_label="${SESSION_ID:-$SESSION_KEY (persistent)}"
+    log "Attempt $((fail_count+1))/$INNER_MAX_FAILS — model=free session=$sess_label"
+    output="$(run_agent 2>&1)"
+    rc=$?
+
+    if [[ $rc -eq 0 ]]; then
+      log "openclaw exit=$rc — streaming agent output:"
+      print "$output"
+      inner_result="success"
+      break   # one apply done; break inner loop, fall through to tick++ and re-check target
+    fi
+
+    # Surface what openclaw actually said (first/last lines) for visibility.
+    log "openclaw exit=$rc — output (head):"
+    print "$output" | head -8 | sed 's/^/    /'
+
+    kind="$(classify_failure "$output")"
+    (( fail_count++ ))
+
+    case "$kind" in
+      context)
+        warn "Context/compaction failure (consecutive fail $fail_count/$INNER_MAX_FAILS). Resetting session before retry..."
+        rotate_session
+        ;;
+      rate)
+        warn "Rate limit/timeout (consecutive fail $fail_count/$INNER_MAX_FAILS). Waiting ${INNER_SLEEP}s before retry..."
+        ;;
+      transient)
+        warn "Transient provider error (consecutive fail $fail_count/$INNER_MAX_FAILS). Waiting ${INNER_SLEEP}s before retry..."
+        ;;
+      fatal)
+        warn "openclaw agent failed (fatal, non-recoverable):"
+        print "$output"
+        inner_result="fatal"
+        break
+        ;;
+    esac
+
+    if (( fail_count >= INNER_MAX_FAILS )); then
+      warn "Transient failures persisted after $INNER_MAX_FAILS attempts this tick. Backing off ${OUTER_BACKOFF}s and retrying from the top."
+      inner_result="exhausted"
+      break
+    fi
+    sleep "$INNER_SLEEP"
+  done
+
+  # A fatal error stops the whole campaign (auth/config/credits).
+  if [[ "$inner_result" == "fatal" ]]; then
+    warn "Fatal error — stopping the campaign."
+    exit $rc
+  fi
+
+  if [[ "$inner_result" == "success" ]]; then
+    (( tick++ ))
+    # Brief pause between ticks so the agent/session can settle.
+    sleep 2
+  else
+    # Exhausted transient retries: back off and re-enter the outer loop (do NOT abort).
+    warn "Inner retries exhausted (transient). Backing off ${OUTER_BACKOFF}s before re-entering the loop."
+    sleep "$OUTER_BACKOFF"
+  fi
+
+  # Rotate to a fresh session for the next tick so the transcript/context stays
+  # bounded (prevents "Context overflow" / "Compaction timed out"). When
+  # SESSION_ROTATE_EVERY_TICK is set, every tick gets a clean session; otherwise the
+  # session is only rotated on demand (context/overflow) via rotate_session().
+  if (( SESSION_ROTATE_EVERY_TICK )); then
+    rotate_session
+  fi
+done
+
+log "Reached outer safety cap ($OUTER_MAX_TICKS ticks) without hitting target. Exiting."
+exit 0

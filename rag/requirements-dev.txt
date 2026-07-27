@@ -1,0 +1,5 @@
+# Test dependencies (install in addition to requirements.txt):
+#   .venv/bin/pip install -r requirements-dev.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0

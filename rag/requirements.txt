@@ -1,0 +1,9 @@
+# RAG server dependencies. Install into the local venv:
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+#
+# model2vec = static (non-torch) semantic embeddings, ~30MB model cache.
+# mcp = Model Context Protocol Python SDK (stdio server).
+# numpy = cosine similarity at query time.
+model2vec==0.8.2
+mcp==1.28.1
+numpy==2.5.1
