@@ -115,13 +115,18 @@ warn() { print -u2 "[$(ts)] $*" }        # warnings/retries (stderr)
 #   echo "fatal"     -> genuinely non-recoverable (auth/config/no-credits hard stop)
 classify_failure() {
   local o="$1"
-  if echo "$o" | grep -qiE 'context overflow|prompt too large|compaction failed|Compaction timed out|token.*(limit|too large)|maximum context'; then
+  # Streaming failures (FailoverError, streaming response failed) are TRANSIENT provider errors,
+  # NOT context overflow. Check these FIRST before compaction patterns.
+  if echo "$o" | grep -qiE 'FailoverError|Streaming response failed|streaming response failed|stream.*fail|all providers failed|NO_PROVIDER_AVAILABLE'; then
+    print "transient"; return
+  fi
+  if echo "$o" | grep -qiE 'context overflow|prompt too large|Compaction timed out|token.*(limit|too large)|maximum context'; then
     print "context"; return
   fi
   if echo "$o" | grep -qiE 'rate limit|Retry-After|429|Too Many Requests|timed out|timeout|transient|GatewayClient|ECONN|ETIMEDOUT|socket'; then
     print "rate"; return
   fi
-  if echo "$o" | grep -qiE 'FailoverError|model was not found|API rate limit reached|rate limit reached|service unavailable|503|502|Upstream|all providers failed|NO_PROVIDER_AVAILABLE|assistant turn failed'; then
+  if echo "$o" | grep -qiE 'model was not found|API rate limit reached|rate limit reached|service unavailable|503|502|Upstream|assistant turn failed'; then
     print "transient"; return
   fi
   print "fatal"
