@@ -22,3 +22,4 @@ coverage/
 *.gif
 *.svg
 *.pdfsecrets-dump-*.txt
+playwright-output/
