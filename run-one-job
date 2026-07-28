@@ -153,7 +153,7 @@ classify_failure() {
   if echo "$o" | grep -qiE 'rate limit|Retry-After|429|Too Many Requests|timed out|timeout|transient|GatewayClient|ECONN|ETIMEDOUT|socket'; then
     print "rate"; return
   fi
-  if echo "$o" | grep -qiE 'model was not found|API rate limit reached|rate limit reached|service unavailable|503|502|Upstream|assistant turn failed'; then
+  if echo "$o" | grep -qiE 'model was not found|API rate limit reached|rate limit reached|service unavailable|503|502|Upstream|assistant turn failed|couldn.t generate a response'; then
     print "transient"; return
   fi
   print "fatal"
