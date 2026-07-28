@@ -199,7 +199,7 @@ while (( tick < OUTER_MAX_TICKS )); do
 
     # Inspect output regardless of rc (openclaw outputs context overflow / turn errors with rc=0).
     has_error=0
-    if echo "$output" | grep -qiE 'context overflow|prompt too large|compaction failed|Compaction timed out|token.*(limit|too large)|maximum context|assistant turn failed|all providers failed|NO_PROVIDER_AVAILABLE|502|503'; then
+    if echo "$output" | grep -qiE 'context overflow|prompt too large|compaction failed|Compaction timed out|token.*(limit|too large)|maximum context|assistant turn failed|all providers failed|NO_PROVIDER_AVAILABLE|502|503|couldn.t generate a response'; then
       has_error=1
     fi
 
