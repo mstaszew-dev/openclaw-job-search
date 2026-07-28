@@ -30,7 +30,6 @@ DEFAULT_MESSAGE=$(cat <<'EOM'
 HARD RULES (do not violate):
 1. NEVER edit, write, or rewrite tracker.json directly. The schema is FIXED. ALWAYS use \`update_tracker.py\` (e.g. \`update_tracker.py submitted '<candidate json>'\`) to record a submission. Direct file writes to tracker.json corrupt the dedupe array and reset the count - this already caused a full tracker reset once.
 2. tracker.json schema is: { stats: {submitted, skippedDuplicate, ...}, targetApplications, applications: [...] }. Do not add, rename, or 'improve' fields (no submittedCount, no target, no applyQueue of your own - update_tracker.py manages those).
-3. If stats.submitted ever looks wrong or the applications array looks truncated, STOP applying and run \`python3 rebuild_from_events.py\` to restore from events.jsonl (the canonical append-only log), then report.
 
 Continue the campaign. Apply exactly ONE job this tick. Read campaign/AGENT_TICK.md and campaign/CONTEXT.md first. You are an autonomous agent — use your LLM reasoning and tools, do NOT call automation scripts (no score_candidate.py, no check_dupe.py, no python3 preflight scripts). Only \`update_tracker.py\` is allowed, and only to record a confirmed submission.
 
