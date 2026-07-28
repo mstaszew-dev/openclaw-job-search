@@ -1,5 +1,6 @@
 #!/bin/zsh
 set -uo pipefail
+set +o nomatch
 
 cd /Users/mst/ZCodeProject/openclaw-job-search
 
