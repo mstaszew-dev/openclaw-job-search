@@ -3,13 +3,13 @@ set -uo pipefail
 
 cd /Users/mst/ZCodeProject/openclaw-job-search
 
-# Self-log: mirror ALL stdout+stderr to a timestamped /tmp trace so a multi-hour
-# run can be reviewed later (routing, MCP tool calls, retries). One file per
-# launch; survives direct invocation and the job-search-agent symlink.
-LOG_TS="$(date '+%Y%m%d-%H%M%S')"
-LOG_FILE="/tmp/campaign-${LOG_TS}.log"
-exec > >(tee -a "$LOG_FILE") 2>&1
-print "[$(date '+%H:%M:%S')] campaign trace -> $LOG_FILE"
+# Director overrides: optional env-style file sourced every launch (NOT every
+# tick - the Director restarts the campaign to apply new overrides). Empty or
+# absent file = no-op; the defaults below win. The Director writes here on
+# Slack approval to steer pacing, skip a misbehaving portal, cap daily volume,
+# or leave a note for the agent. Keep all overrides env-var-shaped (KEY=VALUE).
+DIRECTOR_OVERRIDES="${DIRECTOR_OVERRIDES:-$HOME/.openclaw/director-overrides.env}"
+[[ -f "$DIRECTOR_OVERRIDES" ]] && source "$DIRECTOR_OVERRIDES"
 
 if ! curl -fsS --max-time 2 http://127.0.0.1:9222/json/version >/dev/null; then
   print -u2 "Chrome CDP is not reachable at http://127.0.0.1:9222. Start the existing campaign Chrome first."
@@ -32,6 +32,8 @@ message="${*:-HARD RULES (do not violate):
 
 Continue the campaign. Apply exactly ONE job this tick. Read campaign/AGENT_TICK.md and campaign/CONTEXT.md first. Use the existing logged-in Chrome through Playwright MCP at http://127.0.0.1:9222 (do NOT launch or close Chrome). Follow the dedupe + scoring + Gmail 60-day gates, single-tab discipline, and verify an explicit confirmation/thank-you in the browser before running update_tracker.py submitted.
 
+IMPORTANT EXECUTION RULE: Do NOT ask the user if you should proceed with a candidate. You are authorized to apply. Asking "Would you like me to begin?" or similar wastes an entire tick. Just execute the next action.
+
 Allowed boards/sites (these are all permitted; prefer the listed primary portals first, then fall back to others):
 - IL (remote/hybrid/on-site all OK, incl. central Israel): AllJobs, Drushim, JobMaster, Jobnet, Janglo, Secret Tel Aviv, TopStartups.io, TechJob, DevJobs IL, Nefesh B'Nefesh, NoFluffJobs PL (IL listings); LinkedIn Easy Apply (IL java/spring, node/react, php).
 - EU/PL (full remote only, B2B >=15k PLN when salary listed): No Fluff Jobs, Just Join IT, theProtocol, Bulldogjob, Pracuj, plus global remote (We Work Remotely, EU Remote Jobs, Working Nomads, Arc, RemotifyEurope, Remote in Europe, EuroRemote, 4DayWeek.io EU).
@@ -44,25 +46,23 @@ RAG tools (semantic retrieval over your campaign history - USE THESE instead of 
 Work the order: IL remote/hybrid -> EU/PL full remote -> other EU full remote. Stop after one confirmed submission. Wait for the global submitted count to reach the target before finishing.}"
 
 # Inner rate-limit retry settings (per single apply attempt).
-INNER_MAX_FAILS=200
-INNER_SLEEP=4
+# Override via director-overrides.env (Director writes on Slack approval).
+INNER_MAX_FAILS="${INNER_MAX_FAILS:-200}"
+INNER_SLEEP="${INNER_SLEEP:-4}"
 
 # Outer-level backoff: when the inner retries are exhausted on a transient error,
 # wait this long and re-enter the outer loop (do NOT abort the whole campaign).
-OUTER_BACKOFF=60
+OUTER_BACKOFF="${OUTER_BACKOFF:-60}"
 
-# Use the PERSISTENT session across ticks so the agent keeps its working memory
-# (portal state, last candidate, dedupe results) between calls - this is what
-# lets it actually complete a multi-step apply instead of restarting from zero
-# each tick and asking "should I proceed?". Rotation now happens ONLY on actual
-# context overflow, handled by the `context` failure classifier below (which
-# calls rotate_session). Dedupe/Gmail gates are still enforced by the Python
-# scripts against the tracker, independent of session memory.
-SESSION_ROTATE_EVERY_TICK=0
+# Rotate to a fresh session every tick so the transcript/context stays bounded.
+# Prevents context overflow / Compaction timed out / TranscriptNotContinuableError
+# from compounding across ticks. Mid-tick overflow recovery via
+# classify_failure -> rotate_session still works as a fallback.
+SESSION_ROTATE_EVERY_TICK=1
 
 # Outer loop: keep applying until the tracker target is reached.
 # Worst case: INNER_MAX_FAILS (200) rate-limit retries per remaining app × 208 apps = 41600.
-OUTER_MAX_TICKS=41600
+OUTER_MAX_TICKS="${OUTER_MAX_TICKS:-41600}"
 tick=0
 
 # Session identity. Start with the persistent campaign session; rotate on overflow.
@@ -71,8 +71,23 @@ SESSION_ID=""
 
 # Run one openclaw agent turn. Pass --session-id only when we have a rotated id;
 # otherwise rely on --session-key (persistent session). Invoked directly (no
-# command substitution) so the quoted --message survives intact.
+# command substitution) so the quoted --message survives intact. If the Director
+# left a DIRECTOR_NOTE in the overrides file or prompt overrides, re-read them
+# fresh here (every tick) and prepend to the message.
 run_agent() {
+  local note=""
+  local overrides="${DIRECTOR_OVERRIDES:-$HOME/.openclaw/director-overrides.env}"
+  if [[ -f "$overrides" ]]; then
+    note="$(grep -E '^DIRECTOR_NOTE=' "$overrides" | head -1 | cut -d= -f2-)"
+  fi
+  local prompt_overrides=""
+  local prompt_md="$HOME/.openclaw/director-prompt-overrides.md"
+  if [[ -f "$prompt_md" ]] && [[ -s "$prompt_md" ]]; then
+    prompt_overrides="$(cat "$prompt_md")"
+  fi
+  local msg="$message"
+  [[ -n "$prompt_overrides" ]] && msg="$msg\n\n--- Director prompt overrides ---\n$prompt_overrides"
+  [[ -n "$note" ]] && msg="[Director note: $note]\n\n$msg"
   if [[ -n "$SESSION_ID" ]]; then
     /Users/mst/bin/openclaw agent \
       --agent main \
@@ -80,7 +95,7 @@ run_agent() {
       --timeout 1200 \
       --thinking medium \
       --session-id "$SESSION_ID" \
-      --message "$message"
+      --message "$msg"
   else
     /Users/mst/bin/openclaw agent \
       --agent main \
@@ -88,7 +103,7 @@ run_agent() {
       --timeout 1200 \
       --thinking medium \
       --session-key "$SESSION_KEY" \
-      --message "$message"
+      --message "$msg"
   fi
 }
 
@@ -233,11 +248,11 @@ while (( tick < OUTER_MAX_TICKS )); do
     sleep "$OUTER_BACKOFF"
   fi
 
-  # Rotate to a fresh session for the next tick so the transcript/context stays
-  # bounded (prevents "Context overflow" / "Compaction timed out"). When
-  # SESSION_ROTATE_EVERY_TICK is set, every tick gets a clean session; otherwise the
-  # session is only rotated on demand (context/overflow) via rotate_session().
-  if (( SESSION_ROTATE_EVERY_TICK )); then
+# Rotate to a fresh session for the next tick so the transcript/context stays
+# bounded (prevents "Context overflow" / "Compaction timed out"). With
+# SESSION_ROTATE_EVERY_TICK=1, every tick gets a clean session; the mid-tick
+# overflow handler via classify_failure -> rotate_session remains as a fallback.
+if (( SESSION_ROTATE_EVERY_TICK )); then
     rotate_session
   fi
 done
