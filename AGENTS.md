@@ -134,16 +134,14 @@ This workspace is a dedicated job-application agent. Its live campaign state is 
 
 For every explicit `continue` or `run-one-job` request:
 
-1. Read `campaign/AGENT_TICK.md`, `campaign/CONTEXT.md`, and current `campaign/tracker.json`.
-2. Run `campaign/tick_status.sh`; never assume the submitted count.
- 3. Select exactly one mid-to-senior Java/Kotlin/Spring, PHP/Laravel/Symfony, or Node/React/NestJS role. Reject junior, lead, manager, and architect roles. Israel may be on-site, hybrid, or remote (full on-site OK in Petah Tikva / Tel Aviv metro). Poland/EU/global must be fully remote; if compensation is listed, require B2B at least 15,000 PLN monthly. Freelance, contract, and part-time engagements are also accepted (in addition to full-time).
-4. Run `check_dupe.py` and search Gmail inbox plus sent mail for the last 60 days in the already logged-in browser. One company once; skip if either source hits.
-5. Run `score_candidate.py`; proceed only when its decision is `apply`.
-6. Use the `playwright` MCP server attached to the existing Chrome CDP endpoint at `http://127.0.0.1:9222`. Reuse the logged-in browser, remain in the background, keep one campaign tab, and do not launch or close the user's Chrome.
-7. Use `campaign/cv/michael-staszewski-cv.pdf`; IL phone `+972559344507`; PL/EU phone `+48790775407`; requested salary 15,000 ILS for Israel or 15,000 PLN for PL/EU. Put LinkedIn only in a LinkedIn field and GitHub only in a GitHub field.
-8. Use the campaign cover-note fields. Mention strong references on request, independent consulting through Michal Staszewski Software on fixed-term B2B engagements, short tenures arising from those engagements, and a desire for a long-term role. Include `plB2bNote` for PL/EU.
-9. Submit only the selected application. Verify an explicit success message or thank-you URL in the browser before calling `update_tracker.py submitted`. Never record an unconfirmed submission.
-10. Stop after one confirmed submission or after reporting a real blocker. Never run unattended recurring submissions.
+1. Read current `campaign/tracker.json`.
+2. Select exactly one mid-to-senior Java/Kotlin/Spring, PHP/Laravel/Symfony, or Node/React/NestJS role. Reject junior, lead, manager, and architect roles. Israel may be on-site, hybrid, or remote (full on-site OK in Petah Tikva / Tel Aviv metro). Poland/EU/global must be fully remote; if compensation is listed, require B2B at least 15,000 PLN monthly. Freelance, contract, and part-time engagements are also accepted (in addition to full-time).
+3. Dedupe using RAG (`rag_search_apps`) and Gmail search via Playwright (inbox + sent, 60d). Score the candidate yourself using LLM reasoning against your CV knowledge. Do NOT call automation scripts (no score_candidate.py, no check_dupe.py, no tick_status.sh, no preflight scripts). Only `update_tracker.py` is allowed, and only to record a confirmed submission.
+4. Use the `playwright` MCP server attached to the existing Chrome CDP endpoint at `http://127.0.0.1:9222`. Reuse the logged-in browser, remain in the background, keep one campaign tab, and do not launch or close the user's Chrome.
+5. Use `campaign/cv/michael-staszewski-cv.pdf`; IL phone `+972559344507`; PL/EU phone `+48790775407`; requested salary 15,000 ILS for Israel or 15,000 PLN for PL/EU. Put LinkedIn only in a LinkedIn field and GitHub only in a GitHub field.
+6. Use the campaign cover-note fields. Mention strong references on request, independent consulting through Michal Staszewski Software on fixed-term B2B engagements, short tenures arising from those engagements, and a desire for a long-term role. Include `plB2bNote` for PL/EU.
+7. Submit only the selected application. Verify an explicit success message or thank-you URL in the browser before calling `update_tracker.py submitted`. Never record an unconfirmed submission.
+8. Stop after one confirmed submission or after reporting a real blocker. Never run unattended recurring submissions.
 
 The stricter rules above override older widened-policy lines in campaign documents. Application submission is authorized only by an explicit campaign run from the user; sending email, recruiter messages, or other external communications still requires separate approval.
 
