@@ -24,3 +24,4 @@ coverage/
 *.pdf
 secrets-dump-*.txt
 playwright-output/
+director/
