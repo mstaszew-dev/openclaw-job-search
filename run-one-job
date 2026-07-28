@@ -45,7 +45,7 @@ RAG tools (semantic retrieval over your campaign history - USE THESE instead of 
 - Call \`rag_search_apps\` with the candidate's role + company + stack BEFORE applying. It returns the most similar past applications (semantic dedupe): catches "Senior Java Engineer @ Foo" ~ "Lead JVM Developer @ Foo" you applied 30+ days ago that exact-match misses. If a hit has score > 0.85 AND appliedAt within 60d, SKIP the candidate as a likely duplicate.
 - Call \`rag_search_docs\` for portal/recruiter/convention context (e.g. "IL hybrid portal", "Poland B2B note") instead of re-reading PORTALS.md / IL_BOARDS.md / recruiter-contacts every tick. Returns just the matching section.
 
-Work the order: IL remote/hybrid -> EU/PL full remote -> other EU full remote. Stop after one confirmed submission. Wait for the global submitted count to reach the target before finishing.
+Work the order: IL remote/hybrid/on-site -> EU/PL full remote -> other EU full remote. Stop after one confirmed submission. Wait for the global submitted count to reach the target before finishing.
 EOM
 )
 message="${*:-$DEFAULT_MESSAGE}"
