@@ -93,7 +93,7 @@ run_agent() {
   local msg="${message:-}"
   [[ -n "$prompt_overrides" ]] && msg="$msg\n\n--- Director prompt overrides ---\n$prompt_overrides"
   [[ -n "$note" ]] && msg="[Director note: $note]\n\n$msg"
-  local t0=$(date +%s%3N)
+  local t0=$(date +%s)
   log "run_agent starting (model=free, session=${SESSION_ID:-$SESSION_KEY})"
   log "MCP tools available: playwright (CDP :9222), rag (semantic search)"
   if [[ -n "$SESSION_ID" ]]; then
@@ -114,8 +114,8 @@ run_agent() {
       --message "$msg"
   fi
   local rc=$?
-  local t1=$(date +%s%3N)
-  log "run_agent finished (exit=$rc, elapsed=$((t1-t0))ms, session=${SESSION_ID:-$SESSION_KEY})"
+  local t1=$(date +%s)
+  log "run_agent finished (exit=$rc, elapsed=$((t1-t0))s, session=${SESSION_ID:-$SESSION_KEY})"
   return $rc
 }
 
