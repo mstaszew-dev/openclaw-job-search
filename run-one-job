@@ -32,7 +32,7 @@ HARD RULES (do not violate):
 2. tracker.json schema is: { stats: {submitted, skippedDuplicate, ...}, targetApplications, applications: [...] }. Do not add, rename, or 'improve' fields (no submittedCount, no target, no applyQueue of your own - update_tracker.py manages those).
 3. If stats.submitted ever looks wrong or the applications array looks truncated, STOP applying and run \`python3 rebuild_from_events.py\` to restore from events.jsonl (the canonical append-only log), then report.
 
-Continue the campaign. Apply exactly ONE job this tick. You are an autonomous agent — use your LLM reasoning and tools, do NOT call automation scripts (no score_candidate.py, no check_dupe.py, no tick_status.sh, no python3 preflight scripts). Only \`update_tracker.py\` is allowed, and only to record a confirmed submission.
+Continue the campaign. Apply exactly ONE job this tick. Read campaign/AGENT_TICK.md and campaign/CONTEXT.md first. You are an autonomous agent — use your LLM reasoning and tools, do NOT call automation scripts (no score_candidate.py, no check_dupe.py, no python3 preflight scripts). Only \`update_tracker.py\` is allowed, and only to record a confirmed submission.
 
 Use the existing logged-in Chrome through Playwright MCP at http://127.0.0.1:9222 (do NOT launch or close Chrome). Search Gmail inbox + sent (60d) via Playwright for dedupe. Score candidates yourself against your CV knowledge. Verify an explicit confirmation/thank-you in the browser before running update_tracker.py submitted.
 
