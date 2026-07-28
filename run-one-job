@@ -93,6 +93,9 @@ run_agent() {
   local msg="${message:-}"
   [[ -n "$prompt_overrides" ]] && msg="$msg\n\n--- Director prompt overrides ---\n$prompt_overrides"
   [[ -n "$note" ]] && msg="[Director note: $note]\n\n$msg"
+  local t0=$(date +%s%3N)
+  log "run_agent starting (model=free, session=${SESSION_ID:-$SESSION_KEY})"
+  log "MCP tools available: playwright (CDP :9222), rag (semantic search)"
   if [[ -n "$SESSION_ID" ]]; then
     /Users/mst/bin/openclaw agent \
       --agent main \
@@ -110,6 +113,10 @@ run_agent() {
       --session-key "$SESSION_KEY" \
       --message "$msg"
   fi
+  local rc=$?
+  local t1=$(date +%s%3N)
+  log "run_agent finished (exit=$rc, elapsed=$((t1-t0))ms, session=${SESSION_ID:-$SESSION_KEY})"
+  return $rc
 }
 
 # Rotate to a brand-new session (fresh context) to recover from overflow/compaction.
