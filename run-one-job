@@ -98,23 +98,23 @@ run_agent() {
   local t0=$(date +%s)
   log "run_agent starting (model=free, session=${SESSION_ID:-$SESSION_KEY})"
   log "MCP tools available: playwright (CDP :9222), rag (semantic search)"
-	  if [[ -n "$SESSION_ID" ]]; then
-	    /Users/mst/bin/openclaw agent \
-	      --agent main \
-	      --model free \
-	      --local \
-	      --timeout 1200 \
-	      --thinking medium \
-	      --session-id "$SESSION_ID" \
-	      --message "$msg"
-	  else
-	    /Users/mst/bin/openclaw agent \
-	      --agent main \
-	      --model free \
-	      --local \
-	      --timeout 1200 \
-	      --thinking medium \
-	      --session-key "$SESSION_KEY" \
+  if [[ -n "$SESSION_ID" ]]; then
+    /Users/mst/bin/openclaw agent \
+      --agent main \
+      --model free \
+      --local \
+      --timeout 1200 \
+      --thinking medium \
+      --session-id "$SESSION_ID" \
+      --message "$msg"
+  else
+    /Users/mst/bin/openclaw agent \
+      --agent main \
+      --model free \
+      --local \
+      --timeout 1200 \
+      --thinking medium \
+      --session-key "$SESSION_KEY" \
       --message "$msg"
   fi
   local rc=$?
