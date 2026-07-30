@@ -252,6 +252,18 @@ while (( tick < OUTER_MAX_TICKS )); do
   fi
 
   # Proactive rotation: check token budget before each tick
+  # If context is >60% of budget, rotate proactively with context passing.
+  # Session grows during a tick (~30k tokens), so threshold must leave headroom.
+  if [[ -n "$SESSION_ID" ]]; then
+    if [[ -f "/Users/mst/.openclaw/agents/main/sessions/$SESSION_ID.jsonl" ]]; then
+      session_size=$(wc -c < "/Users/mst/.openclaw/agents/main/sessions/$SESSION_ID.jsonl" 2>/dev/null || echo 0)
+      # ~75k tokens, ~60% of 128k budget (leave headroom for one tick's growth)
+      if (( session_size > 300000 )); then
+        warn "Context size ~$((session_size/4)) tokens (>60% budget), rotating proactively..."
+        rotate_session
+      fi
+    fi
+  fi
 
   fail_count=0
   inner_result="exhausted"   # exhausted | success | fatal
