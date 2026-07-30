@@ -220,6 +220,9 @@ TARGET=$(get_target)
 log "Target applications: $TARGET (tracker: $TRACKER)"
 log "Model: free (openclaw prefixes openrouter/). Session: $SESSION_KEY (persistent, rotated per tick)."
 
+# Initialize tick counter
+tick=0
+
 while (( tick < OUTER_MAX_TICKS )); do
   submitted=$(get_submitted)
   if (( submitted >= TARGET )); then
