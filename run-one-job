@@ -88,7 +88,7 @@ TOKEN_BUDGET=128000
 PROACTIVE_ROTATION_THRESHOLD=108000  # 85% of 128k
 
 # Token budget awareness notice - prepended to agent prompt
-TOKEN_BUDGET_NOTICE=$'TOKEN BUDGET AWARENESS:\n- Context window: ~128,000 tokens (128k)\n- Proactive rotation threshold: ~108,000 tokens (85% of budget)\n- Current session will be rotated proactively when context reaches ~85% capacity\n- Use rag_search_apps and rag_search_docs instead of re-reading full docs\n- Keep responses concise; summarize tool results instead of dumping full output\n- If you notice context getting full, you will be rotated with a compacted summary passed forward'
+TOKEN_BUDGET_NOTICE=$'TOKEN BUDGET AWARENESS:\n- Context window: ~128,000 tokens (128k)\n- Proactive rotation threshold: ~75,000 tokens (~60% of budget)\n- Current session will be rotated proactively when context reaches ~60% capacity\n- Use rag_search_apps and rag_search_docs instead of re-reading full docs\n- Keep responses concise; summarize tool results instead of dumping full output\n- If you notice context getting full, you will be rotated with a compacted summary passed forward'
 
 # Session identity. Start with the persistent campaign session; rotate on overflow.
 SESSION_KEY="agent:main:job-search-campaign"
