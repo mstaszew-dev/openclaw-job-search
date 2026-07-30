@@ -61,15 +61,6 @@ EOM
 )
 message="${*:-$DEFAULT_MESSAGE}"
 
-# Token budget awareness: ~128k context window, proactively rotate at ~85% (108k tokens)
-# The agent should be aware of context limits and use rag_search_apps / rag_search_docs
-# instead of re-reading full docs. Proactive rotation at ~85% budget (108k tokens).
-TOKEN_BUDGET=128000
-PROACTIVE_ROTATION_THRESHOLD=108000  # 85% of 128k
-
-# Token Budget Awareness - ADD TO AGENT PROMPT
-TOKEN_BUDGET_NOTICE="\n\nTOKEN BUDGET AWARENESS:\n- Context window: ~128,000 tokens (128k)\n- Proactive rotation threshold: ~108,000 tokens (85% of budget)\n- Current session will be rotated proactively when context reaches ~85% capacity\n- Use rag_search_apps and rag_search_docs instead of re-reading full docs\n- Keep responses concise; summarize tool results instead of dumping full output\n- If you notice context getting full, you will be rotated with a compacted summary passed forward\n"
-
 # Inner rate-limit retry settings (per single apply attempt).
 # Override via director-overrides.env (Director writes on Slack approval).
 INNER_MAX_FAILS="${INNER_MAX_FAILS:-200}"
@@ -84,6 +75,9 @@ OUTER_BACKOFF="${OUTER_BACKOFF:-60}"
 # Do NOT rotate on every tick — that destroys accumulated context and wastes
 # model capacity re-learning state from scratch.
 SESSION_ROTATE_EVERY_TICK=0
+
+# Outer loop: keep applying until the tracker target is reached.
+OUTER_MAX_TICKS="${OUTER_MAX_TICKS:-41600}"
 
 # Token budget awareness: ~128k context window, proactively rotate at ~85% (108k tokens)
 # The agent should be aware of context limits and use rag_search_apps / rag_search_docs
