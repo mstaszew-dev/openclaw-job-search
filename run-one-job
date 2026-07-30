@@ -61,11 +61,11 @@ INNER_SLEEP="${INNER_SLEEP:-4}"
 # wait this long and re-enter the outer loop (do NOT abort the whole campaign).
 OUTER_BACKOFF="${OUTER_BACKOFF:-60}"
 
-# Rotate to a fresh session every tick so the transcript/context stays bounded.
-# Prevents context overflow / Compaction timed out / TranscriptNotContinuableError
-# from compounding across ticks. Mid-tick overflow recovery via
-# classify_failure -> rotate_session still works as a fallback.
-SESSION_ROTATE_EVERY_TICK=1
+# Rotate to a fresh session ONLY when context overflow/compaction failure occurs.
+# The mid-tick handler via classify_failure -> rotate_session handles that.
+# Do NOT rotate on every tick — that destroys accumulated context and wastes
+# model capacity re-learning state from scratch.
+SESSION_ROTATE_EVERY_TICK=0
 
 # Outer loop: keep applying until the tracker target is reached.
 # Worst case: INNER_MAX_FAILS (200) rate-limit retries per remaining app × 208 apps = 41600.
@@ -104,7 +104,7 @@ run_agent() {
       --model free \
       --local \
       --timeout 1200 \
-      --thinking medium \
+      --thinking high \
       --session-id "$SESSION_ID" \
       --message "$msg"
   else
@@ -113,7 +113,7 @@ run_agent() {
       --model free \
       --local \
       --timeout 1200 \
-      --thinking medium \
+      --thinking high \
       --session-key "$SESSION_KEY" \
       --message "$msg"
   fi
