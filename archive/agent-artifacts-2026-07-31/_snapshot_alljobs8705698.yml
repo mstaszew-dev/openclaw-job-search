@@ -1,0 +1,442 @@
+- generic [ref=e1]:
+  - region "אפשרויות נגישות מהירות":
+    - button "דלג לתוכן הראשי" [ref=e2] [cursor=pointer]
+    - button "אפשר נגישות לראייה לקויה" [ref=e16] [cursor=pointer]
+    - button "פתח את תפריט הנגישות" [ref=e33] [cursor=pointer]
+  - generic "תפריט נגישות":
+    - button "תפריט נגישות" [ref=e46] [cursor=pointer]
+  - generic [ref=e49]:
+    - generic [ref=e50]:
+      - banner [ref=e51]:
+        - banner [ref=e52]:
+          - link "דלג לתוכן ראשי" [ref=e53] [cursor=pointer]:
+            - /url: "#"
+          - generic [ref=e55]:
+            - generic [ref=e57] [cursor=pointer]:
+              - img "אולג'ובס, אתר הדרושים הגדול בישראל" [ref=e58]
+              - generic [ref=e59]: דרושים
+              - generic [ref=e62]: קורות חיים
+              - generic [ref=e65]: כלים והכוונה
+              - generic [ref=e68]: שכר
+              - link "כל החברות" [ref=e73]:
+                - /url: /Companies.aspx
+              - link "מפת הקריירה שלי" [ref=e78]:
+                - /url: /career-map
+              - img "AlljobsVIP" [ref=e81]:
+                - link "AllJobs VIP" [ref=e82]:
+                  - /url: /User/Register/CreditCard.aspx?CameFrom=NavigationBar_VIP
+            - generic [ref=e83]:
+              - generic [ref=e84]:
+                - generic [ref=e86] [cursor=pointer]:
+                  - generic [ref=e87]: היי
+                  - generic [ref=e88]: מיכאל חיים
+                - generic [ref=e90]:
+                  - img "משרות ששמרתי" [ref=e91] [cursor=pointer]:
+                    - generic [ref=e92]: "1"
+                  - img "משרות שפספסתי" [ref=e94] [cursor=pointer]:
+                    - generic [ref=e95]: "22"
+              - link "גיוס עובדים" [ref=e98] [cursor=pointer]:
+                - /url: /Employer/HomePage.aspx
+      - generic [ref=e99]:
+        - heading [level=1] [ref=e101]:
+          - link "דרושים" [ref=e102] [cursor=pointer]:
+            - /url: /SearchResultsGuest.aspx?page=1&position=&type=&city=&region=
+          - text: »
+          - link "תוכנה" [ref=e103] [cursor=pointer]:
+            - /url: /SearchResultsGuest.aspx?page=1&position=235&type=&city=&region=
+          - text: » Senior Java Engineer
+        - generic [ref=e105]:
+          - iframe [ref=e107]: <a href="https://openx.alljobs.co.il/www/delivery/ck.php?n=a0143b56" target="_blank"><img src="https://openx.alljobs.co.il/www/delivery/avw.php?what=4_235,4_1807,4_1853,4_1934&amp;n=a0143b56" border="0" alt="" /></a>:
+            - link [ref=f2e2] [cursor=pointer]:
+              - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20230__zoneid=4__cb=50216068cb__oadest=https%3A%2F%2Fwww.xplace.com%2Fil%2F%3Futm_source%3Dalljobs%26utm_medium%3Dopenx%26utm_campaign%3Dalljobs%2520-%2520openx
+          - generic [ref=e108]:
+            - generic [ref=e110]:
+              - generic "משרות על המפה" [ref=e114] [cursor=pointer]
+              - generic "בדיקת קורות חיים" [ref=e122] [cursor=pointer]
+              - generic "הפוך ללקוח VIP" [ref=e128] [cursor=pointer]:
+                - img "VIP" [ref=e130]
+            - generic [ref=e134]:
+              - generic [ref=e135]: דרושים
+              - link "ניהול ביניים" [ref=e136] [cursor=pointer]:
+                - /url: /SearchResultsGuest.aspx?page=1&position=1807&type=&city=&region=
+              - link "Senior Java Developer" [ref=e137] [cursor=pointer]:
+                - /url: /SearchResultsGuest.aspx?page=1&position=1934&type=&city=&region=
+            - link "כל החברות >" [ref=e138] [cursor=pointer]:
+              - /url: /Companies.aspx
+              - generic [ref=e139]:
+                - generic [ref=e140]: כל החברות
+                - img ">" [ref=e141]
+            - iframe [ref=e143]: <a href="https://openx.alljobs.co.il/www/delivery/ck.php?n=a0143b56" target="_blank"><img src="https://openx.alljobs.co.il/www/delivery/avw.php?what=8_235,8_1807,8_1853,8_1934&amp;n=a0143b56" border="0" alt="" /></a>:
+              - link [ref=f3e2] [cursor=pointer]:
+                - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20231__zoneid=8__cb=f0150791b5__oadest=https%3A%2F%2Fwww.xplace.com%2Fil%2F%3Futm_source%3Dalljobs%26utm_medium%3Dopenx%26utm_campaign%3Dalljobs%2520-%2520openx
+          - generic [ref=e147]:
+            - generic [ref=e152]:
+              - generic [ref=e153]:
+                - generic [ref=e155]:
+                  - text: טרם הגשת מועמדות למשרה. עוד לא מאוחר,
+                  - link "הגש מועמדות עכשיו" [ref=e156] [cursor=pointer]:
+                    - /url: /User/Register/CreditCard.aspx?JobID=8705698&CameFrom=MissedJobs
+                - generic [ref=e157]: 22/06/2026
+                - generic [ref=e160]:
+                  - link [ref=e162] [cursor=pointer]:
+                    - /url: /Search/UploadSingle.aspx?JobID=8705698
+                    - heading "Senior Java Engineer" [level=2] [ref=e163]
+                  - generic [ref=e164]: חברה חסויה
+                - generic [ref=e166]:
+                  - generic [ref=e168]:
+                    - text: "Location:"
+                    - link "Tel Aviv-Yafo" [ref=e169] [cursor=pointer]:
+                      - /url: /SearchResultsGuest.aspx?page=1&position=235&type=&city=779&region=
+                  - generic [ref=e170]:
+                    - text: "Job Type:"
+                    - link "Full Time" [ref=e171] [cursor=pointer]:
+                      - /url: /SearchResultsGuest.aspx?page=1&position=1853&type=4&city=&region=
+                    - text: and
+                    - link "Hybrid work" [ref=e172] [cursor=pointer]:
+                      - /url: /SearchResultsGuest.aspx?page=1&position=1853&type=37&city=&region=
+                  - generic [ref=e176]:
+                    - text: We are looking for a highly experienced Java Developer to design and develop the core backend software layer over the company's specialized flagship product.You'll build systems that handle bursty, high-throughput workloads - think thousands of requests per second with strict latency requirements. This means making real trade-offs around concurrency models, resource pooling, and distributed coordination.It is a unique opportunity to join a team of top-notch engineers and work on cutting-edge technologies in a fast-paced environment of quantum computation.What Makes This Role Different:Our backend team sits in the middle of everything - we're the orchestration layer between:Hardware control systems (C++)Client exposed SDK (Python)Reporting and managing system (Go)Our business logic (Java/Kotlin + Spring).
+                    - generic [ref=e177]:
+                      - text: "Requirements: 5+ years building backend systems in Java/ KotlinDeep understanding of OOP - you know when to use inheritance vs composition, and you can explain why.Concurrency expertise - race conditions, thread safety, and async patterns don't scare you.Experience building systems that scale - you've thought about throughput, distributed architectures, and made performance trade-offs.Design patterns and architecture - you can discuss SOLID principles and explain architectural decisions, not just implement them.Code review, testing, and integration - you've been in the trenches and know what good looks like.You care about code quality - not perfection, but code that your future self (and teammates) won't curse at.Strong Plus:Spring experiencegRPC-based communicationPython programmingExperience in polyglot environmentsAI Coding agent experience."
+                      - generic [ref=e178]: This position is open to all candidates.
+                - generic: Hide
+              - generic [ref=e184]:
+                - generic [ref=e185]:
+                  - link "הגשת מועמדות הגש מועמדות" [ref=e186] [cursor=pointer]:
+                    - /url: /User/Register/CreditCard.aspx?JobID=8705698&CameFrom=UploadSingle
+                    - text: הגשת מועמדות
+                    - generic [ref=e187]: הגש מועמדות
+                  - link "עדכון קורות החיים לפני שליחה" [ref=e188] [cursor=pointer]:
+                    - /url: /User/Register/CreditCard.aspx?JobID=8705698&CameFrom=UploadSingle
+                - generic [ref=e190]: "8705698"
+                - button "שמור משרה" [ref=e196] [cursor=pointer]
+                - generic "אפשרויות נוספות" [ref=e197]:
+                  - link "אפשרויות נוספות" [ref=e198] [cursor=pointer]:
+                    - /url: javascript:void(0)
+            - generic [ref=e202]:
+              - generic [ref=e203]: משרות דומות שיכולות לעניין אותך
+              - generic [ref=e205]:
+                - generic [ref=e208]:
+                  - generic [ref=e209]:
+                    - generic [ref=e210]: לפני 6 שעות
+                    - generic [ref=e213]:
+                      - link [ref=e215] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8729409
+                        - heading "Tech Lead בכיר /ה עם אוריינטציית Full-Stack" [level=2] [ref=e217]
+                      - generic [ref=e218]: חברה חסויה
+                    - generic [ref=e220]:
+                      - generic [ref=e222]:
+                        - text: "מיקום המשרה:"
+                        - link "תל אביב יפו" [ref=e223] [cursor=pointer]:
+                          - /url: /SearchResultsGuest.aspx?page=1&position=&type=&city=779&region=
+                      - generic [ref=e224]: "סוג משרה: משרה מלאה ועבודה היברידית"
+                      - generic [ref=e228]:
+                        - text: "מיקום: תל אביב - יפוהיקף: משרה מלאהמודל עבודה: היברידיעל התפקידלחברת תקשורת מובילה דרוש/ה Tech Lead בכיר/ה עם אוריינטציית Full-Stack להצטרפות לצוות טכנולוגי קטן, עצמאי ואיכותי, ולהובלת פיתוח של מערכות ליבה, תשתיות ושירותים חדשים - משלב האפיון ועד לפרודקשן.התפקיד הוא Hands-on וכולל אחריות משמעותית על החלטות ארכיטקטורה, איכות קוד, ביצועים וסקייל, ועבודה על מערכות תוכן ומדיה בקנה מידה גבוה.זו הזדמנות להשפיע באמת על מוצרים וטכנולוגיה, בסביבה שמעריכה עצמאות, חשיבה מערכתית וסטנדרטים גבוהים.תחומי אחריות:הובלה טכנולוגית Hands-on של צוות פיתוח קטן.פיתוח והובלה של מערכות Full-Stack מורכבות מקצה לקצה.תכנון ויישום ארכיטקטורת Frontend ו-Backend.פיתוח שירותים ומוצרים חדשים לצד תחזוקה ושיפור מערכות קיימות.קבלת החלטות טכנולוגיות והכוונת מפתחים נוספים.עבודה שוטפת מול צוותי מוצר, תוכן ו-DevOps.שיפור ביצועים, יציבות ואמינות מערכות בפרודקשן."
+                        - generic [ref=e229]: "דרישות: לפחות 5 שנות ניסיון בפיתוח Full-Stack.לפחות שנתיים ניסיון בהובלה טכנולוגית / הובלת צוות.ניסיון משמעותי ב-JavaScript / TypeScript.ניסיון חזק בפיתוח Frontend עם React.ניסיון בפיתוח אפליקציות עם Next.js.ניסיון בפיתוח Backend עם Node.js / NestJS.ניסיון בעבודה עם בסיסי נתונים: PostgreSQL / MongoDB / Redis.הבנה עמוקה של ארכיטקטורת Web, APIs, REST, ביצועים ואבטחה.ניסיון בעבודה עם מערכות בפרודקשן בקנה מידה גבוה.יתרון משמעותי:ניסיון בפיתוח ב-Golang.ניסיון בפיתוח Microservices.ניסיון בעבודה בסביבות Cloud.ניסיון במנטורינג, Code Reviews והטמעת Best Practices.מה אנחנו מציעים:תפקיד עם השפעה טכנולוגית אמיתית.צוות קטן ואיכותי עם עצמאות ואחריות גבוהה.עבודה על מערכות מורכבות ומאתגרות טכנולוגית.סביבת עבודה שמעריכה איכות, יוזמה ולמידה.תנאים טובים למתאימים.* המשרה מיועדת לנשים ולגברים כאחד."
+                    - generic: עוד...
+                  - generic [ref=e235]:
+                    - generic [ref=e236]:
+                      - link "הגש מועמדות" [ref=e237] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e238] [cursor=pointer]
+                    - generic [ref=e240]: "8729409"
+                    - generic "מחיקת משרה" [ref=e242]
+                    - generic "שמירת משרה" [ref=e245]:
+                      - img "שמירת משרה" [ref=e246] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e247]:
+                      - link "אפשרויות נוספות" [ref=e248] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e252]:
+                  - generic [ref=e253]:
+                    - generic [ref=e254]: 1 ימים
+                    - generic [ref=e257]:
+                      - link [ref=e259] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8733293
+                        - heading "לחברה פיננסית בר\"ג דרוש /ה AI Full Stack (היברידי)" [level=2] [ref=e260]
+                      - link "עידור מחשבים בע\"מ" [ref=e262] [cursor=pointer]:
+                        - /url: /Employer/HP/Default.aspx?cid=6932
+                    - link [ref=e264] [cursor=pointer]:
+                      - /url: /Employer/HP/Default.aspx?cid=6932
+                      - img "דרושים בעידור מחשבים בע\"מ" [ref=e265]
+                    - generic [ref=e267]:
+                      - generic [ref=e269]: "מיקום המשרה: מספר מקומות"
+                      - generic [ref=e271]: "סוג משרה: מספר סוגים"
+                      - generic [ref=e273]: תנאים נוספים:החזר הוצאות, קרן השתלמות
+                      - generic [ref=e276]:
+                        - generic [ref=e278]:
+                          - text: אנו מחפשים מפתח/ת AI Full Stack מנוסה, בעל/ת יכולת לשלב בין פיתוח תוכנה קלאסי ברמת Enterprise לבין עבודה מתקדמת עם כלי AI Agentic Development בדגש על Claude codeהתפקיד כולל הובלת פיתוח פתרונות מקצה לקצה, החל מהבנת הצורך העסקי, דרך תכנון הארכיטקטורה והפתרון הטכנולוגי, ועד למימוש, בקרת איכות ואופטימיזציה של תוצרים המיוצרים באמצעות Claude Code וכלי AI נוספים.
+                          - generic [ref=e279]: "דרישות: 5 שנות ניסיון בפיתוח backend - בשפת JAVA 5 שנות ניסיון בפיתוח JAVA Spring boot5 שנות ניסיון frontend באמצעותReact / Angular5 שנה - ניסיון מוכח בפיתוח Microservices - REST APIsניתוח דרישות וארכיטקטורה - חובהיכולת גבוהה להבנת דרישות עסקיות מורכבות.יכולת לתרגם דרישות עסקיות לארכיטקטורת פתרון טכנולוגית.יכולת להגדיר ולכוון Claude Code למימוש הפתרון באופן יעיל ואיכותי.ניסיון בביצוע Design Reviews ובקרת איכות על קוד ותוצרים שנוצרו באמצעות AIבסיסי נתונים - חובהניסיון מוכח בעבודה עם בסיסי נתונים רלציונייםניסיון מוכח בעבודה עם בסיסי נתונים NoSQLיכולת תכנון מודלי נתונים, כתיבת שאילתות מורכבות ואופטימיזציה.AI-Assisted Development / Claude Codeניסיון מעשי ומוכח בעבודה עם Claude Code יחויב בהצגת פרויקט אישי בGitHubיכולת כתיבת Prompts מתקדמים לפיתוח תוכנה ניסיון בהגדרת Skills ויצירת Workflowsניסיון בפיתוח עבור Claude Code או כלי AI דומיםהבנה מעמיקה של עקרונות Agentic Developmen המשרה מיועדת לנשים ולגברים כאחד."
+                        - link "לעוד משרות ומידע על עידור מחשבים בע\"מ >" [ref=e281] [cursor=pointer]:
+                          - /url: /Employer/HP/Default.aspx?cid=6932
+                    - generic: עוד...
+                  - generic [ref=e286]:
+                    - generic [ref=e287]:
+                      - link "הגש מועמדות" [ref=e288] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e289] [cursor=pointer]
+                    - generic [ref=e291]: "8733293"
+                    - generic "מחיקת משרה" [ref=e293]
+                    - generic "שמירת משרה" [ref=e296]:
+                      - img "שמירת משרה" [ref=e297] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e298]:
+                      - link "אפשרויות נוספות" [ref=e299] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e303]:
+                  - generic [ref=e304]:
+                    - generic [ref=e306]:
+                      - text: טרם הגשת מועמדות למשרה. עוד לא מאוחר,
+                      - link "הגש מועמדות עכשיו" [ref=e307] [cursor=pointer]:
+                        - /url: /User/Register/CreditCard.aspx?JobID=8741462&CameFrom=MissedJobs
+                    - generic [ref=e308]: לפני 23 שעות
+                    - generic [ref=e311]:
+                      - link [ref=e313] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8741462
+                        - heading "Senior Java Backend developer" [level=2] [ref=e314]
+                      - generic [ref=e315]: חברה חסויה
+                    - generic [ref=e317]:
+                      - generic [ref=e319]:
+                        - text: "Location:"
+                        - link "Tel Aviv-Yafo" [ref=e320] [cursor=pointer]:
+                          - /url: /SearchResultsGuest.aspx?page=1&position=&type=&city=779&region=
+                      - generic [ref=e321]: "Job Type: Full Time"
+                      - generic [ref=e325]:
+                        - text: We are looking for an exceptional and passionate Back-End Developer to join our team. This role involves designing and implementing the backbone infrastructure and APIs for our applications, ensuring a great user experience.Responsibilities:Be responsible for the products architecture and maintain its performance in challenging circumstancesMaintain high standards of software quality by establishing best practicesCollaborate with various stakeholders to plan, design, develop, test and maintain extraordinary featuresTranslating requirements into high-quality codeSeeing through a project from conception to finished productCollaborating with a team of skilled developers to develop high-traffic, cloud-based applicationsParticipating in code reviews to maintain code quality and sharing best practices with the teamProvide guidance and mentorship to junior developers, promoting continuous learning and improvement within the team.
+                        - generic [ref=e326]:
+                          - text: "Requirements: At least 5 years of experience as a backend developer (Java and spring-boot technologies)Experience with large-scale web applications and the ability to deep dive into complex applicationsIn-depth understanding of Object-Oriented Programming (OOP) and SOLID principlesTeam player committed to the success of the teamStrong verbal and written communication skills with the ability to clearly explain technical concepts.Keen attention to detailPractical knowledge with software engineering best practices (testing, code reviews, scalability, etc.)Excellent debugging, investigating and problem-solving abilitiesCurious learner who loves sharing knowledge and best practices, and can work both independently and in a teamProven experience in building, supporting, and monitoring microservices architectureAbility to thrive in a fast-paced, ambiguous, and changing environment."
+                          - generic [ref=e327]: This position is open to all candidates.
+                    - generic: Show more...
+                  - generic [ref=e333]:
+                    - generic [ref=e334]:
+                      - link "הגשת מועמדות הגש מועמדות" [ref=e335] [cursor=pointer]:
+                        - /url: /User/Register/CreditCard.aspx?JobID=8741462&CameFrom=SimilarJobsNonActualJobPC
+                        - text: הגשת מועמדות
+                        - generic [ref=e336]: הגש מועמדות
+                      - link "עדכון קורות החיים לפני שליחה" [ref=e337] [cursor=pointer]:
+                        - /url: /User/Register/CreditCard.aspx?JobID=8741462&CameFrom=SimilarJobsNonActualJobPC
+                    - generic [ref=e339]: "8741462"
+                    - button "שמור משרה" [ref=e345] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e346]:
+                      - link "אפשרויות נוספות" [ref=e347] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e351]:
+                  - generic [ref=e352]:
+                    - generic [ref=e353]: 07/06/2026
+                    - generic [ref=e356]:
+                      - link [ref=e358] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8683119
+                        - heading "Senior Software Engineer" [level=2] [ref=e359]
+                      - generic [ref=e360]: חברה חסויה
+                    - generic [ref=e362]:
+                      - generic [ref=e364]:
+                        - text: "Location:"
+                        - link "Tel Aviv-Yafo" [ref=e365] [cursor=pointer]:
+                          - /url: /SearchResultsGuest.aspx?page=1&position=&type=&city=779&region=
+                        - text: and
+                        - link "Netanya" [ref=e366] [cursor=pointer]:
+                          - /url: /SearchResultsGuest.aspx?page=1&position=&type=&city=717&region=
+                      - generic [ref=e367]: "Job Type: Full Time"
+                      - generic [ref=e371]:
+                        - text: We are looking for a hands-on developer to join an innovative and talented R&D team. To join us, you will need to deliver high-quality code using the latest cloud frameworks and technologies.As a Back-End Engineer you will...Be responsible for all development aspects, from design to production, of a cloud-native productWrite high-quality, testable, and efficient code in Java / GoInitiate and promote new ideas for the continuous improvement of product functionalityWork closely with team members and product colleaguesLead feature development end-to-end (E2E), from initial architectural design to successful production deployment.Write high-quality, clean, efficient, and maintainable code while adhering to best practices and coding standardsStay up-to-date with industry trends and emerging technologies related to DevOps and the software development lifecycleContribute to architectural discussions and design sessions to promote scalability and maintainability.
+                        - generic [ref=e372]:
+                          - text: "Requirements: 6+ years of Java/GO programming experienceFamiliarity with database technologiesSolid architectural understanding of web applications and APIsExperience with large-scale production environmentsExperience with concurrency - a big advantageExposure to modern DevOps tools like Docker, Kubernetes, Helm, Shell Scripting, CI/CD - an advantageProven, hands-on AI engineering experience - required in one or more of the following:Building full production features using AI-native coding tools such as Cursor or Claude CodeAdapting the SDLC to leverage MCPs and AI Skills to measurably improve team productivityIntegrating agentic AI capabilities into production systems and user-facing features."
+                          - generic [ref=e373]: This position is open to all candidates.
+                    - generic: Show more...
+                  - generic [ref=e379]:
+                    - generic [ref=e380]:
+                      - link "הגשת מועמדות הגש מועמדות" [ref=e381] [cursor=pointer]:
+                        - /url: /User/Register/CreditCard.aspx?JobID=8683119&CameFrom=SimilarJobsNonActualJobPC
+                        - text: הגשת מועמדות
+                        - generic [ref=e382]: הגש מועמדות
+                      - link "עדכון קורות החיים לפני שליחה" [ref=e383] [cursor=pointer]:
+                        - /url: /User/Register/CreditCard.aspx?JobID=8683119&CameFrom=SimilarJobsNonActualJobPC
+                    - generic [ref=e385]: "8683119"
+                    - button "שמור משרה" [ref=e391] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e392]:
+                      - link "אפשרויות נוספות" [ref=e393] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e397]:
+                  - generic [ref=e398]:
+                    - generic [ref=e399]: 09/06/2026
+                    - generic [ref=e402]:
+                      - link [ref=e404] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8687262
+                        - heading "Software Engineering Team Leader" [level=2] [ref=e405]
+                      - generic [ref=e406]: חברה חסויה
+                    - generic [ref=e408]:
+                      - generic [ref=e410]:
+                        - text: "Location:"
+                        - link "Tel Aviv-Yafo" [ref=e411] [cursor=pointer]:
+                          - /url: /SearchResultsGuest.aspx?page=1&position=&type=&city=779&region=
+                      - generic [ref=e412]: "Job Type: Full Time"
+                      - generic [ref=e416]:
+                        - text: Were looking for an experienced and passionate Software Engineering Team Leader to join our Elastic WAF group - the group behind most strategic and modern next-generation WAF product lines within the AppSec organization.The Foundation team builds the core infrastructure that powers these products. The team is responsible for developing the foundations of new Cloud-Native and SaaS WAF solutions, designed for simple, fast, and DevOps-friendly onboarding and installation. These products deliver best-of-breed security through a modern, scalable architecture and seamless operational experience.If youre passionate about leading talented engineers, designing scalable systems, and shaping the architecture of cutting-edge security products, wed love to meet you.Key Responsibility:Lead a team of 4 skilled developers focused on building and maintaining core components, shared services, and developer tooling.Lead distributed system design decisions and continuously improve system performance, maintainability, and technical standards.Design and evolve scalable, multi-tenant SaaS architecture and cloud-native platform services (microservices, APIs, event-driven systems).Be hands-on with architecture and development in Java, Go, and Kubernetes.Drive cross-team initiatives that improve development efficiency, reliability, and scalability.Act as a mentor and coach to help team members grow professionally and technically.Collaborate with engineering leads and product stakeholders to set technial direction and priorities.Champion innovation, transparency, and a strong engineering culture.Ensure reliability and operational excellence, implementing observability (metrics/logs/tracing) and strong incident response practices.
+                        - generic [ref=e417]:
+                          - text: "Requirements: 7+ years of backend development experience, with deep knowledge in Java and modern infrastructure (Kubernetes preferred).Proven 3+ years of leadership experience, including managing or mentoring other developers.Strong system design and architecture skills with the ability to make technical decisions.Excellent communication and collaboration skills, especially across teams.Wide technical view across systems, infrastructure, and application layers.Passion for improving developer experience and building reusable components.Adaptability - comfortable working in dynamic environments and leading through change.Strong organizational skills, including sprint planning, progress tracking, and cross-team coordination.Problem-solving orientation - proactively identifies risks and dependencies and manages them effectively.Experience with Go (Golang) development - advantage."
+                          - generic [ref=e418]: This position is open to all candidates.
+                    - generic: Show more...
+                  - generic [ref=e424]:
+                    - generic [ref=e425]:
+                      - link "הגשת מועמדות הגש מועמדות" [ref=e426] [cursor=pointer]:
+                        - /url: /User/Register/CreditCard.aspx?JobID=8687262&CameFrom=SimilarJobsNonActualJobPC
+                        - text: הגשת מועמדות
+                        - generic [ref=e427]: הגש מועמדות
+                      - link "עדכון קורות החיים לפני שליחה" [ref=e428] [cursor=pointer]:
+                        - /url: /User/Register/CreditCard.aspx?JobID=8687262&CameFrom=SimilarJobsNonActualJobPC
+                    - generic [ref=e430]: "8687262"
+                    - button "שמור משרה" [ref=e436] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e437]:
+                      - link "אפשרויות נוספות" [ref=e438] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e442]:
+                  - generic [ref=e443]:
+                    - generic [ref=e444]: 29/06/2026
+                    - generic [ref=e447]:
+                      - link [ref=e449] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8714885
+                        - heading "Full Stack Software Engineer (Java, TypeScript)" [level=2] [ref=e450]
+                      - generic [ref=e451]: חברה חסויה
+                    - generic [ref=e453]:
+                      - generic [ref=e455]:
+                        - text: "Location:"
+                        - link "Tel Aviv-Yafo" [ref=e456] [cursor=pointer]:
+                          - /url: /SearchResultsGuest.aspx?page=1&position=&type=&city=779&region=
+                      - generic [ref=e457]: "Job Type: Full Time"
+                      - generic [ref=e461]:
+                        - text: We are currently in the process of building our next huge project. Were creating the CHAT API solution, adding the ability to offer a complete chat capability that contains team messaging, SMS, MMs, WhatsApp, e-mail and Facebook domains into our platform. The CHAT API is going to be used across the entire organization in various different products.The team is working end to end on all aspects of the product - they're developing solutions UI to Backend and maintaining the stack. We more than just colleagues; we're a community that thrives on collaboration, creativity, and, most importantly, having a good time together.Your key responsibilities:Working on end-to-end projects in a full-stack backend oriented role, aligned with your skills and career goals.Taking a key role in building and leading the team from an Architecture perspective.Designing, researching, developing and testing the functional and non-functional areas.Onboarding and mentoring new team members. You will help build a reliable continuous improvement process and ensure efficient delivery at high level.
+                        - generic [ref=e462]:
+                          - text: "Requirements: What you'll bringRequired:4+ years of experience years as a full-stack/backend software engineer with Java, Typescript, Relational/Non relational databases and cloud solutions.Expertise working on large scale complex software systems and leading delivery cycles. Experience working with multiple releases with Agile methodologies in a service or SaaS environment.Experience with modern web frameworks such as Vue.JS / AngularJS / React.Background in developing and implementing strategies to improve system reliability, scalability and performance.Understanding of system architecture, and distributed systems.Ability to manage a full application development cycle from requirements to production.Great collaboration and English skills, working with other team members across the world.Experience we consider a plus:Bachelor's or Master's degree in Computer Science or related fieldExperience with Kafka, AWS, cloud infrastructure (K8S, EC2, ECS, Docker, Ansible) and CI/CD technologies (GitHub actions, Helm Chart, Argo CD)Development experience working with microservices"
+                          - generic [ref=e463]: This position is open to all candidates.
+                    - generic: Show more...
+                  - generic [ref=e469]:
+                    - generic [ref=e470]:
+                      - link "הגשת מועמדות הגש מועמדות" [ref=e471] [cursor=pointer]:
+                        - /url: /User/Register/CreditCard.aspx?JobID=8714885&CameFrom=SimilarJobsNonActualJobPC
+                        - text: הגשת מועמדות
+                        - generic [ref=e472]: הגש מועמדות
+                      - link "עדכון קורות החיים לפני שליחה" [ref=e473] [cursor=pointer]:
+                        - /url: /User/Register/CreditCard.aspx?JobID=8714885&CameFrom=SimilarJobsNonActualJobPC
+                    - generic [ref=e475]: "8714885"
+                    - button "שמור משרה" [ref=e481] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e482]:
+                      - link "אפשרויות נוספות" [ref=e483] [cursor=pointer]:
+                        - /url: javascript:void(0)
+    - generic [ref=e487]:
+      - link [ref=e490] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20892__zoneid=2__cb=adf22ce871__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D70365
+        - img "הראל ביטוח" [ref=e491]
+      - link [ref=e494] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21570__zoneid=10__cb=7e8d698eda__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D1976
+        - img "קבוצת ארקיע" [ref=e495]
+      - link [ref=e498] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21261__zoneid=11__cb=79e8110e28__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D226731
+        - img "רפאל" [ref=e499]
+      - link [ref=e502] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21525__zoneid=12__cb=dc2ef0e277__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D173831
+        - img "הפניקס" [ref=e503]
+      - link [ref=e506] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20963__zoneid=13__cb=4a0e57371a__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D117557
+        - img "סלקום" [ref=e507]
+      - link [ref=e510] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20888__zoneid=14__cb=50f9a0a972__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D6843
+        - img "בזק" [ref=e511]
+      - link [ref=e514] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21421__zoneid=85__cb=43f75eee46__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D87
+        - img "בנק דיסקונט" [ref=e515]
+      - link [ref=e518] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21325__zoneid=86__cb=3e1dc6061c__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D52403
+        - img "מנופי אבי תובלה" [ref=e519]
+      - link [ref=e522] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21338__zoneid=91__cb=941b53845a__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D285321
+        - img "נגב" [ref=e523]
+      - link [ref=e526] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20463__zoneid=92__cb=81a6768965__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D216697
+        - img "נתיבי הגז הטבעי לישראל" [ref=e527]
+    - contentinfo [ref=e530]:
+      - generic [ref=e533]:
+        - generic [ref=e534]:
+          - generic [ref=e535]:
+            - generic [ref=e536]: חיפוש עבודה
+            - link "AllJobs VIP - חיפוש עבודה בקלות" [ref=e537] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/Register/CreditCard.aspx?CameFrom=NavigationBar_VIP
+            - link "סוכן חכם" [ref=e538] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/Agents/
+            - generic [ref=e539]: קטגוריות מובילות
+            - generic [ref=e545]: חיפוש עבודה לפי תחום
+            - generic [ref=e551]: חיפוש עבודה לפי איזור
+            - generic [ref=e557]: חיפוש עבודה לפי חברה
+          - generic [ref=e563]:
+            - generic [ref=e564]: כיצד למצוא עבודה?
+            - generic [ref=e565]: מדריכים לחיפוש עבודה
+            - generic [ref=e571]: כלים לחיפוש עבודה
+            - generic [ref=e577]: כלים לפיטורים ואבטלה
+            - generic [ref=e583]: כלים נוספים לעולם העבודה
+          - generic [ref=e589]:
+            - generic [ref=e590]: מתחם השכר
+            - link "טבלאות שכר" [ref=e591] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/SalaryCompound/SalarySurvey.aspx
+            - link "נתוני שכר לפי תפקיד" [ref=e592] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/SalaryCompound/position/Index.aspx
+            - link "כמה אתם שווים" [ref=e593] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/SalaryCompound
+            - link "מחשבון שכר ברוטו נטו" [ref=e594] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/ArticlePage.aspx?LinkWord=%E1%F8%E5%E8%E5_%F0%E8%E5
+          - generic [ref=e595]:
+            - generic [ref=e596]: גיוס עובדים
+            - link "פרסום מודעת דרושים" [ref=e597] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/Employer/Job/#!/job/new/first
+            - link "MatchIT - חברת הגיוס וההשמה של AllJobs" [ref=e598] [cursor=pointer]:
+              - /url: https://www.match-it.co.il/
+            - link "חיפוש וגיוס עובדים" [ref=e599] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/Employer/HomePage.aspx
+          - generic [ref=e600]:
+            - generic [ref=e601]: אולג'ובס
+            - link "הצהרת נגישות" [ref=e602] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/ArticlePage.aspx?LinkWord=accessibility
+            - link "מדיניות פרטיות" [ref=e603] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/ArticlePage.aspx?LinkWord=privacyalljobs
+            - link "בקשת עיון ותיקון מידע" [ref=e604] [cursor=pointer]:
+              - /url: /law/inspection-and-correction.pdf
+            - link "מי אנחנו" [ref=e605] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/AboutUs.aspx
+            - link "רוצה לעבוד ב-AllJobs?" [ref=e606] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/Employer/HP/Default.aspx?cid=73090
+            - link "שאלות נפוצות" [ref=e607] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/helpcenter/jobseekers
+            - link "שירות לקוחות" [ref=e608] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/helpcenter/
+            - link "תנאי שימוש" [ref=e609] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/UserAgreement.aspx
+            - link "זירת הפרילנסרים XPlace" [ref=e610] [cursor=pointer]:
+              - /url: https://www.xplace.com/il/?utm_source=alljobs&utm_medium=cooperation&utm_campaign=alljobs_footer
+            - link "משרות לצעירים - סחבק" [ref=e611] [cursor=pointer]:
+              - /url: https://www.sahbak.co.il/?utm_source=alljobs&utm_medium=cooperation&utm_campaign=alljobs_footer
+        - generic [ref=e613]:
+          - generic [ref=e614]:
+            - generic [ref=e615]:
+              - link [ref=e616] [cursor=pointer]:
+                - /url: https://www.facebook.com/AllJobs
+                - img "Facebook" [ref=e617]
+              - link [ref=e618] [cursor=pointer]:
+                - /url: https://www.linkedin.com/company/alljobs
+                - img "Linkedin" [ref=e619]
+              - link [ref=e620] [cursor=pointer]:
+                - /url: https://www.youtube.com/user/alljobscoil
+                - img "Youtube" [ref=e621]
+              - link [ref=e622] [cursor=pointer]:
+                - /url: https://www.tiktok.com/@alljobs.co.il
+                - img "TikTok" [ref=e623]
+              - link [ref=e624] [cursor=pointer]:
+                - /url: https://www.instagram.com/alljobs.co.il/
+                - img "Instagram" [ref=e625]
+              - link "צור קשר צור קשר" [ref=e627] [cursor=pointer]:
+                - /url: /helpcenter
+                - generic [ref=e628]: צור קשר
+                - img "צור קשר" [ref=e629]
+            - link [ref=e630] [cursor=pointer]:
+              - /url: /
+              - img "AllJobs אתר הדרושים הגדול בישראל" [ref=e631]
+          - generic [ref=e632]:
+            - generic [ref=e633]: כל הזכויות שמורות לחברת All U Need בע"מ - בני ברמן 2, מגדל עיר ימים, נתניה 4249330 מקבוצת
+            - img "Yedioth Ahronot" [ref=e634]

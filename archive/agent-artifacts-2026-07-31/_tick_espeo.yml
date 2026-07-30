@@ -1,0 +1,341 @@
+- generic [active] [ref=e1]:
+  - dialog "Manage Cookie Consent" [ref=e2]:
+    - generic [ref=e3]:
+      - link [ref=e5] [cursor=pointer]:
+        - /url: https://espeo.eu/
+        - img "Espeo Software" [ref=e6]
+      - generic [ref=e7]: Manage Cookie Consent
+      - button "Close dialog" [ref=e8] [cursor=pointer]:
+        - img [ref=e9]: 
+    - generic [ref=e11]: We use technologies like cookies to store and/or access device information. We do this to improve browsing experience and to show personalized ads. Consenting to these technologies will allow us to process data such as browsing behavior or unique IDs on this site. Not consenting or withdrawing consent, may adversely affect certain features and functions.
+    - generic [ref=e13]:
+      - button "Accept all" [ref=e14] [cursor=pointer]
+      - button "View preferences" [ref=e15] [cursor=pointer]
+    - list [ref=e17]:
+      - listitem [ref=e18]:
+        - link "Cookie Policy" [ref=e19] [cursor=pointer]:
+          - /url: https://espeo.eu/cookie-policy-eu/
+      - listitem:
+        - link:
+          - /url: https://espeo.eu/
+      - listitem
+  - link "Skip to content" [ref=e20] [cursor=pointer]:
+    - /url: "#content"
+  - banner [ref=e21]:
+    - banner [ref=e23]:
+      - generic [ref=e24]:
+        - link [ref=e27] [cursor=pointer]:
+          - /url: https://espeo.eu
+        - generic [ref=e29]:
+          - text:    
+          - button "Menu Toggle" [ref=e30] [cursor=pointer]:
+            - generic [ref=e31]: 
+            - text: 
+          - text:    
+  - generic [ref=e32]:
+    - generic [ref=e35]:
+      - heading "Join Espeo Software" [level=1] [ref=e38]
+      - paragraph [ref=e41]: We look for people that aim high and do their best.
+      - link "See open job positions" [ref=e45] [cursor=pointer]:
+        - /url: "#open-job-positions"
+    - generic [ref=e49]:
+      - heading "Open job positions" [level=2] [ref=e53]
+      - generic [ref=e61]:
+        - generic [ref=e62]:
+          - generic [ref=e63] [cursor=pointer]:
+            - generic [ref=e64]: Project Manager
+            - text:  
+            - generic [ref=e65]: See job offer ➜
+          - generic [ref=e66] [cursor=pointer]:
+            - generic [ref=e67]: Content Marketing Specialist
+            - text:  
+            - generic [ref=e68]: See job offer ➜
+          - generic [ref=e69] [cursor=pointer]:
+            - generic [ref=e70]: Senior DevOps Engineer
+            - text:  
+            - generic [ref=e71]: See job offer ➜
+        - generic [ref=e72]:
+          - generic [ref=e73] [cursor=pointer]:
+            - generic [ref=e74]: AI Solutions Engineer
+            - text:  
+            - generic [ref=e75]: See job offer ➜
+          - generic [ref=e76] [cursor=pointer]:
+            - generic [ref=e77]: Blockchain Developer - Talent Pool
+            - text:  
+            - generic [ref=e78]: See job offer ➜
+          - generic [ref=e79] [cursor=pointer]:
+            - generic [ref=e80]: Senior Java Developer
+            - text:  
+            - generic [ref=e81]: See job offer ➜
+          - generic [ref=e82] [cursor=pointer]:
+            - generic [ref=e83]: Haven't found anything for yourself? Send us your CV!
+            - text:  
+            - generic [ref=e84]: See job offer ➜
+      - generic [ref=e86]:
+        - heading "Clear steps, quick decisions" [level=3] [ref=e89]
+        - generic [ref=e90]: We respect your time. Our recruitment process is clear and collaborative at every stage. Below you will find the typical steps for technical roles (Development and Delivery Management) and non-technical roles (Operations).
+    - generic "Tabs. Open items with Enter or Space, close with Escape and navigate using the Arrow keys." [ref=e99]:
+      - tablist [ref=e100]:
+        - tab "Technical positions" [selected] [ref=e101] [cursor=pointer]
+        - tab "Non-technical positions" [ref=e103] [cursor=pointer]
+      - tabpanel "Technical positions" [ref=e106]:
+        - generic [ref=e108]:
+          - generic [ref=e117]:
+            - heading "Let’s meet" [level=4] [ref=e120]
+            - generic [ref=e121]: 15-30 min
+            - paragraph [ref=e126]: Once we get your CV, we’ll take a look and schedule a brief video call. During this conversation, you can learn more about the company and your role. The call is also for us to learn more about you and talk about your expectations. We make sure the conversation is concrete but also very informal and friendly.
+          - generic [ref=e135]:
+            - heading "Technical interview" [level=4] [ref=e138]
+            - generic [ref=e139]: 15-30 min
+            - paragraph [ref=e144]: This step is a video call or meeting with one of our technical experts. We assess your technical knowledge and experience needed for the open position by discussing or solving some real problems.
+          - generic [ref=e153]:
+            - heading "Leaders interview" [level=4] [ref=e156]
+            - generic [ref=e157]: 15-30 min
+            - generic [ref=e160]: The last stage of the recruitment process at Espeo is an interview with one of our leaders. If possible, we try to meet in person to get to know you better. We discuss your experience of working with clients, your successes and problems you’re challenged.
+    - generic [ref=e164]:
+      - heading "An ambitious team of world class experts" [level=2] [ref=e168]
+      - generic [ref=e169]:
+        - generic [ref=e170]:
+          - heading "Teams based on trust" [level=3] [ref=e173]
+          - paragraph [ref=e176]: We enjoy making decisions and taking full responsibility for their consequences. We show respect to others by meeting deadlines and fulfilling commitments. When unqualified for something, we seek support.
+        - generic [ref=e177]:
+          - heading "Open and honest communication" [level=3] [ref=e180]
+          - paragraph [ref=e183]: We work with smart people so they can say what they think and listento what others have to say. Through open and candid communication with our clients and partners, we discuss difficult subjects and share both our challenges and our successes. We welcome both positive and constructive feedback.
+      - generic [ref=e184]:
+        - generic [ref=e185]:
+          - heading "Constantly improving" [level=3] [ref=e188]
+          - paragraph [ref=e191]: We deliver results that go beyond clients’ expectations. Every day, we set challenging goals, actively seek feedback, and invest in our personal and professional development. Our commitment to excellence drives us to improve and raise the standards for our clients and partners.
+        - generic [ref=e192]:
+          - heading "Rapid adaptation" [level=3] [ref=e195]
+          - paragraph [ref=e198]: We adjust to change quickly. Our focus is on what matters most, and we respond promptly to new challenges by realigning our priorities and sharpening new skills.
+    - generic [ref=e201]:
+      - heading "Meet your new teammates" [level=2] [ref=e205]
+      - generic [ref=e208]:
+        - region "Carousel" [ref=e209]:
+          - generic [ref=e210]:
+            - group [ref=e211]:
+              - generic [ref=e217]:
+                - paragraph [ref=e220]: Espeo Software’s hiring philosophy centers on finding individuals who excel technically and embody our core values. Our commitment to these principles, coupled with Espeo Software’s unique transparency significantly differentiates us in the software development market.
+                - heading [level=4] [ref=e223]: Dominik Zyskowski
+                - paragraph [ref=e226]: Consulting Director
+            - group "2 / 3" [ref=e227]:
+              - generic [ref=e233]:
+                - paragraph [ref=e236]: After more than 10 years at Espeo Software, I still face constant challenges and can influence the tools I work on. I have real impact on both architecture and library choices in programming. Moreover, the people and atmosphere here are exceptional.
+                - heading "Bartosz Telesiński" [level=4] [ref=e239]
+                - paragraph [ref=e242]: Senior Software Developer
+            - group "3 / 3" [ref=e243]:
+              - generic [ref=e249]:
+                - paragraph [ref=e252]: I’m grateful for the trust that Espeo Software has put in me and their recognition of hard work. This made a strong impression on me. After a few years here, I can now participate in decision-making meetings. Based on my experience, this is a rare privilege in this industry.
+                - heading "Maciej Kozłowski" [level=4] [ref=e255]
+                - paragraph [ref=e258]: Senior Software Developer
+        - generic [ref=e259]:
+          - button "Go to slide 1" [ref=e260] [cursor=pointer]
+          - button "Go to slide 2" [ref=e261] [cursor=pointer]
+    - generic [ref=e263]:
+      - heading "Your perks at Espeo" [level=2] [ref=e267]
+      - generic [ref=e268]:
+        - generic [ref=e277]:
+          - heading "Personal flexibility" [level=4] [ref=e280]
+          - paragraph [ref=e283]: Arrange your workplace around life – we want to support your work-life balance and let you work remotely if needed.
+        - generic [ref=e292]:
+          - heading "Leader support" [level=4] [ref=e295]
+          - paragraph [ref=e298]: Team leaders help you grow and actively support you with creating development plans and training choices.
+        - generic [ref=e308]:
+          - heading "Espeo Day" [level=4] [ref=e311]
+          - paragraph [ref=e314]: For us, Thursdays are little Fridays. For this reason every month in the office we enjoy a delicious lunch together.
+      - generic [ref=e315]:
+        - generic [ref=e324]:
+          - heading "Best working equipment" [level=4] [ref=e327]
+          - paragraph [ref=e330]: Whether you are team Apple or team Dell, we provide you with great work equipment and some cool accessories.
+        - generic [ref=e339]:
+          - heading "Conditions for development" [level=4] [ref=e342]
+          - paragraph [ref=e345]: We are willing to invest in you, significantly. Take advantage of our internal training programs and inspirational Lightning Talks.
+        - generic [ref=e354]:
+          - heading "Recommendation program" [level=4] [ref=e357]
+          - paragraph [ref=e360]: Recommend a new team member and earn a referral bonus equal to 50% of their starting salary.
+      - generic [ref=e361]:
+        - generic [ref=e370]:
+          - heading "Private healthcare" [level=4] [ref=e373]
+          - paragraph [ref=e376]: Take advantage of private medical care in LuxMed, where you can quickly arrange a consultation with any specialist.
+        - generic [ref=e385]:
+          - heading "Multisport card" [level=4] [ref=e388]
+          - paragraph [ref=e391]: We offer you the Multisport card so that you can try out different kinds of sports and take care of your physical needs.
+        - generic [ref=e401]:
+          - heading "Pet friendly office" [level=4] [ref=e404]
+          - paragraph [ref=e407]: We love dogs, and are more than happy to welcome them in our office in Poznań!
+    - generic [ref=e411]:
+      - generic [ref=e412]:
+        - heading "Where can you work?" [level=2] [ref=e415]
+        - paragraph [ref=e418]: Join us on a daily basis in our headquarter office in Poznań. We are open for the fully remote work as well.
+      - generic [ref=e419]:
+        - generic [ref=e423]:
+          - heading "Poznań Headquarters" [level=3] [ref=e426]
+          - paragraph [ref=e429]: Our modern office near Malta Lake is located between the city centre and green areas. Our eco-friendly office complex offers a canteen, gym, and private parking with lake views.
+        - generic [ref=e433]:
+          - heading "Hybrid Work" [level=3] [ref=e436]
+          - paragraph [ref=e439]: Work in a hybrid model (in the office and a couple of days fully remotely). This is a perfect option for those who love to stay connected with colleagues and yet want to have an option to work from their favourite place.
+    - generic [ref=e442]:
+      - heading "Get answers before you apply" [level=2] [ref=e446]
+      - generic [ref=e449]:
+        - button "Can I work remotely and if so, how often?" [ref=e451] [cursor=pointer]:
+          - generic [ref=e452]:
+            - generic [ref=e453]: 
+            - text: 
+          - text: Can I work remotely and if so, how often?
+        - button "What types of employment do you offer?" [ref=e456] [cursor=pointer]:
+          - generic [ref=e457]:
+            - generic [ref=e458]: 
+            - text: 
+          - text: What types of employment do you offer?
+        - button "What are the cultural differences of working with different nationalities?" [ref=e461] [cursor=pointer]:
+          - generic [ref=e462]:
+            - generic [ref=e463]: 
+            - text: 
+          - text: What are the cultural differences of working with different nationalities?
+        - button "How can I prepare for your recruitment process?" [ref=e466] [cursor=pointer]:
+          - generic [ref=e467]:
+            - generic [ref=e468]: 
+            - text: 
+          - text: How can I prepare for your recruitment process?
+        - button "What are some of the sample recruitment questions?" [ref=e471] [cursor=pointer]:
+          - generic [ref=e472]:
+            - generic [ref=e473]: 
+            - text: 
+          - text: What are some of the sample recruitment questions?
+    - generic [ref=e477]:
+      - generic [ref=e478]:
+        - heading "Contact our HR team" [level=2] [ref=e481]
+        - generic [ref=e483]:
+          - paragraph [ref=e484]: You can always reach out to our recruiters if any questions occur.
+          - paragraph [ref=e485]: We are open to have a chat and dispel any doubts about the recruitment process at Espeo Software.
+      - generic [ref=e486]:
+        - generic [ref=e487]:
+          - generic [ref=e492]:
+            - link:
+              - /url: https://www.linkedin.com/in/oksana-kizina/
+          - generic [ref=e494]:
+            - heading "Oksana Kizina" [level=4] [ref=e497]
+            - generic [ref=e498]: Talent Acquisition Specialist
+        - generic [ref=e500]:
+          - generic [ref=e505]:
+            - link:
+              - /url: https://www.linkedin.com/in/daria-wo%C5%BAna-9993071b4/
+          - generic [ref=e507]:
+            - heading "Daria Woźna" [level=4] [ref=e510]
+            - generic [ref=e511]: Interim Talent Acquisition Manager
+    - contentinfo [ref=e517]:
+      - generic [ref=e521]:
+        - generic [ref=e522]:
+          - heading "Let’s get in touch!" [level=2] [ref=e525]
+          - generic [ref=e526]: Connect with us for more information.
+        - generic [ref=e528]:
+          - iframe [ref=e534]:
+            - generic [ref=f1e3]:
+              - group [ref=f1e4]:
+                - generic [ref=f1e5]:
+                  - generic [ref=f1e6]: Full name*
+                  - textbox "Full name*" [ref=f1e8]:
+                    - /placeholder: e.g. John Doe
+                - generic [ref=f1e9]:
+                  - generic [ref=f1e10]: E-mail*
+                  - textbox "E-mail*" [ref=f1e12]:
+                    - /placeholder: e.g. johndoe@espeo.eu
+              - group [ref=f1e13]:
+                - generic [ref=f1e14]:
+                  - generic [ref=f1e15]: Phone number
+                  - textbox "Phone number" [ref=f1e17]:
+                    - /placeholder: e.g. +48 111 222 333
+                - generic [ref=f1e18]:
+                  - generic [ref=f1e19]: LinkedIn
+                  - textbox "LinkedIn" [ref=f1e21]:
+                    - /placeholder: https://linkedin.com/in/your-profile
+              - group [ref=f1e22]:
+                - generic [ref=f1e23]:
+                  - generic [ref=f1e24]: How did you learn about Espeo Software?*
+                  - combobox "How did you learn about Espeo Software?*" [ref=f1e26]:
+                    - option "Please Select" [disabled] [selected]
+                    - option "Recommendation"
+                    - option "Advertisement"
+                    - option "Event/Conference"
+                    - option "LinkedIn"
+                    - option "YouTube"
+                    - option "LF Decentralized Trust"
+                    - option "Search Engine"
+                    - option "Other"
+              - group [ref=f1e27]:
+                - generic [ref=f1e28]:
+                  - generic [ref=f1e29]:
+                    - text: Espeo Software Sp. z o. o., with its registered seat in Poznań, Poland (“Espeo”), is the administrator of your personal data. Your personal data ill be processed to address your voluntary enquiry. Further details on how we process personal data, including information on your rights, are available in our
+                    - link "Privacy Policy" [ref=f1e30] [cursor=pointer]:
+                      - /url: https://espeo.eu/privacy-policy/
+                    - text: .
+                  - list [ref=f1e35]:
+                    - listitem [ref=f1e36]:
+                      - generic [ref=f1e37]:
+                        - 'checkbox "I agree to receive marketing information, such as notifications about offers or content that may include commercial information, by: e-mail, SMS/MMS, and phone calls. If you consent to receiving the marketing content, your data will be processed for sending marketing information, such as notifications about offers or content that may include commercial information. This consent is voluntary and can be withdrawn at any time." [ref=f1e38] [cursor=pointer]'
+                        - generic [ref=f1e39]: "I agree to receive marketing information, such as notifications about offers or content that may include commercial information, by: e-mail, SMS/MMS, and phone calls. If you consent to receiving the marketing content, your data will be processed for sending marketing information, such as notifications about offers or content that may include commercial information. This consent is voluntary and can be withdrawn at any time."
+              - button "Submit" [ref=f1e42] [cursor=pointer]
+          - generic [ref=e535]:
+            - generic [ref=e536]: Contact our Poznań HQ
+            - generic [ref=e540]:
+              - generic [ref=e541]: 
+              - link "talent@espeo.eu" [ref=e548] [cursor=pointer]:
+                - /url: mailto:talent@espeo.eu
+  - contentinfo [ref=e549]:
+    - generic [ref=e553]:
+      - generic [ref=e555]:
+        - generic [ref=e559]:
+          - paragraph [ref=e560]: Have a question?Reach out now.
+          - paragraph [ref=e561]: hi@espeo.eu
+        - list [ref=e564]:
+          - listitem [ref=e565]:
+            - link "Youtube" [ref=e566] [cursor=pointer]:
+              - /url: https://www.youtube.com/@espeosoftware?
+              - generic [ref=e568]: 
+          - listitem [ref=e569]:
+            - link "Instagram" [ref=e570] [cursor=pointer]:
+              - /url: https://www.instagram.com/espeo.software/
+              - generic [ref=e572]: 
+          - listitem [ref=e573]:
+            - link "Linkedin" [ref=e574] [cursor=pointer]:
+              - /url: https://www.linkedin.com/company/espeo-software
+              - generic [ref=e576]: 
+      - generic "Accordion. Open links with Enter or Space, close with Escape, and navigate with Arrow Keys" [ref=e580]:
+        - group [ref=e581]:
+          - generic "Services" [ref=e582] [cursor=pointer]:
+            - generic [ref=e585]:
+              - generic [ref=e586]: 
+              - text: 
+          - region [ref=e588]:
+            - region "Services Product Consulting Software Development Blockchain Solutions" [ref=e589]:
+              - link "Product Consulting" [ref=e593] [cursor=pointer]:
+                - /url: https://espeo.eu/services/product-consulting/
+              - link "Software Development" [ref=e599] [cursor=pointer]:
+                - /url: https://espeo.eu/services/software-development/
+              - link "Blockchain Solutions" [ref=e605] [cursor=pointer]:
+                - /url: https://espeo.eu/services/blockchain-solutions/
+        - group [ref=e608]:
+          - generic "Expertise" [ref=e609] [cursor=pointer]:
+            - generic [ref=e612]:
+              - text: 
+              - generic [ref=e613]: 
+        - group [ref=e615]:
+          - generic "Espeo Software" [ref=e616] [cursor=pointer]:
+            - generic [ref=e619]:
+              - text: 
+              - generic [ref=e620]: 
+    - generic [ref=e624]:
+      - paragraph [ref=e628]: © 2025 Espeo Software
+      - link "Privacy Policy" [ref=e633] [cursor=pointer]:
+        - /url: https://espeo.eu/privacy-policy/
+  - generic [ref=e636]: tablet
+  - generic [ref=e639]:
+    - generic [ref=e640] [cursor=pointer]: 
+    - generic [ref=e643]:
+      - generic [ref=e644]: Senior Java Developer
+      - text: 
+      - generic [ref=e646]:
+        - generic [ref=e647]: 
+        - generic [ref=e649]: Your application for this position has been submitted successfully.
+        - generic [ref=e650] [cursor=pointer]: Close
+      - text:          

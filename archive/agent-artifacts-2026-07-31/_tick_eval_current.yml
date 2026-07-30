@@ -1,0 +1,617 @@
+- generic [active] [ref=e1]:
+  - region "אפשרויות נגישות מהירות":
+    - button "דלג לתוכן הראשי" [ref=e2] [cursor=pointer]
+    - button "אפשר נגישות לראייה לקויה" [ref=e16] [cursor=pointer]
+    - button "פתח את תפריט הנגישות" [ref=e33] [cursor=pointer]
+  - generic "תפריט נגישות":
+    - button "תפריט נגישות" [ref=e46] [cursor=pointer]
+  - generic [ref=e49]:
+    - generic [ref=e50]:
+      - banner [ref=e51]:
+        - banner [ref=e52]:
+          - link "דלג לתוכן ראשי" [ref=e53] [cursor=pointer]:
+            - /url: "#"
+          - generic [ref=e55]:
+            - generic [ref=e57] [cursor=pointer]:
+              - img "אולג'ובס, אתר הדרושים הגדול בישראל" [ref=e58]
+              - generic [ref=e59]: דרושים
+              - generic [ref=e62]: קורות חיים
+              - generic [ref=e65]: כלים והכוונה
+              - generic [ref=e68]: שכר
+              - link "כל החברות" [ref=e73]:
+                - /url: /Companies.aspx
+              - link "מפת הקריירה שלי" [ref=e78]:
+                - /url: /career-map
+              - img "AlljobsVIP" [ref=e81]:
+                - link "AllJobs VIP" [ref=e82]:
+                  - /url: /User/Register/CreditCard.aspx?CameFrom=NavigationBar_VIP
+            - generic [ref=e83]:
+              - generic [ref=e84]:
+                - generic [ref=e86] [cursor=pointer]:
+                  - generic [ref=e87]: היי
+                  - generic [ref=e88]: מיכאל חיים
+                - generic [ref=e90]:
+                  - img "משרות ששמרתי" [ref=e91] [cursor=pointer]:
+                    - generic [ref=e92]: "1"
+                  - img "משרות שפספסתי" [ref=e94] [cursor=pointer]:
+                    - generic [ref=e95]: "24"
+              - link "גיוס עובדים" [ref=e98] [cursor=pointer]:
+                - /url: /Employer/HomePage.aspx
+      - generic [ref=e99]:
+        - heading [level=1] [ref=e101]:
+          - link "דרושים" [ref=e102] [cursor=pointer]:
+            - /url: /SearchResultsGuest.aspx?page=1&position=&type=&city=&region=
+          - text: »
+          - link "עבודה ראשונה" [ref=e103] [cursor=pointer]:
+            - /url: /SearchResultsGuest.aspx?page=1&position=1578&type=&city=&region=
+          - text: » מפתח /ת Full Stack Junior להצטרפות לצוות פיתוח טכנולוגי - היברידי עם שכר גבוה!!
+        - generic [ref=e105]:
+          - iframe [ref=e107]: <a href="https://openx.alljobs.co.il/www/delivery/ck.php?n=a0143b56" target="_blank"><img src="https://openx.alljobs.co.il/www/delivery/avw.php?what=4_235,4_594,4_1074,4_1153,4_1201,4_1439,4_1449,4_1566,4_1578,4_1579,4_1619,4_1643,4_1712&amp;n=a0143b56" border="0" alt="" /></a>:
+            - link [ref=f2e2] [cursor=pointer]:
+              - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20230__zoneid=4__cb=e20314cccd__oadest=https%3A%2F%2Fwww.xplace.com%2Fil%2F%3Futm_source%3Dalljobs%26utm_medium%3Dopenx%26utm_campaign%3Dalljobs%2520-%2520openx
+          - generic [ref=e108]:
+            - generic [ref=e110]:
+              - generic "משרות על המפה" [ref=e114] [cursor=pointer]
+              - generic "בדיקת קורות חיים" [ref=e122] [cursor=pointer]
+              - generic "הפוך ללקוח VIP" [ref=e128] [cursor=pointer]:
+                - img "VIP" [ref=e130]
+            - generic [ref=e134]:
+              - generic [ref=e135]: דרושים
+              - link "כללי וללא ניסיון" [ref=e136] [cursor=pointer]:
+                - /url: /SearchResultsGuest.aspx?page=1&position=594&type=&city=&region=
+              - link "עובד לעבודה משרדית" [ref=e137] [cursor=pointer]:
+                - /url: /SearchResultsGuest.aspx?page=1&position=1643&type=&city=&region=
+              - link "חייליים משוחררים" [ref=e138] [cursor=pointer]:
+                - /url: /SearchResultsGuest.aspx?page=1&position=&type=22&city=&region=
+              - link "סטודנטים" [ref=e140] [cursor=pointer]:
+                - /url: /SearchResultsGuest.aspx?page=1&position=&type=14&city=&region=
+            - link "כל החברות >" [ref=e141] [cursor=pointer]:
+              - /url: /Companies.aspx
+              - generic [ref=e142]:
+                - generic [ref=e143]: כל החברות
+                - img ">" [ref=e144]
+            - iframe [ref=e146]: <a href="https://openx.alljobs.co.il/www/delivery/ck.php?n=a0143b56" target="_blank"><img src="https://openx.alljobs.co.il/www/delivery/avw.php?what=8_235,8_594,8_1074,8_1153,8_1201,8_1439,8_1449,8_1566,8_1578,8_1579,8_1619,8_1643,8_1712&amp;n=a0143b56" border="0" alt="" /></a>:
+              - link [ref=f3e2] [cursor=pointer]:
+                - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20231__zoneid=8__cb=61430d8e8a__oadest=https%3A%2F%2Fwww.xplace.com%2Fil%2F%3Futm_source%3Dalljobs%26utm_medium%3Dopenx%26utm_campaign%3Dalljobs%2520-%2520openx
+          - generic [ref=e150]:
+            - generic [ref=e155]:
+              - generic [ref=e156]:
+                - generic [ref=e162]:
+                  - text: הגשת מועמדות למשרה זו בתאריך 18/07/2026 בשעה 16:25 דרך האתר.
+                  - link "לפרטים נוספים" [ref=e163] [cursor=pointer]:
+                    - /url: /UserList.aspx?UserListType=2
+                - generic [ref=e164]:
+                  - link "חברת השמה / כח אדם" [ref=e168] [cursor=pointer]:
+                    - /url: /Mador/%D7%97%D7%91%D7%A8%D7%95%D7%AA_%D7%94%D7%A9%D7%9E%D7%94.htm
+                  - generic [ref=e169]: 2 ימים
+                - generic [ref=e171]:
+                  - link [ref=e173] [cursor=pointer]:
+                    - /url: /Search/UploadSingle.aspx?JobID=8716306
+                    - heading "מפתח /ת Full Stack Junior להצטרפות לצוות פיתוח טכנולוגי - היברידי עם שכר גבוה!!" [level=2] [ref=e174]
+                  - link "Job space" [ref=e176] [cursor=pointer]:
+                    - /url: /Employer/HP/Default.aspx?cid=348673
+                - link [ref=e178] [cursor=pointer]:
+                  - /url: /Employer/HP/Default.aspx?cid=348673
+                  - img "דרושים בJob space" [ref=e179]
+                - generic: עוד...
+                - generic [ref=e185]:
+                  - img "סגור" [ref=e186] [cursor=pointer]
+                  - generic [ref=e187]:
+                    - generic [ref=e188]: "באפשרותך להוסיף הערה אישית למשרה :"
+                    - textbox "הוסף כאן הערה אישית למסרה" [ref=e190]
+                  - generic [ref=e191]:
+                    - generic [ref=e192]: "לתשומת ליבך: הערה זו לא תישלח למעסיק"
+                    - text: שמור
+              - generic [ref=e193]:
+                - generic [ref=e194]:
+                  - link "הגש מועמדות" [ref=e195] [cursor=pointer]:
+                    - /url: javascript:void(0)
+                    - text: הגשת מועמדות
+                  - img "עדכון קורות החיים לפני שליחה" [ref=e196] [cursor=pointer]
+                - generic [ref=e198]: "8716306"
+                - generic "מחיקת משרה" [ref=e200]
+                - generic "שמירת משרה" [ref=e203]
+                - img "הוספת הערה" [ref=e206] [cursor=pointer]
+                - generic "אפשרויות נוספות" [ref=e207]:
+                  - link "אפשרויות נוספות" [ref=e208] [cursor=pointer]:
+                    - /url: javascript:void(0)
+            - generic [ref=e212]:
+              - generic [ref=e213]: משרות דומות שיכולות לעניין אותך
+              - generic [ref=e215]:
+                - generic [ref=e218]:
+                  - generic [ref=e219]:
+                    - generic [ref=e220]:
+                      - link "חברת השמה / כח אדם" [ref=e224] [cursor=pointer]:
+                        - /url: /Mador/%D7%97%D7%91%D7%A8%D7%95%D7%AA_%D7%94%D7%A9%D7%9E%D7%94.htm
+                      - generic [ref=e225]: 2 ימים
+                    - generic [ref=e227]:
+                      - link [ref=e229] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8716072
+                        - heading "מנהל /ת משרד ועוזר /ת אישית לחברת תיירות מובילה בפ\"ת - שכר גבוה!!" [level=2] [ref=e230]
+                      - link "Job space" [ref=e232] [cursor=pointer]:
+                        - /url: /Employer/HP/Default.aspx?cid=348673
+                    - link [ref=e234] [cursor=pointer]:
+                      - /url: /Employer/HP/Default.aspx?cid=348673
+                      - img "דרושים בJob space" [ref=e235]
+                    - generic [ref=e237]:
+                      - generic [ref=e239]: "מיקום המשרה: מספר מקומות"
+                      - generic [ref=e241]: "סוג משרה: מספר סוגים"
+                      - generic [ref=e244]:
+                        - generic [ref=e246]:
+                          - text: "הזדמנות להשתלב בחברה בוטיקית לעולם הכשר! אנו מחפשים איש משרד אחראי/ת ומסודר/ת להצטרף לצוות שלנו.תיאור תפקיד:- טיפול שוטף בכל ההיבטים האדמיניסטרטיביים והתפעוליים של המשרד.- מתן שירות פנים-ארגוני למנהלים ולצוות החברה.- ניהול יומני המנהלים.שכר ותנאים:- עבודה בחברה בוטיקית וייחודית.- מיקום: פתח תקווה"
+                          - generic [ref=e247]: "דרישות: - שליטה מעולה בסביבת Office, עדיפות לניסיון בתוכנות ניהול.- שירותיות ויחסי אנוש מעולים.- אנגלית טובה.- יסודיות ודיוק.שליחת קורות חיים או הגשת מועמדות מהווה הסכמה לכך שחברת גוב ספייס בעמ (החברה) תשמור ותשתמש בפרטיך, לרבות למטרת פנייה אליך בנוגע למשרות נוספות ודומות, בכל עת, ובנוסף גם להעברת פרטיך למעסיקים פוטנציאליים בעתיד. השימוש במידע ייעשה בהתאם למדינות הפרטיות באתר החברה ובה גם מידע על זכויותיך. ניתן לסרב לשימוש עתידי כאמור במידע בשליחת תמחקו אותי או לפנות בכל שאלה או בקשה בנושא באמצעות פרטי הקשר שבמדיניות הפרטיות. המשרה מיועדת לנשים ולגברים כאחד."
+                        - link "לעוד משרות ומידע על Job space >" [ref=e249] [cursor=pointer]:
+                          - /url: /Employer/HP/Default.aspx?cid=348673
+                    - generic: עוד...
+                  - generic [ref=e254]:
+                    - generic [ref=e255]:
+                      - link "הגש מועמדות" [ref=e256] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e257] [cursor=pointer]
+                    - generic [ref=e259]: "8716072"
+                    - generic "מחיקת משרה" [ref=e261]
+                    - generic "שמירת משרה" [ref=e264]:
+                      - img "שמירת משרה" [ref=e265] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e266]:
+                      - link "אפשרויות נוספות" [ref=e267] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e271]:
+                  - generic [ref=e272]:
+                    - generic [ref=e273]:
+                      - link "חברת השמה / כח אדם" [ref=e277] [cursor=pointer]:
+                        - /url: /Mador/%D7%97%D7%91%D7%A8%D7%95%D7%AA_%D7%94%D7%A9%D7%9E%D7%94.htm
+                      - generic [ref=e278]: 2 ימים
+                    - generic [ref=e280]:
+                      - link [ref=e282] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8739087
+                        - heading "ראש /ת צוות ביקורת ודוחות כספיים בת\"א - שכר גבוה!" [level=2] [ref=e283]
+                      - link "Job space" [ref=e285] [cursor=pointer]:
+                        - /url: /Employer/HP/Default.aspx?cid=348673
+                    - link [ref=e287] [cursor=pointer]:
+                      - /url: /Employer/HP/Default.aspx?cid=348673
+                      - img "דרושים בJob space" [ref=e288]
+                    - generic [ref=e290]:
+                      - generic [ref=e292]: "מיקום המשרה: מספר מקומות"
+                      - generic [ref=e294]: "סוג משרה: מספר סוגים"
+                      - generic [ref=e296]: "שכר: 22,000-25,000"
+                      - generic [ref=e298]:
+                        - generic [ref=e300]:
+                          - text: "משרד רואי חשבון ותיק ומוביל מגייס! הזדמנות מעולה לרואי/ות חשבון ליהנות מחשיפה לתיקים משמעותיים ומגיוון מקצועי, לצד איזון מושלם בין קריירה לחיים האישיים, שכר מתגמל ואופציה למשרת הורה גמישה.תיאור תפקיד:- ניהול, הובלה והנחיה מקצועית של צוות ביקורת במשרד ותיק המלווה מאות חברות במשק.- אחריות מלאה על תיקי ביקורת, ניהול תהליכי ביקורת ומתן מענה מקצועי שוטף ללקוחות עסקיים.- הכנה וסקירה של דוחות כספיים לחברות ממגוון תחומים, בהתאם לתקני IFRS ודיווח כספי קפדני.- ליווי הלקוחות, ניהול הממשקים מולם והנעת עובדי הצוות להישגים בסביבה יציבה ונעימה.שכר ותנאים:- שכר: 20,000-25,000 ברוטו למשרה מלאה (ייקבע בהתאם לניסיון).- היקף משרה גמיש לבחירה: משרה מלאה או חלקית, כולל אפשרות למשרת הורה נוחה במיוחד (08:00-14:00).- סביבת עבודה משפחתית ותומכת ללא עומסי העבודה הקיצוניים האופייניים למשרדים הגדולים בשוק.- מיקום: תל אביב"
+                          - generic [ref=e301]: "דרישות: - רישיון רואה/ת חשבון בתוקף - חובה.- ניסיון מעשי של לפחות 4-5 שנים בתחום הביקורת והדוחות הכספיים - חובה.- ניסיון קודם בעבודה עם חברות ציבוריות- ניסיון קודם באחד ממשרדי ה-Big 4 או ממשרד מוביל אחר - יתרון משמעותי.- ניסיון בניהול עובדים או בהובלת צוות - יתרון משמעותי.- שליטה בתקני IFRS, יכולת מנהיגות, יחסי אנוש מעולים ותודעת שירות גבוהה.שליחת קורות חיים או הגשת מועמדות מהווה הסכמה לכך שחברת גוב ספייס בעמ (החברה) תשמור ותשתמש בפרטיך, לרבות למטרת פנייה אליך בנוגע למשרות נוספות ודומות, בכל עת, ובנוסף גם להעברת פרטיך למעסיקים פוטנציאליים בעתיד. השימוש במידע ייעשה בהתאם למדינות הפרטיות באתר החברה ובה גם מידע על זכויותיך. ניתן לסרב לשימוש עתידי כאמור במידע בשליחת תמחקו אותי או לפנות בכל שאלה או בקשה בנושא באמצעות פרטי הקשר שבמדיניות הפרטיות. המשרה מיועדת לנשים ולגברים כאחד."
+                        - link "לעוד משרות ומידע על Job space >" [ref=e303] [cursor=pointer]:
+                          - /url: /Employer/HP/Default.aspx?cid=348673
+                    - generic: עוד...
+                  - generic [ref=e308]:
+                    - generic [ref=e309]:
+                      - link "הגש מועמדות" [ref=e310] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e311] [cursor=pointer]
+                    - generic [ref=e313]: "8739087"
+                    - generic "מחיקת משרה" [ref=e315]
+                    - generic "שמירת משרה" [ref=e318]:
+                      - img "שמירת משרה" [ref=e319] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e320]:
+                      - link "אפשרויות נוספות" [ref=e321] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e325]:
+                  - generic [ref=e326]:
+                    - generic [ref=e327]:
+                      - link "חברת השמה / כח אדם" [ref=e331] [cursor=pointer]:
+                        - /url: /Mador/%D7%97%D7%91%D7%A8%D7%95%D7%AA_%D7%94%D7%A9%D7%9E%D7%94.htm
+                      - generic [ref=e332]: 2 ימים
+                    - generic [ref=e334]:
+                      - link [ref=e336] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8738955
+                        - heading "פקיד /ת קבלה לרשת מובילה בתל אביב - שכר גבוה!!" [level=2] [ref=e337]
+                      - link "Job space" [ref=e339] [cursor=pointer]:
+                        - /url: /Employer/HP/Default.aspx?cid=348673
+                    - link [ref=e341] [cursor=pointer]:
+                      - /url: /Employer/HP/Default.aspx?cid=348673
+                      - img "דרושים בJob space" [ref=e342]
+                    - generic [ref=e344]:
+                      - generic [ref=e346]: "מיקום המשרה: מספר מקומות"
+                      - generic [ref=e348]: "סוג משרה: מספר סוגים"
+                      - generic [ref=e350]: "שכר: 10,000-12,000"
+                      - generic [ref=e352]:
+                        - generic [ref=e354]:
+                          - text: "לרשת מובילה בתחום המדרסים, האורתופדיה והטיפול בכאב דרוש/ה פקיד/ת קבלה להשתלבות במכון מקצועי, מתקדם ומשפחתי. שכר שעתי טוב, סביבה נעימה וצוות איכותי!תיאור התפקיד:- ניהול יומן וקביעת תורים למטופלים.- קבלת קהל ומתן שירות פרונטלי וטלפוני.- טיפול בתשלומים והתנהלות מול משרד הבריאות ומשרד הביטחון.- ניהול קופה ומכירת מוצרים בקו הקופה.- עבודה שוטפת בסביבה ממוחשבת ובמערכת CRM.שכר ותנאים:- שכר 50 לשעה.- תנאים סוציאליים מלאים על פי חוק.- משרה מלאה, ימים א'-ה', משמרות: 09:00-17:00 / 11:00-19:00 (בהתאם לצורכי המכון) + ימי שישי לסירוגין.- סביבת עבודה משפחתית, מקצועית ונעימה עם צוות איכותי.- מיקום: תל אביב"
+                          - generic [ref=e355]: "דרישות: - ניסיון קודם בתפקיד דומה - חובה.- שליטה מלאה בתוכנות Office.- ניסיון בעבודה מול לקוחות ותודעת שירות גבוהה.- יכולת עבודה בסביבה ממוחשבת.שליחת קורות חיים או הגשת מועמדות מהווה הסכמה לכך שחברת גוב ספייס בעמ (החברה) תשמור ותשתמש בפרטיך, לרבות למטרת פנייה אליך בנוגע למשרות נוספות ודומות, בכל עת, ובנוסף גם להעברת פרטיך למעסיקים פוטנציאליים בעתיד. השימוש במידע ייעשה בהתאם למדינות הפרטיות באתר החברה ובה גם מידע על זכויותיך. ניתן לסרב לשימוש עתידי כאמור במידע בשליחת תמחקו אותי או לפנות בכל שאלה או בקשה בנושא באמצעות פרטי הקשר שבמדיניות הפרטיות. המשרה מיועדת לנשים ולגברים כאחד."
+                        - link "לעוד משרות ומידע על Job space >" [ref=e357] [cursor=pointer]:
+                          - /url: /Employer/HP/Default.aspx?cid=348673
+                    - generic: עוד...
+                  - generic [ref=e362]:
+                    - generic [ref=e363]:
+                      - link "הגש מועמדות" [ref=e364] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e365] [cursor=pointer]
+                    - generic [ref=e367]: "8738955"
+                    - generic "מחיקת משרה" [ref=e369]
+                    - generic "שמירת משרה" [ref=e372]:
+                      - img "שמירת משרה" [ref=e373] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e374]:
+                      - link "אפשרויות נוספות" [ref=e375] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e379]:
+                  - generic [ref=e380]:
+                    - generic [ref=e381]:
+                      - link "חברת השמה / כח אדם" [ref=e385] [cursor=pointer]:
+                        - /url: /Mador/%D7%97%D7%91%D7%A8%D7%95%D7%AA_%D7%94%D7%A9%D7%9E%D7%94.htm
+                      - generic [ref=e386]: 2 ימים
+                    - generic [ref=e388]:
+                      - link [ref=e390] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8716506
+                        - heading "איש מכירות B2B לחברת אבטחת מידע וסייבר - שכר + בונוסים גבוהים!!" [level=2] [ref=e391]
+                      - link "Job space" [ref=e393] [cursor=pointer]:
+                        - /url: /Employer/HP/Default.aspx?cid=348673
+                    - link [ref=e395] [cursor=pointer]:
+                      - /url: /Employer/HP/Default.aspx?cid=348673
+                      - img "דרושים בJob space" [ref=e396]
+                    - generic [ref=e398]:
+                      - generic [ref=e400]: "מיקום המשרה: מספר מקומות"
+                      - generic [ref=e402]: "סוג משרה: מספר סוגים"
+                      - generic [ref=e405]:
+                        - generic [ref=e407]:
+                          - text: "הזדמנות להשתלב בחברה מובילה בתחום ה-GRC ואבטחת המידע! אנו מחפשים איש מכירות רעב/ה להצלחה, שיודע/ת לפתוח דלתות ולסגור עסקאות.תיאור התפקיד:- מכירת שירותי GRC, אבטחת מידע וסייבר.- ניהול תיקי לקוחות ופיתוח הזדמנויות עסקיות חדשות.- ליווי הלקוח משלב הפנייה ועד לסגירת העסקה.שכר ותנאים:- משרה מלאה- מודל תגמול אטרקטיבי עם פוטנציאל השתכרות גבוה ובונוסים על ביצועים.- סביבת עבודה מקצועית ודינמית עם אפשרויות צמיחה והתפתחות.- מיקום: ראש העין"
+                          - generic [ref=e408]: "דרישות: - ניסיון במכירות B2B - חובה- ידע בשפה האנגלית.שליחת קורות חיים או הגשת מועמדות מהווה הסכמה לכך שחברת גוב ספייס בעמ (החברה) תשמור ותשתמש בפרטיך, לרבות למטרת פנייה אליך בנוגע למשרות נוספות ודומות, בכל עת, ובנוסף גם להעברת פרטיך למעסיקים פוטנציאליים בעתיד. השימוש במידע ייעשה בהתאם למדינות הפרטיות באתר החברה ובה גם מידע על זכויותיך. ניתן לסרב לשימוש עתידי כאמור במידע בשליחת תמחקו אותי או לפנות בכל שאלה או בקשה בנושא באמצעות פרטי הקשר שבמדיניות הפרטיות. המשרה מיועדת לנשים ולגברים כאחד."
+                        - link "לעוד משרות ומידע על Job space >" [ref=e410] [cursor=pointer]:
+                          - /url: /Employer/HP/Default.aspx?cid=348673
+                    - generic: עוד...
+                  - generic [ref=e415]:
+                    - generic [ref=e416]:
+                      - link "הגש מועמדות" [ref=e417] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e418] [cursor=pointer]
+                    - generic [ref=e420]: "8716506"
+                    - generic "מחיקת משרה" [ref=e422]
+                    - generic "שמירת משרה" [ref=e425]:
+                      - img "שמירת משרה" [ref=e426] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e427]:
+                      - link "אפשרויות נוספות" [ref=e428] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e432]:
+                  - generic [ref=e433]:
+                    - generic [ref=e434]:
+                      - link "חברת השמה / כח אדם" [ref=e438] [cursor=pointer]:
+                        - /url: /Mador/%D7%97%D7%91%D7%A8%D7%95%D7%AA_%D7%94%D7%A9%D7%9E%D7%94.htm
+                      - generic [ref=e439]: 2 ימים
+                    - generic [ref=e441]:
+                      - link [ref=e443] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8723031
+                        - heading "קמפיינר /ית PPC לחברת שיווק מבוסס AI בתל אביב - שכר גבוה!!" [level=2] [ref=e444]
+                      - link "Job space" [ref=e446] [cursor=pointer]:
+                        - /url: /Employer/HP/Default.aspx?cid=348673
+                    - link [ref=e448] [cursor=pointer]:
+                      - /url: /Employer/HP/Default.aspx?cid=348673
+                      - img "דרושים בJob space" [ref=e449]
+                    - generic [ref=e451]:
+                      - generic [ref=e453]: "מיקום המשרה: מספר מקומות"
+                      - generic [ref=e455]: "סוג משרה: מספר סוגים"
+                      - generic [ref=e458]:
+                        - generic [ref=e460]:
+                          - text: "חברת שיווק צמיחה מבוססת AI מחפשת קמפיינר/ית PPC לניהול קמפיינים ממומנים על פני מגוון פלטפורמות. הצוות מתמקד ביצירת צמיחה בקנה מידה רחב, גיוס לקוחות, יצירת לידים ואופטימיזציה להמרות - עם דגש על תוצאות מדידות והחזר השקעה גבוה.תיאור התפקיד:- ניהול קמפיינים ממומנים ובניית אסטרטגיית מדיה על פני Meta, Google, TikTok ו-LinkedIn.- גיוס לקוחות, יצירת לידים ואופטימיזציה להמרות.- ניהול תקציבים וביצוע אופטימיזציה שוטפת לקמפיינים.- קבלת החלטות מבוססות דאטה ומעקב אחר ביצועים.שכר ותנאים:- משרה חלקית.- שעות ושכר ייקבעו בראיון עבודה.- מיקום: תל אביב"
+                          - generic [ref=e461]: "דרישות: - 2-3 שנות ניסיון בניהול קמפיינים ממומנים ובניית אסטרטגיית מדיה - חובה- ניסיון מוכח ב-Meta Ads, Google Ads ו-TikTok Ads- ניסיון בעבודה עם LinkedIn Ads- עברית ברמת שפת אם- היכרות עם כלי Tracking ומדידה ואנגלית ברמה גבוהה - יתרוןשליחת קורות חיים או הגשת מועמדות מהווה הסכמה לכך שחברת גוב ספייס בעמ (החברה) תשמור ותשתמש בפרטיך, לרבות למטרת פנייה אליך בנוגע למשרות נוספות ודומות, בכל עת, ובנוסף גם להעברת פרטיך למעסיקים פוטנציאליים בעתיד. השימוש במידע ייעשה בהתאם למדינות הפרטיות באתר החברה ובה גם מידע על זכויותיך. ניתן לסרב לשימוש עתידי כאמור במידע בשליחת תמחקו אותי או לפנות בכל שאלה או בקשה בנושא באמצעות פרטי הקשר שבמדיניות הפרטיות. המשרה מיועדת לנשים ולגברים כאחד."
+                        - link "לעוד משרות ומידע על Job space >" [ref=e463] [cursor=pointer]:
+                          - /url: /Employer/HP/Default.aspx?cid=348673
+                    - generic: עוד...
+                  - generic [ref=e468]:
+                    - generic [ref=e469]:
+                      - link "הגש מועמדות" [ref=e470] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e471] [cursor=pointer]
+                    - generic [ref=e473]: "8723031"
+                    - generic "מחיקת משרה" [ref=e475]
+                    - generic "שמירת משרה" [ref=e478]:
+                      - img "שמירת משרה" [ref=e479] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e480]:
+                      - link "אפשרויות נוספות" [ref=e481] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e485]:
+                  - generic [ref=e486]:
+                    - generic [ref=e487]:
+                      - link "חברת השמה / כח אדם" [ref=e491] [cursor=pointer]:
+                        - /url: /Mador/%D7%97%D7%91%D7%A8%D7%95%D7%AA_%D7%94%D7%A9%D7%9E%D7%94.htm
+                      - generic [ref=e492]: 2 ימים
+                    - generic [ref=e494]:
+                      - link [ref=e496] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8704860
+                        - heading "נציגי /ות מכירות לסוכנות ביטוח מובילה - שכר גבוה!!" [level=2] [ref=e497]
+                      - link "Job space" [ref=e499] [cursor=pointer]:
+                        - /url: /Employer/HP/Default.aspx?cid=348673
+                    - link [ref=e501] [cursor=pointer]:
+                      - /url: /Employer/HP/Default.aspx?cid=348673
+                      - img "דרושים בJob space" [ref=e502]
+                    - generic [ref=e504]:
+                      - generic [ref=e506]: "מיקום המשרה: מספר מקומות"
+                      - generic [ref=e508]: "סוג משרה: מספר סוגים"
+                      - generic [ref=e510]: "שכר: 18,000-22,000"
+                      - generic [ref=e512]:
+                        - generic [ref=e514]:
+                          - text: "הזדמנות להשתלב בסוכנות ביטוח מצליחה ומובילה! אנו מגייסים נציגי/ות מכירות בעלי מוטיבציה גבוהה, עם פוטנציאל שכר גבוה במיוחד ותנאים מעולים.תיאור תפקיד:- מכירת מוצרי ביטוח ופיננסים ללקוחות וניהול תהליך מכירה מקצה לקצה.- יצירת קשר עם לקוחות, מתן פתרונות מותאמים אישית ועבודה בסביבה תחרותית ודינמית.שכר ותנאים:- שכר בסיס גבוה + בונוסים גבוהים במיוחד ללא תקרת שכר (פוטנציאל של 15,000-25,000 ומעלה).- ימי גיבוש, מתנות בימי הולדת, מתנות בחגים, אווירה משפחתית, יציבות לטווח ארוך.- הכשרה מקצועית מלאה בתחום הביטוח על חשבון החברה ואפשרויות קידום.- סביבת עבודה צעירה ומשפחתית, ימי גיבוש, תחרויות, פרסים ומתנות.- ימים א'-ה', שעות 09:00-16:00 (שעות נוחות וגמישות, ללא ימי שישי, שבתות וערבי חג).- מיקום: חיפה, פתח תקווה, קריית גת"
+                          - generic [ref=e515]: "דרישות: - ניסיון קודם במכירות - חובה.- ניסיון במכירות ביטוחי חיים ובריאות - יתרון משמעותי.- כושר שכנוע, יכולת ניהול משא ומתן, יחסי אנוש מצוינים ועבודה מול יעדים.- מוטיבציה גבוהה להצלחה ולהשתכרות גבוהה.שליחת קורות חיים או הגשת מועמדות מהווה הסכמה לכך שחברת גוב ספייס בעמ (החברה) תשמור ותשתמש בפרטיך, לרבות למטרת פנייה אליך בנוגע למשרות נוספות ודומות, בכל עת, ובנוסף גם להעברת פרטיך למעסיקים פוטנציאליים בעתיד. השימוש במידע ייעשה בהתאם למדינות הפרטיות באתר החברה ובה גם מידע על זכויותיך. ניתן לסרב לשימוש עתידי כאמור במידע בשליחת תמחקו אותי או לפנות בכל שאלה או בקשה בנושא באמצעות פרטי הקשר שבמדיניות הפרטיות. המשרה מיועדת לנשים ולגברים כאחד."
+                        - link "לעוד משרות ומידע על Job space >" [ref=e517] [cursor=pointer]:
+                          - /url: /Employer/HP/Default.aspx?cid=348673
+                    - generic: עוד...
+                  - generic [ref=e522]:
+                    - generic [ref=e523]:
+                      - link "הגש מועמדות" [ref=e524] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e525] [cursor=pointer]
+                    - generic [ref=e527]: "8704860"
+                    - generic "מחיקת משרה" [ref=e529]
+                    - generic "שמירת משרה" [ref=e532]:
+                      - img "שמירת משרה" [ref=e533] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e534]:
+                      - link "אפשרויות נוספות" [ref=e535] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e539]:
+                  - generic [ref=e540]:
+                    - generic [ref=e541]:
+                      - link "חברת השמה / כח אדם" [ref=e545] [cursor=pointer]:
+                        - /url: /Mador/%D7%97%D7%91%D7%A8%D7%95%D7%AA_%D7%94%D7%A9%D7%9E%D7%94.htm
+                      - generic [ref=e546]: 2 ימים
+                    - generic [ref=e548]:
+                      - link [ref=e550] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8718400
+                        - heading "פקיד /ת אופרציה לקריירה בעולם התיירות - שכר גבוה!!" [level=2] [ref=e551]
+                      - link "Job space" [ref=e553] [cursor=pointer]:
+                        - /url: /Employer/HP/Default.aspx?cid=348673
+                    - link [ref=e555] [cursor=pointer]:
+                      - /url: /Employer/HP/Default.aspx?cid=348673
+                      - img "דרושים בJob space" [ref=e556]
+                    - generic [ref=e558]:
+                      - generic [ref=e560]: "מיקום המשרה: מספר מקומות"
+                      - generic [ref=e562]: "סוג משרה: מספר סוגים"
+                      - generic [ref=e564]: "שכר: 10,000-12,000"
+                      - generic [ref=e566]:
+                        - generic [ref=e568]:
+                          - text: "הזדמנות להשתלב בקריירה בעולם התיירות בחברה מקצועית, דינמית וצעירה ברמת החייל!התפקיד:ביצוע הזמנות, עבודה מול ספקים בחו\"ל, תפעול שוטף ומתן שירות מעולה ללקוחות בסביבה צעירה ודינמית.התנאים:שכר של 10,000-12,000, משרה מלאה א'-ה' (09:00-18:00).מיקום: רמת החייל, תל אביב"
+                          - generic [ref=e569]: "דרישות: אנגלית ברמה טובה מאוד, חריצות, שירותיות גבוהה, יכולת עבודה בצוות ושליטה ביישומי מחשב. ידע במערכת גלבוע או ניסיון בתיירות - יתרון משמעותי!שליחת קורות חיים או הגשת מועמדות מהווה הסכמה לכך שחברת גוב ספייס בעמ (החברה) תשמור ותשתמש בפרטיך, לרבות למטרת פנייה אליך בנוגע למשרות נוספות ודומות, בכל עת, ובנוסף גם להעברת פרטיך למעסיקים פוטנציאליים בעתיד. השימוש במידע ייעשה בהתאם למדינות הפרטיות באתר החברה ובה גם מידע על זכויותיך. ניתן לסרב לשימוש עתידי כאמור במידע בשליחת תמחקו אותי או לפנות בכל שאלה או בקשה בנושא באמצעות פרטי הקשר שבמדיניות הפרטיות. המשרה מיועדת לנשים ולגברים כאחד."
+                        - link "לעוד משרות ומידע על Job space >" [ref=e571] [cursor=pointer]:
+                          - /url: /Employer/HP/Default.aspx?cid=348673
+                    - generic: עוד...
+                  - generic [ref=e576]:
+                    - generic [ref=e577]:
+                      - link "הגש מועמדות" [ref=e578] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e579] [cursor=pointer]
+                    - generic [ref=e581]: "8718400"
+                    - generic "מחיקת משרה" [ref=e583]
+                    - generic "שמירת משרה" [ref=e586]:
+                      - img "שמירת משרה" [ref=e587] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e588]:
+                      - link "אפשרויות נוספות" [ref=e589] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e593]:
+                  - generic [ref=e594]:
+                    - generic [ref=e595]:
+                      - link "חברת השמה / כח אדם" [ref=e599] [cursor=pointer]:
+                        - /url: /Mador/%D7%97%D7%91%D7%A8%D7%95%D7%AA_%D7%94%D7%A9%D7%9E%D7%94.htm
+                      - generic [ref=e600]: 2 ימים
+                    - generic [ref=e602]:
+                      - link [ref=e604] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8735617
+                        - heading "מנהל /ת משאבי אנוש לחברה מובילה בתל אביב - שכר גבוה לחצי משרה!!" [level=2] [ref=e605]
+                      - link "Job space" [ref=e607] [cursor=pointer]:
+                        - /url: /Employer/HP/Default.aspx?cid=348673
+                    - link [ref=e609] [cursor=pointer]:
+                      - /url: /Employer/HP/Default.aspx?cid=348673
+                      - img "דרושים בJob space" [ref=e610]
+                    - generic [ref=e612]:
+                      - generic [ref=e614]: "מיקום המשרה: מספר מקומות"
+                      - generic [ref=e616]: "סוג משרה: מספר סוגים"
+                      - generic [ref=e619]:
+                        - generic [ref=e621]:
+                          - text: "מרכז רפואי אינטגרטיבי פרטי במתחם ויצמן תל אביב, ?המתמחה בטיפול במחלות מטבוליות ובעיות מורכבות במערכת העיכול, בשילוב ייחודי של רפואה קונבנציונלית מתקדמת וליווי מעולם הרפואה האלטרנטיבית - מגייס מנהל /ת משאבי אנוש לחצי משרה בשכר גבוה. מקום עבודה חם ומשפחתי, שבו המקצועיות פוגשת עבודה עם אנשים!תיאור התפקיד:- אחריות מקצה לקצה על ניהול תחום משאבי האנוש בארגון.- הכנה והגשת נתונים למשרד רו\"ח חיצוני, תוך הפגנת ידע מקצועי בדיני עבודה וחשבות שכר.- מתן מענה מהיר ומקצועי להנהלה ולעובדים בסוגיות אדמיניסטרטיביות ומקצועיות.שכר ותנאים:- שכר גבוה.- חצי משרה נוחה: 5 ימים בשבוע, כ-4-5 שעות ביום - אידיאלי לאיזון בית-עבודה.- מודל העסקה גמיש: שכיר/ה או כנגד חשבונית.- סביבת עבודה חמה ומשפחתית במרכז רפואי מוביל בלב תל אביב.- מיקום: מתחם ויצמן, תל אביב"
+                          - generic [ref=e622]: "דרישות: - ניסיון מוכח בתפקיד דומה בתחום משאבי אנוש - חובה.- שליטה מלאה בעברית.- שליטה מעולה בסביבה ממוחשבת, כולל עבודה עם דוחות ומערכות ברמה גבוהה.- רוסית - יתרון משמעותי.- תעודת חשב/ת שכר וידע מעמיק בדיני עבודה - יתרון משמעותי.שליחת קורות חיים או הגשת מועמדות מהווה הסכמה לכך שחברת גוב ספייס בעמ (החברה) תשמור ותשתמש בפרטיך, לרבות למטרת פנייה אליך בנוגע למשרות נוספות ודומות, בכל עת, ובנוסף גם להעברת פרטיך למעסיקים פוטנציאליים בעתיד. השימוש במידע ייעשה בהתאם למדינות הפרטיות באתר החברה ובה גם מידע על זכויותיך. ניתן לסרב לשימוש עתידי כאמור במידע בשליחת תמחקו אותי או לפנות בכל שאלה או בקשה בנושא באמצעות פרטי הקשר שבמדיניות הפרטיות. המשרה מיועדת לנשים ולגברים כאחד."
+                        - link "לעוד משרות ומידע על Job space >" [ref=e624] [cursor=pointer]:
+                          - /url: /Employer/HP/Default.aspx?cid=348673
+                    - generic: עוד...
+                  - generic [ref=e629]:
+                    - generic [ref=e630]:
+                      - link "הגש מועמדות" [ref=e631] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e632] [cursor=pointer]
+                    - generic [ref=e634]: "8735617"
+                    - generic "מחיקת משרה" [ref=e636]
+                    - generic "שמירת משרה" [ref=e639]:
+                      - img "שמירת משרה" [ref=e640] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e641]:
+                      - link "אפשרויות נוספות" [ref=e642] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e646]:
+                  - generic [ref=e647]:
+                    - generic [ref=e648]:
+                      - link "חברת השמה / כח אדם" [ref=e652] [cursor=pointer]:
+                        - /url: /Mador/%D7%97%D7%91%D7%A8%D7%95%D7%AA_%D7%94%D7%A9%D7%9E%D7%94.htm
+                      - generic [ref=e653]: 2 ימים
+                    - generic [ref=e655]:
+                      - link [ref=e657] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8740318
+                        - heading "עורך /ת דין בתחום הנזיקין והביטוח בבני ברק - שכר גבוה!!" [level=2] [ref=e658]
+                      - link "Job space" [ref=e660] [cursor=pointer]:
+                        - /url: /Employer/HP/Default.aspx?cid=348673
+                    - link [ref=e662] [cursor=pointer]:
+                      - /url: /Employer/HP/Default.aspx?cid=348673
+                      - img "דרושים בJob space" [ref=e663]
+                    - generic [ref=e665]:
+                      - generic [ref=e667]: "מיקום המשרה: מספר מקומות"
+                      - generic [ref=e669]: "סוג משרה: מספר סוגים"
+                      - generic [ref=e671]: "שכר: 8,000-10,000"
+                      - generic [ref=e673]:
+                        - generic [ref=e675]:
+                          - text: "למשרד עורכי דין מוביל בתחום הנזיקין והביטוח במרכז הארץ דרוש/ה עורך/ת דין להשתלבות בצוות מקצועי, איכותי ומוביל! הזדמנות לפתח קריירה בעולם הנזיקין והביטוח לצד צוות מנוסה ותומך!תיאור התפקיד:- ניהול תיקים בתחום הנזיקין והביטוח.- כתיבת כתבי טענות, בקשות ומסמכים משפטיים.- הופעות בבתי משפט וניהול הליכים משפטיים.- טיפול בתיקי נזקי גוף, נזקי רכוש, נזקי רכב וביטוח אלמנטרי.- עבודה שוטפת מול לקוחות, מומחים, יועצים משפטיים וחברות ביטוח.- ניהול משא ומתן וייצוג לקוחות.שכר ותנאים:- שכר התחלתי: 9,000 ברוטו (בהתאם לניסיון).- משרה מלאה: ימים א'-ה', 09:00-18:00 - אין עבודה בחול המועד!- סביבת עבודה מקצועית, איכותית ומאתגרת.- אפשרויות קידום והתפתחות מקצועית במשרד מוביל עם צוות מנוסה ותומך.- מיקום: בני ברק"
+                          - generic [ref=e676]: "דרישות: - רישיון עורך/ת דין - חובה.- ניסיון של לפחות שנה בתחום - חובה.- ניסיון בכתיבת כתבי טענות וליטיגציה - יתרון משמעותי.- ניסיון בנזקי גוף, נזקי רכוש, נזקי רכב וביטוח אלמנטרי - יתרון.שליחת קורות חיים או הגשת מועמדות מהווה הסכמה לכך שחברת גוב ספייס בעמ (החברה) תשמור ותשתמש בפרטיך, לרבות למטרת פנייה אליך בנוגע למשרות נוספות ודומות, בכל עת, ובנוסף גם להעברת פרטיך למעסיקים פוטנציאליים בעתיד. השימוש במידע ייעשה בהתאם למדינות הפרטיות באתר החברה ובה גם מידע על זכויותיך. ניתן לסרב לשימוש עתידי כאמור במידע בשליחת תמחקו אותי או לפנות בכל שאלה או בקשה בנושא באמצעות פרטי הקשר שבמדיניות הפרטיות. המשרה מיועדת לנשים ולגברים כאחד."
+                        - link "לעוד משרות ומידע על Job space >" [ref=e678] [cursor=pointer]:
+                          - /url: /Employer/HP/Default.aspx?cid=348673
+                    - generic: עוד...
+                  - generic [ref=e683]:
+                    - generic [ref=e684]:
+                      - link "הגש מועמדות" [ref=e685] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e686] [cursor=pointer]
+                    - generic [ref=e688]: "8740318"
+                    - generic "מחיקת משרה" [ref=e690]
+                    - generic "שמירת משרה" [ref=e693]:
+                      - img "שמירת משרה" [ref=e694] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e695]:
+                      - link "אפשרויות נוספות" [ref=e696] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                - generic [ref=e700]:
+                  - generic [ref=e701]:
+                    - generic [ref=e702]:
+                      - link "חברת השמה / כח אדם" [ref=e706] [cursor=pointer]:
+                        - /url: /Mador/%D7%97%D7%91%D7%A8%D7%95%D7%AA_%D7%94%D7%A9%D7%9E%D7%94.htm
+                      - generic [ref=e707]: 2 ימים
+                    - generic [ref=e709]:
+                      - link [ref=e711] [cursor=pointer]:
+                        - /url: /Search/UploadSingle.aspx?JobID=8725080
+                        - heading "פקיד /ת קבלה עם אוריינטציה למכירות לקליניקת קוסמטיקה מובילה בת\"א - שכר גבוה!!" [level=2] [ref=e712]
+                      - link "Job space" [ref=e714] [cursor=pointer]:
+                        - /url: /Employer/HP/Default.aspx?cid=348673
+                    - link [ref=e716] [cursor=pointer]:
+                      - /url: /Employer/HP/Default.aspx?cid=348673
+                      - img "דרושים בJob space" [ref=e717]
+                    - generic [ref=e719]:
+                      - generic [ref=e721]: "מיקום המשרה: מספר מקומות"
+                      - generic [ref=e723]: "סוג משרה: מספר סוגים"
+                      - generic [ref=e726]:
+                        - generic [ref=e728]:
+                          - text: "חברה מובילה בתחום הקוסמטיקה, המפעילה קליניקה יוקרתית בתל אביב, מחפשת פקיד/ת קבלה שירותי/ת, ייצוגי/ת ובעל/ת אוריינטציה מכירתית. סביבת עבודה איכותית ומקצועית - למי שאוהב/ת לעבוד עם אנשים!התפקיד: קבלת לקוחות ומתן שירות פרונטלי ברמה גבוהה, מענה טלפוני וטיפול בפניות, ניהול ותיאום יומן פגישות במערכת ממוחשבת, מכירת מוצרי קוסמטיקה וטיפוח ותמיכה אדמיניסטרטיבית לצוות הקליניקה.התנאים: שכר מתגמל (לפי ניסיון) + עמלות ובונוסים על מכירות. משמרות בוקר 08:30-15:00 / ערב 14:30-20:00, לפחות 4 בשבוע, שישי לסירוגין. סביבה יוקרתית ומקצועית. מיקום: מתחם WE TLV, תל אביב"
+                          - generic [ref=e729]: "דרישות: כושר ביטוי, שירותיות ויחסי אנוש מצוינים, אוריינטציה מכירתית, אנגלית בסיסית ושליטה במחשב, ניסיון אדמיניסטרטיבי/פקידותי - יתרון משמעותי.שליחת קורות חיים או הגשת מועמדות מהווה הסכמה לכך שחברת גוב ספייס בעמ (החברה) תשמור ותשתמש בפרטיך, לרבות למטרת פנייה אליך בנוגע למשרות נוספות ודומות, בכל עת, ובנוסף גם להעברת פרטיך למעסיקים פוטנציאליים בעתיד. השימוש במידע ייעשה בהתאם למדינות הפרטיות באתר החברה ובה גם מידע על זכויותיך. ניתן לסרב לשימוש עתידי כאמור במידע בשליחת תמחקו אותי או לפנות בכל שאלה או בקשה בנושא באמצעות פרטי הקשר שבמדיניות הפרטיות. המשרה מיועדת לנשים ולגברים כאחד."
+                        - link "לעוד משרות ומידע על Job space >" [ref=e731] [cursor=pointer]:
+                          - /url: /Employer/HP/Default.aspx?cid=348673
+                    - generic: עוד...
+                  - generic [ref=e736]:
+                    - generic [ref=e737]:
+                      - link "הגש מועמדות" [ref=e738] [cursor=pointer]:
+                        - /url: javascript:void(0)
+                        - text: הגשת מועמדות
+                      - img "עדכון קורות החיים לפני שליחה" [ref=e739] [cursor=pointer]
+                    - generic [ref=e741]: "8725080"
+                    - generic "מחיקת משרה" [ref=e743]
+                    - generic "שמירת משרה" [ref=e746]:
+                      - img "שמירת משרה" [ref=e747] [cursor=pointer]
+                    - generic "אפשרויות נוספות" [ref=e748]:
+                      - link "אפשרויות נוספות" [ref=e749] [cursor=pointer]:
+                        - /url: javascript:void(0)
+    - generic [ref=e753]:
+      - link [ref=e758] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20600__zoneid=11__cb=46b7a289a5__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D1954
+        - img "כלל ביטוחים ופיננסים" [ref=e759]
+      - link [ref=e762] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21525__zoneid=12__cb=bdec13ff71__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D173831
+        - img "הפניקס" [ref=e763]
+      - link [ref=e766] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20963__zoneid=13__cb=3aa344cfcf__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D117557
+        - img "סלקום" [ref=e767]
+      - link [ref=e770] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20888__zoneid=14__cb=af9922c6ea__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D6843
+        - img "בזק" [ref=e771]
+      - link [ref=e774] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21319__zoneid=85__cb=c97af95154__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D125
+        - img "בנק לאומי" [ref=e775]
+      - link [ref=e778] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21183__zoneid=86__cb=fc530a2c54__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D117679
+        - img "AIG" [ref=e779]
+      - link [ref=e782] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21508__zoneid=91__cb=d31fc9a942__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D289
+        - img "רכבת ישראל" [ref=e783]
+      - link [ref=e786] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21046__zoneid=92__cb=23ff6eb743__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D225397
+        - img "הבנק הבינלאומי" [ref=e787]
+    - contentinfo [ref=e790]:
+      - generic [ref=e793]:
+        - generic [ref=e794]:
+          - generic [ref=e795]:
+            - generic [ref=e796]: חיפוש עבודה
+            - link "AllJobs VIP - חיפוש עבודה בקלות" [ref=e797] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/Register/CreditCard.aspx?CameFrom=NavigationBar_VIP
+            - link "סוכן חכם" [ref=e798] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/Agents/
+            - generic [ref=e799]: קטגוריות מובילות
+            - generic [ref=e805]: חיפוש עבודה לפי תחום
+            - generic [ref=e811]: חיפוש עבודה לפי איזור
+            - generic [ref=e817]: חיפוש עבודה לפי חברה
+          - generic [ref=e823]:
+            - generic [ref=e824]: כיצד למצוא עבודה?
+            - generic [ref=e825]: מדריכים לחיפוש עבודה
+            - generic [ref=e831]: כלים לחיפוש עבודה
+            - generic [ref=e837]: כלים לפיטורים ואבטלה
+            - generic [ref=e843]: כלים נוספים לעולם העבודה
+          - generic [ref=e849]:
+            - generic [ref=e850]: מתחם השכר
+            - link "טבלאות שכר" [ref=e851] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/SalaryCompound/SalarySurvey.aspx
+            - link "נתוני שכר לפי תפקיד" [ref=e852] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/SalaryCompound/position/Index.aspx
+            - link "כמה אתם שווים" [ref=e853] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/SalaryCompound
+            - link "מחשבון שכר ברוטו נטו" [ref=e854] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/ArticlePage.aspx?LinkWord=%E1%F8%E5%E8%E5_%F0%E8%E5
+          - generic [ref=e855]:
+            - generic [ref=e856]: גיוס עובדים
+            - link "פרסום מודעת דרושים" [ref=e857] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/Employer/Job/#!/job/new/first
+            - link "MatchIT - חברת הגיוס וההשמה של AllJobs" [ref=e858] [cursor=pointer]:
+              - /url: https://www.match-it.co.il/
+            - link "חיפוש וגיוס עובדים" [ref=e859] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/Employer/HomePage.aspx
+          - generic [ref=e860]:
+            - generic [ref=e861]: אולג'ובס
+            - link "הצהרת נגישות" [ref=e862] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/ArticlePage.aspx?LinkWord=accessibility
+            - link "מדיניות פרטיות" [ref=e863] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/ArticlePage.aspx?LinkWord=privacyalljobs
+            - link "בקשת עיון ותיקון מידע" [ref=e864] [cursor=pointer]:
+              - /url: /law/inspection-and-correction.pdf
+            - link "מי אנחנו" [ref=e865] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/AboutUs.aspx
+            - link "רוצה לעבוד ב-AllJobs?" [ref=e866] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/Employer/HP/Default.aspx?cid=73090
+            - link "שאלות נפוצות" [ref=e867] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/helpcenter/jobseekers
+            - link "שירות לקוחות" [ref=e868] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/helpcenter/
+            - link "תנאי שימוש" [ref=e869] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/UserAgreement.aspx
+            - link "זירת הפרילנסרים XPlace" [ref=e870] [cursor=pointer]:
+              - /url: https://www.xplace.com/il/?utm_source=alljobs&utm_medium=cooperation&utm_campaign=alljobs_footer
+            - link "משרות לצעירים - סחבק" [ref=e871] [cursor=pointer]:
+              - /url: https://www.sahbak.co.il/?utm_source=alljobs&utm_medium=cooperation&utm_campaign=alljobs_footer
+        - generic [ref=e873]:
+          - generic [ref=e874]:
+            - generic [ref=e875]:
+              - link [ref=e876] [cursor=pointer]:
+                - /url: https://www.facebook.com/AllJobs
+                - img "Facebook" [ref=e877]
+              - link [ref=e878] [cursor=pointer]:
+                - /url: https://www.linkedin.com/company/alljobs
+                - img "Linkedin" [ref=e879]
+              - link [ref=e880] [cursor=pointer]:
+                - /url: https://www.youtube.com/user/alljobscoil
+                - img "Youtube" [ref=e881]
+              - link [ref=e882] [cursor=pointer]:
+                - /url: https://www.tiktok.com/@alljobs.co.il
+                - img "TikTok" [ref=e883]
+              - link [ref=e884] [cursor=pointer]:
+                - /url: https://www.instagram.com/alljobs.co.il/
+                - img "Instagram" [ref=e885]
+              - link "צור קשר צור קשר" [ref=e887] [cursor=pointer]:
+                - /url: /helpcenter
+                - generic [ref=e888]: צור קשר
+                - img "צור קשר" [ref=e889]
+            - link [ref=e890] [cursor=pointer]:
+              - /url: /
+              - img "AllJobs אתר הדרושים הגדול בישראל" [ref=e891]
+          - generic [ref=e892]:
+            - generic [ref=e893]: כל הזכויות שמורות לחברת All U Need בע"מ - בני ברמן 2, מגדל עיר ימים, נתניה 4249330 מקבוצת
+            - img "Yedioth Ahronot" [ref=e894]

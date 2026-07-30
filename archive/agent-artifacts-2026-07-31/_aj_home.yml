@@ -1,0 +1,414 @@
+- generic [active] [ref=f3e1]:
+  - region "אפשרויות נגישות מהירות":
+    - button "דלג לתוכן הראשי" [ref=f3e544] [cursor=pointer]
+    - button "אפשר נגישות לראייה לקויה" [ref=f3e558] [cursor=pointer]
+    - button "פתח את תפריט הנגישות" [ref=f3e575] [cursor=pointer]
+  - generic "תפריט נגישות":
+    - button "תפריט נגישות" [ref=f3e588] [cursor=pointer]
+  - generic [ref=f3e2]:
+    - banner:
+      - link "דלג לתוכן ראשי" [ref=f3e3] [cursor=pointer]:
+        - /url: "#"
+      - generic [ref=f3e5]:
+        - generic [ref=f3e7] [cursor=pointer]:
+          - img "אולג'ובס, אתר הדרושים הגדול בישראל" [ref=f3e8]
+          - generic [ref=f3e9]: דרושים
+          - generic [ref=f3e12]: קורות חיים
+          - generic [ref=f3e15]: כלים והכוונה
+          - generic [ref=f3e18]: שכר
+          - link "כל החברות" [ref=f3e23]:
+            - /url: /Companies.aspx
+          - link "מפת הקריירה שלי" [ref=f3e28]:
+            - /url: /career-map
+          - img "AlljobsVIP" [ref=f3e31]:
+            - link "AllJobs VIP" [ref=f3e32]:
+              - /url: /User/Register/CreditCard.aspx?CameFrom=NavigationBar_VIP
+        - generic [ref=f3e33]:
+          - generic [ref=f3e34]:
+            - generic [ref=f3e36] [cursor=pointer]:
+              - generic [ref=f3e37]: היי
+              - generic [ref=f3e38]: מיכאל חיים
+            - generic [ref=f3e40]:
+              - img "משרות ששמרתי" [ref=f3e41] [cursor=pointer]:
+                - generic [ref=f3e42]: "1"
+              - img "משרות שפספסתי" [ref=f3e44] [cursor=pointer]:
+                - generic [ref=f3e45]: "25"
+          - link "גיוס עובדים" [ref=f3e48] [cursor=pointer]:
+            - /url: /Employer/HomePage.aspx
+    - generic [ref=f3e49]:
+      - generic [ref=f3e52]:
+        - generic [ref=f3e53]: 34,909
+        - link "נסו אותי" [ref=f3e56] [cursor=pointer]:
+          - /url: /career-map?CameFrom=poster
+        - heading "משרות באתר הדרושים הגדול בישראל" [level=1] [ref=f3e57]
+        - generic [ref=f3e58]: מפת קריירה אישית
+      - generic [ref=f3e66]:
+        - tablist [ref=f3e70]:
+          - tab "חיפוש חופשי" [selected] [ref=f3e71] [cursor=pointer]
+          - tab "חיפוש לפי תחום" [ref=f3e73] [cursor=pointer]
+        - generic [ref=f3e76]:
+          - generic [ref=f3e77]:
+            - generic [ref=f3e80]:
+              - generic [ref=f3e81]: מה התפקיד הבא שלך?
+              - generic [ref=f3e82]:
+                - combobox "מה התפקיד הבא שלך?" [ref=f3e83]: java spring
+                - button "Clear" [ref=f3e85] [cursor=pointer]
+            - separator [ref=f3e88]
+            - generic [ref=f3e91]:
+              - generic [ref=f3e92]: איפה?
+              - combobox "איפה?" [ref=f3e94]
+          - button "כפתור חיפוש" [ref=f3e95] [cursor=pointer]:
+            - img "Search" [ref=f3e96]
+      - generic [ref=f3e98]:
+        - generic [ref=f3e99]: "חיפושים פופולריים:"
+        - generic [ref=f3e100]:
+          - link "עבודות ללא קורות חיים" [ref=f3e101] [cursor=pointer]:
+            - /url: /SearchResultsGuest.aspx?page=1&position=&type=40&city=&region=
+          - link "עבודה מהבית" [ref=f3e103] [cursor=pointer]:
+            - /url: /SearchResultsGuest.aspx?page=1&position=&type=&source=&duration=0&exc=&region=11
+          - link "עבודה היברידית" [ref=f3e105] [cursor=pointer]:
+            - /url: /SearchResultsGuest.aspx?page=1&position=&type=37&source=&duration=0&exc=&region=
+          - link "עבודה ראשונה" [ref=f3e107] [cursor=pointer]:
+            - /url: /SearchResultsGuest.aspx?page=1&position=1578
+          - link "כללי וללא ניסיון" [ref=f3e108] [cursor=pointer]:
+            - /url: /SearchResultsGuest.aspx?page=1&position=594
+    - generic [ref=f3e111]:
+      - link [ref=f3e114] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20892__zoneid=2__cb=940b89b034__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D70365
+        - img "הראל ביטוח" [ref=f3e115]
+      - link [ref=f3e118] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21527__zoneid=10__cb=4971b39133__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D209220
+        - img "א.ל.ם" [ref=f3e119]
+      - link [ref=f3e122] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21261__zoneid=11__cb=3e3b897101__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D226731
+        - img "רפאל" [ref=f3e123]
+      - link [ref=f3e126] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21572__zoneid=12__cb=a6d597dd08__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D6951
+        - img "YES" [ref=f3e127]
+      - link [ref=f3e130] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20963__zoneid=13__cb=20b94f793f__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D117557
+        - img "סלקום" [ref=f3e131]
+      - link [ref=f3e134] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21126__zoneid=14__cb=d0177eb838__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D182
+        - img "MAX" [ref=f3e135]
+      - link [ref=f3e138] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21319__zoneid=85__cb=4f26aab37d__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D125
+        - img "בנק לאומי" [ref=f3e139]
+      - link [ref=f3e142] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21325__zoneid=86__cb=acabf068b3__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D52403
+        - img "מנופי אבי תובלה" [ref=f3e143]
+      - link [ref=f3e146] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21508__zoneid=91__cb=88f21035a5__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D289
+        - img "רכבת ישראל" [ref=f3e147]
+      - link [ref=f3e592] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21046__zoneid=92__cb=3850561aaa__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D225397
+        - img "הבנק הבינלאומי" [ref=f3e593]
+    - link "כל החברות" [ref=f3e150] [cursor=pointer]:
+      - /url: /Companies.aspx
+    - generic [ref=f3e152]:
+      - generic [ref=f3e154]:
+        - group "1 / 5" [ref=f3e155]:
+          - iframe [ref=f3e157]:
+            - link "AllJobs" [ref=f10e10] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/Partners/Eloqua/DynamicContentClick.ashx?category=Eloqua Dynamic Content&action=DC139 - Job Seeker - New Home Page - Centered Box - salary - 336X227&label=Click&urltoredirect=https://www.alljobs.co.il/User/SalaryCompound/&elqTrackId=9436ca445e4444dca5871154c389f01b&elq=00000000000000000000000000000000&elqaid=115&elqat=2&elqCampaignId=&elqcst=272&elqcsid=738&elqak=8AF519DC3CD8C678AA4CF82AD69D1C457504B4EBA668A9178348A5A95A340F0ACAC0#/&elqTrackId=aaa185891a1243b1958262f78b47fc6a
+        - group "2 / 5" [ref=f3e158]:
+          - generic [ref=f3e160] [cursor=pointer]:
+            - link "א.ל.מ א.ל.מ תל אביב, רמת גן וגבעתיים הכי שווה לעבוד בא.ל.מ - הצטרפו כיועצי/ות מכירות ותרוויחו שכר ובונוסים גבוהים!" [ref=f3e161]:
+              - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21555__zoneid=276
+              - generic [ref=f3e162]:
+                - img "א.ל.מ" [ref=f3e164]
+                - generic [ref=f3e165]:
+                  - generic [ref=f3e166]: א.ל.מ
+                  - generic [ref=f3e167]: תל אביב, רמת גן וגבעתיים
+              - generic [ref=f3e168]: הכי שווה לעבוד בא.ל.מ - הצטרפו כיועצי/ות מכירות ותרוויחו שכר ובונוסים גבוהים!
+            - generic [ref=f3e169]:
+              - link:
+                - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21555__zoneid=276
+              - link "הגשת מועמדות" [ref=f3e170]:
+                - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21555__zoneid=276
+        - group "3 / 5" [ref=f3e171]:
+          - generic [ref=f3e173] [cursor=pointer]:
+            - link "א.ל.מ א.ל.מ העבודה בתל אביב הזדמנות להשתלב בצוות המנצח של רשת א.ל.מ כנציג/ת שירות עם מענק התמדה של 8000 ₪!" [ref=f3e174]:
+              - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21556__zoneid=277
+              - generic [ref=f3e175]:
+                - img "א.ל.מ" [ref=f3e177]
+                - generic [ref=f3e178]:
+                  - generic [ref=f3e179]: א.ל.מ
+                  - generic [ref=f3e180]: העבודה בתל אביב
+              - generic [ref=f3e181]: הזדמנות להשתלב בצוות המנצח של רשת א.ל.מ כנציג/ת שירות עם מענק התמדה של 8000 ₪!
+            - generic [ref=f3e182]:
+              - link:
+                - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21556__zoneid=277
+              - link "הגשת מועמדות" [ref=f3e183]:
+                - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21556__zoneid=277
+        - group "4 / 5" [ref=f3e184]:
+          - generic [ref=f3e186] [cursor=pointer]:
+            - link "רכבת ישראל רכבת ישראל העבודה בלוד מחפשים קריירה עם משמעות ויציבות? הצטרפו לחוד החנית של רכבת ישראל כנהגי נוסעים!" [ref=f3e187]:
+              - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21559__zoneid=278
+              - generic [ref=f3e188]:
+                - img "רכבת ישראל" [ref=f3e190]
+                - generic [ref=f3e191]:
+                  - generic [ref=f3e192]: רכבת ישראל
+                  - generic [ref=f3e193]: העבודה בלוד
+              - generic [ref=f3e194]: מחפשים קריירה עם משמעות ויציבות? הצטרפו לחוד החנית של רכבת ישראל כנהגי נוסעים!
+            - generic [ref=f3e195]:
+              - link:
+                - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21559__zoneid=278
+              - link "הגשת מועמדות" [ref=f3e196]:
+                - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21559__zoneid=278
+        - group "5 / 5" [ref=f3e197]:
+          - link [ref=f3e200] [cursor=pointer]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21552__zoneid=275
+            - img "בזק" [ref=f3e201]
+      - button "Previous slide" [ref=f3e202] [cursor=pointer]
+      - button "Next slide" [ref=f3e203] [cursor=pointer]
+    - generic [ref=f3e207]:
+      - generic [ref=f3e208]:
+        - generic [ref=f3e209]: פי 3
+        - generic [ref=f3e210]: סיכוי למצוא עבודה כלקוח VIP
+      - generic [ref=f3e212]:
+        - generic [ref=f3e213]: 3,752
+        - generic [ref=f3e214]: משרות חדשות בתחום הנדסה
+      - generic [ref=f3e216]:
+        - generic [ref=f3e217]: 1,513
+        - generic [ref=f3e218]: משרות בתחום רק ללקוחות VIP
+    - generic [ref=f3e219]:
+      - img "decorator right circle" [ref=f3e220]
+      - img "decorator left circle and x" [ref=f3e221]
+      - generic [ref=f3e222]:
+        - generic [ref=f3e223]:
+          - heading "איך נוכל לעזור לך?" [level=2] [ref=f3e224]
+          - generic [ref=f3e225]: כל מה שצריך כדי למצוא עבודה
+          - img "decorator bottom curved line" [ref=f3e226]
+        - generic [ref=f3e227]:
+          - link "שדרוג קורות חיים שדרוג קורות חיים" [ref=f3e228] [cursor=pointer]:
+            - /url: /User/UpgradeCV/
+            - img "שדרוג קורות חיים" [ref=f3e229]
+            - generic [ref=f3e230]: שדרוג קורות חיים
+          - link "כמה אתם שווים? כמה אתם שווים?" [ref=f3e231] [cursor=pointer]:
+            - /url: /User/SalaryCompound
+            - img "כמה אתם שווים?" [ref=f3e232]
+            - generic [ref=f3e233]: כמה אתם שווים?
+          - link "מפת הקריירה שלי מפת הקריירה שלי" [ref=f3e234] [cursor=pointer]:
+            - /url: /career-map
+            - img "מפת הקריירה שלי" [ref=f3e235]
+            - generic [ref=f3e236]: מפת הקריירה שלי
+          - link "מחשבוני שכר מחשבוני שכר" [ref=f3e237] [cursor=pointer]:
+            - /url: /ArticlePage.aspx?LinkWord=%E1%F8%E5%E8%E5_%F0%E8%E5
+            - img "מחשבוני שכר" [ref=f3e238]
+            - generic [ref=f3e239]: מחשבוני שכר
+          - link "הכנה לראיון עבודה הכנה לראיון עבודה" [ref=f3e240] [cursor=pointer]:
+            - /url: /User/Coaching/
+            - img "הכנה לראיון עבודה" [ref=f3e241]
+            - generic [ref=f3e242]: הכנה לראיון עבודה
+          - link "ליווי אישי למציאת עבודה ליווי אישי למציאת עבודה" [ref=f3e243] [cursor=pointer]:
+            - /url: /LandingPages/PersonalMentoring/
+            - img "ליווי אישי למציאת עבודה" [ref=f3e244]
+            - generic [ref=f3e245]: ליווי אישי למציאת עבודה
+    - generic [ref=f3e249]:
+      - link "שווה לעבוד בקבוצת UMI" [ref=f3e251] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+      - generic [ref=f3e253] [cursor=pointer]:
+        - generic [ref=f3e254]:
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e257]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e261]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e265]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e269]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e273]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e277]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e281]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e285]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e289]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e293]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e297]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e301]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e305]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e309]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e313]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e317]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e321]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e325]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e329]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e333]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - link "קבוצת UMI תמונת אווירה" [ref=f3e337]:
+            - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+        - button "כפתור הבא" [ref=f3e339]
+        - button "כפתור הקודם" [ref=f3e340]
+      - generic [ref=f3e341]:
+        - link [ref=f3e343] [cursor=pointer]:
+          - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+          - img "קבוצת UMI לוגו" [ref=f3e344]
+        - link "לכל המשרות" [ref=f3e345] [cursor=pointer]:
+          - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+    - generic [ref=f3e349]:
+      - generic [ref=f3e350]:
+        - generic [ref=f3e351]: מסלול רגיל
+        - generic [ref=f3e352]: רק משרות בלוח החינמי
+        - generic [ref=f3e353]: חינם
+        - generic [ref=f3e355]:
+          - generic [ref=f3e356]: רק משרות שפורסמו בתשלום על ידי מעסיקים ב-AllJobs
+          - generic [ref=f3e360]: עדכון על משרות חדשות המתאימות לך, מספר פעמים ביום
+        - generic [ref=f3e365]:
+          - link "להצטרפות והרשמה חינם":
+            - /url: /access.aspx?Camefrom=free_route
+      - generic [ref=f3e366]:
+        - generic [ref=f3e368]: חבילת VIP
+        - generic [ref=f3e369]: כל המשרות במקום אחד
+        - generic [ref=f3e370]: ₪59
+        - generic [ref=f3e371]: לחודש
+        - generic [ref=f3e372]:
+          - generic [ref=f3e373]: כל המשרות בתחום שלך, מ-3,000 אתרים ומהרשתות החברתיות מרוכזות במקום אחד
+          - generic [ref=f3e377]: מידע על צפייה בקורות החיים שלך
+          - generic [ref=f3e381]: חשיפה למשרות שעתיים לפני כולם
+          - generic [ref=f3e385]: משוב ראשוני על קורות החיים שלך
+          - generic [ref=f3e389]: ייעוץ וליווי מקצועי
+        - link "הצטרפות ל-VIP" [ref=f3e394] [cursor=pointer]:
+          - /url: /User/Register/CreditCard.aspx?CameFrom=NavigationBar_VIP
+      - generic [ref=f3e396]:
+        - generic [ref=f3e397]: הגדילו
+        - generic [ref=f3e398]: את הסיכוי
+        - generic [ref=f3e399]: שלכם למצוא
+        - generic [ref=f3e400]: עבודה!
+    - generic [ref=f3e405]:
+      - generic [ref=f3e406]:
+        - article [ref=f3e407]:
+          - link [ref=f3e408] [cursor=pointer]:
+            - /url: /ArticlePage.aspx?LinkWord=cv_2
+            - img "קורות חיים" [ref=f3e409]
+          - link "קורות חיים" [ref=f3e410] [cursor=pointer]:
+            - /url: /Mador/%D7%A7%D7%95%D7%A8%D7%95%D7%AA_%D7%97%D7%99%D7%99%D7%9D.htm
+          - link "10 טעויות נפוצות בכתיבת קורות חיים" [ref=f3e412] [cursor=pointer]:
+            - /url: /ArticlePage.aspx?LinkWord=cv_2
+          - 'link "סקר שערכנו בקרב מעסיקים מחזק את מה שכבר ידענו: לאופן שבו אתם כותבים את קורות החיים שלכם יש השפעה אדירה על המשך התהליך" [ref=f3e414] [cursor=pointer]':
+            - /url: /ArticlePage.aspx?LinkWord=cv_2
+        - article [ref=f3e416]:
+          - link [ref=f3e417] [cursor=pointer]:
+            - /url: /ArticlePage.aspx?LinkWord=professional_3
+            - img "ראיון עבודה" [ref=f3e418]
+          - link "ראיון עבודה" [ref=f3e419] [cursor=pointer]:
+            - /url: /Mador/%D7%A8%D7%90%D7%99%D7%95%D7%9F_%D7%A2%D7%91%D7%95%D7%93%D7%94.htm
+          - link "איך להתכונן לראיון עבודה?" [ref=f3e421] [cursor=pointer]:
+            - /url: /ArticlePage.aspx?LinkWord=professional_3
+          - 'link "שיווק עצמי, שפת גוף, לבוש שמקרין ביטחון ותשובות נכונות לשאלות מכשילות: הצלחה בראיון עבודה מחייבת הכנה מקדימה" [ref=f3e423] [cursor=pointer]':
+            - /url: /ArticlePage.aspx?LinkWord=professional_3
+        - article [ref=f3e425]:
+          - link [ref=f3e426] [cursor=pointer]:
+            - /url: /ArticlePage.aspx?LinkWord=free-ai-skills
+            - img "חיפוש עבודה" [ref=f3e427]
+          - link "חיפוש עבודה" [ref=f3e428] [cursor=pointer]:
+            - /url: /Mador/%D7%97%D7%99%D7%A4%D7%95%D7%A9_%D7%A2%D7%91%D7%95%D7%93%D7%94.htm
+          - link "ה-AI לא יחליף אתכם, אבל מי ששולט בו- כן. מדריך הכשרות וכלים ל-2026" [ref=f3e430] [cursor=pointer]:
+            - /url: /ArticlePage.aspx?LinkWord=free-ai-skills
+          - link "ה-AI הופך ממיומנות \"בונוס\" לתנאי סף ליציבות תעסוקתית ושדרוג בשכר. ריכזנו עבורכם מסלולי הכשרה חינמיים של החברות המובילות כמו Google, OpenAI -ו Anthropic שיהפכו אתכם לנכס אסטרטגי בכל ארגון ב-2026" [ref=f3e432] [cursor=pointer]:
+            - /url: /ArticlePage.aspx?LinkWord=free-ai-skills
+      - link "לכל הכתבות" [ref=f3e434] [cursor=pointer]:
+        - /url: /ArticlesList.aspx
+    - paragraph [ref=f3e437] [cursor=pointer]: גלו מה אחרים מחפשים
+    - contentinfo [ref=f3e439]:
+      - generic [ref=f3e442]:
+        - generic [ref=f3e443]:
+          - generic [ref=f3e444]:
+            - generic [ref=f3e445]: חיפוש עבודה
+            - link "AllJobs VIP - חיפוש עבודה בקלות" [ref=f3e446] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/Register/CreditCard.aspx?CameFrom=NavigationBar_VIP
+            - link "סוכן חכם" [ref=f3e447] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/Agents/
+            - generic [ref=f3e448]: קטגוריות מובילות
+            - generic [ref=f3e454]: חיפוש עבודה לפי תחום
+            - generic [ref=f3e460]: חיפוש עבודה לפי איזור
+            - generic [ref=f3e466]: חיפוש עבודה לפי חברה
+          - generic [ref=f3e472]:
+            - generic [ref=f3e473]: כיצד למצוא עבודה?
+            - generic [ref=f3e474]: מדריכים לחיפוש עבודה
+            - generic [ref=f3e480]: כלים לחיפוש עבודה
+            - generic [ref=f3e486]: כלים לפיטורים ואבטלה
+            - generic [ref=f3e492]: כלים נוספים לעולם העבודה
+          - generic [ref=f3e498]:
+            - generic [ref=f3e499]: מתחם השכר
+            - link "טבלאות שכר" [ref=f3e500] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/SalaryCompound/SalarySurvey.aspx
+            - link "נתוני שכר לפי תפקיד" [ref=f3e501] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/SalaryCompound/position/Index.aspx
+            - link "כמה אתם שווים" [ref=f3e502] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/User/SalaryCompound
+            - link "מחשבון שכר ברוטו נטו" [ref=f3e503] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/ArticlePage.aspx?LinkWord=%E1%F8%E5%E8%E5_%F0%E8%E5
+          - generic [ref=f3e504]:
+            - generic [ref=f3e505]: גיוס עובדים
+            - link "פרסום מודעת דרושים" [ref=f3e506] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/Employer/Job/#!/job/new/first
+            - link "MatchIT - חברת הגיוס וההשמה של AllJobs" [ref=f3e507] [cursor=pointer]:
+              - /url: https://www.match-it.co.il/
+            - link "חיפוש וגיוס עובדים" [ref=f3e508] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/Employer/HomePage.aspx
+          - generic [ref=f3e509]:
+            - generic [ref=f3e510]: אולג'ובס
+            - link "הצהרת נגישות" [ref=f3e511] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/ArticlePage.aspx?LinkWord=accessibility
+            - link "מדיניות פרטיות" [ref=f3e512] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/ArticlePage.aspx?LinkWord=privacyalljobs
+            - link "בקשת עיון ותיקון מידע" [ref=f3e513] [cursor=pointer]:
+              - /url: /law/inspection-and-correction.pdf
+            - link "מי אנחנו" [ref=f3e514] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/AboutUs.aspx
+            - link "רוצה לעבוד ב-AllJobs?" [ref=f3e515] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/Employer/HP/Default.aspx?cid=73090
+            - link "שאלות נפוצות" [ref=f3e516] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/helpcenter/jobseekers
+            - link "שירות לקוחות" [ref=f3e517] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/helpcenter/
+            - link "תנאי שימוש" [ref=f3e518] [cursor=pointer]:
+              - /url: https://www.alljobs.co.il/UserAgreement.aspx
+            - link "זירת הפרילנסרים XPlace" [ref=f3e519] [cursor=pointer]:
+              - /url: https://www.xplace.com/il/?utm_source=alljobs&utm_medium=cooperation&utm_campaign=alljobs_footer
+            - link "משרות לצעירים - סחבק" [ref=f3e520] [cursor=pointer]:
+              - /url: https://www.sahbak.co.il/?utm_source=alljobs&utm_medium=cooperation&utm_campaign=alljobs_footer
+        - generic [ref=f3e522]:
+          - generic [ref=f3e523]:
+            - generic [ref=f3e524]:
+              - link [ref=f3e525] [cursor=pointer]:
+                - /url: https://www.facebook.com/AllJobs
+                - img "Facebook" [ref=f3e526]
+              - link [ref=f3e527] [cursor=pointer]:
+                - /url: https://www.linkedin.com/company/alljobs
+                - img "Linkedin" [ref=f3e528]
+              - link [ref=f3e529] [cursor=pointer]:
+                - /url: https://www.youtube.com/user/alljobscoil
+                - img "Youtube" [ref=f3e530]
+              - link [ref=f3e531] [cursor=pointer]:
+                - /url: https://www.tiktok.com/@alljobs.co.il
+                - img "TikTok" [ref=f3e532]
+              - link [ref=f3e533] [cursor=pointer]:
+                - /url: https://www.instagram.com/alljobs.co.il/
+                - img "Instagram" [ref=f3e534]
+              - link "צור קשר צור קשר" [ref=f3e536] [cursor=pointer]:
+                - /url: /helpcenter
+                - generic [ref=f3e537]: צור קשר
+                - img "צור קשר" [ref=f3e538]
+            - link [ref=f3e539] [cursor=pointer]:
+              - /url: /
+              - img "AllJobs אתר הדרושים הגדול בישראל" [ref=f3e540]
+          - generic [ref=f3e541]:
+            - generic [ref=f3e542]: כל הזכויות שמורות לחברת All U Need בע"מ - בני ברמן 2, מגדל עיר ימים, נתניה 4249330 מקבוצת
+            - img "Yedioth Ahronot" [ref=f3e543]
+  - button "צ'אט עם נציג" [ref=f3e597] [cursor=pointer]

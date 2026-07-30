@@ -1,0 +1,129 @@
+- generic [active] [ref=e1]:
+  - region "אפשרויות נגישות מהירות":
+    - button "דלג לתוכן הראשי" [ref=e2] [cursor=pointer]
+    - button "אפשר נגישות לראייה לקויה" [ref=e16] [cursor=pointer]
+    - button "פתח את תפריט הנגישות" [ref=e33] [cursor=pointer]
+  - generic "תפריט נגישות":
+    - button "תפריט נגישות" [ref=e46] [cursor=pointer]
+  - generic [ref=e49]:
+    - banner:
+      - link "דלג לתוכן ראשי" [ref=e50] [cursor=pointer]:
+        - /url: "#"
+      - generic [ref=e52]:
+        - generic [ref=e54] [cursor=pointer]
+        - generic [ref=e80]
+    - generic [ref=e96]:
+      - generic [ref=e99]:
+        - generic [ref=e100]: 34,767
+        - link "נסו אותי" [ref=e103] [cursor=pointer]:
+          - /url: /career-map?CameFrom=poster
+        - heading "משרות באתר הדרושים הגדול בישראל" [level=1] [ref=e104]
+        - generic [ref=e105]: מפת קריירה אישית
+      - generic [ref=e113]:
+        - tablist [ref=e117]
+        - generic [ref=e123]
+      - generic [ref=e145]:
+        - generic [ref=e146]: "חיפושים פופולריים:"
+        - generic [ref=e147]
+    - generic [ref=e158]:
+      - link "הראל ביטוח" [ref=e161] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20892__zoneid=2__cb=245a246876__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D70365
+        - img "הראל ביטוח" [ref=e162]
+      - link "א.ל.ם" [ref=e165] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21527__zoneid=10__cb=8274064b2a__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D209220
+        - img "א.ל.ם" [ref=e166]
+      - link "כלל ביטוחים ופיננסים" [ref=e169] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20600__zoneid=11__cb=0f6e923413__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D1954
+        - img "כלל ביטוחים ופיננסים" [ref=e170]
+      - link "הפניקס" [ref=e173] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21525__zoneid=12__cb=c23c59122c__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D173831
+        - img "הפניקס" [ref=e174]
+      - link "סלקום" [ref=e177] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=20963__zoneid=13__cb=22927c249f__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D117557
+        - img "סלקום" [ref=e178]
+      - link "MAX" [ref=e181] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21126__zoneid=14__cb=c9c086081e__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D182
+        - img "MAX" [ref=e182]
+      - link "בנק דיסקונט" [ref=e185] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21421__zoneid=85__cb=89223bdb19__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D87
+        - img "בנק דיסקונט" [ref=e186]
+      - link "מנופי אבי תובלה" [ref=e189] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21325__zoneid=86__cb=50872384f0__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D52403
+        - img "מנופי אבי תובלה" [ref=e190]
+      - link "רכבת ישראל" [ref=e193] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21508__zoneid=91__cb=00c030ce5f__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D289
+        - img "רכבת ישראל" [ref=e194]
+      - link "הבנק הבינלאומי" [ref=e197] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=21046__zoneid=92__cb=d909996509__oadest=https%3A%2F%2Fwww.alljobs.co.il%2FEmployer%2FHP%2FDefault.aspx%3Fcid%3D225397
+        - img "הבנק הבינלאומי" [ref=e198]
+    - link "כל החברות" [ref=e200] [cursor=pointer]:
+      - /url: /Companies.aspx
+    - generic [ref=e202]:
+      - generic [ref=e204]:
+        - group "4 / 5" [ref=e205]
+        - group "5 / 5" [ref=e218]
+        - group "1 / 5" [ref=e223]
+        - group "2 / 5" [ref=e226]
+        - group "3 / 5" [ref=e239]
+      - button "Previous slide" [ref=e252] [cursor=pointer]
+      - button "Next slide" [ref=e253] [cursor=pointer]
+    - generic [ref=e257]:
+      - generic [ref=e258]:
+        - generic [ref=e259]: פי 3
+        - generic [ref=e260]: סיכוי למצוא עבודה כלקוח VIP
+      - generic [ref=e262]:
+        - generic [ref=e263]: 3,697
+        - generic [ref=e264]: משרות חדשות בתחום הנדסה
+      - generic [ref=e266]:
+        - generic [ref=e267]: 1,473
+        - generic [ref=e268]: משרות בתחום רק ללקוחות VIP
+    - generic [ref=e269]:
+      - img "decorator right circle" [ref=e270]
+      - img "decorator left circle and x" [ref=e271]
+      - generic [ref=e272]:
+        - generic [ref=e273]
+        - generic [ref=e277]
+    - generic [ref=e299]:
+      - link "שווה לעבוד בקבוצת UMI" [ref=e301] [cursor=pointer]:
+        - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+      - generic [ref=e303] [cursor=pointer]:
+        - generic [ref=e304]
+        - button "כפתור הבא" [ref=e389]
+        - button "כפתור הקודם" [ref=e390]
+      - generic [ref=e391]:
+        - link "קבוצת UMI לוגו" [ref=e393] [cursor=pointer]:
+          - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+        - link "לכל המשרות" [ref=e395] [cursor=pointer]:
+          - /url: https://openx.alljobs.co.il/www/delivery/ck.php?oaparams=2__bannerid=18539__zoneid=223
+    - generic [ref=e399]:
+      - generic [ref=e400]:
+        - generic [ref=e401]: מסלול רגיל
+        - generic [ref=e402]: רק משרות בלוח החינמי
+        - generic [ref=e403]: חינם
+        - generic [ref=e405]
+        - generic [ref=e415]
+      - generic [ref=e416]:
+        - generic [ref=e418]: חבילת VIP
+        - generic [ref=e419]: כל המשרות במקום אחד
+        - generic [ref=e420]: ₪59
+        - generic [ref=e421]: לחודש
+        - generic [ref=e422]
+        - link "הצטרפות ל-VIP" [ref=e444] [cursor=pointer]:
+          - /url: /User/Register/CreditCard.aspx?CameFrom=NavigationBar_VIP
+      - generic [ref=e446]:
+        - generic [ref=e447]: הגדילו
+        - generic [ref=e448]: את הסיכוי
+        - generic [ref=e449]: שלכם למצוא
+        - generic [ref=e450]: עבודה!
+    - generic [ref=e455]:
+      - generic [ref=e456]:
+        - article [ref=e457]
+        - article [ref=e466]
+        - article [ref=e475]
+      - link "לכל הכתבות" [ref=e484] [cursor=pointer]:
+        - /url: /ArticlesList.aspx
+    - paragraph [ref=e487] [cursor=pointer]: גלו מה אחרים מחפשים
+    - contentinfo [ref=e489]:
+      - generic [ref=e492]:
+        - generic [ref=e493]
+        - generic [ref=e572]
