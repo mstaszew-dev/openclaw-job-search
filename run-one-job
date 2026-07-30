@@ -116,6 +116,15 @@ run_agent() {
   # Prepend compacted context from previous session if rotating
   [[ -n "$SESSION_CONTEXT" ]] && msg="[Previous session summary]\n$SESSION_CONTEXT\n\n---\n\n$msg"
   # Prepend token budget awareness notice
+  # Add current context size estimate
+  local ctx_info=""
+  if [[ -n "$SESSION_ID" ]] && [[ -f "/Users/mst/.openclaw/agents/main/sessions/$SESSION_ID.jsonl" ]]; then
+    local ctx_size=$(wc -c < "/Users/mst/.openclaw/agents/main/sessions/$SESSION_ID.jsonl" 2>/dev/null || echo 0)
+    local ctx_tokens=$((ctx_size / 4))
+    local ctx_pct=$((ctx_tokens * 100 / TOKEN_BUDGET))
+    ctx_info="Current context size: ~${ctx_tokens}tokens (${ctx_pct}% of ${TOKEN_BUDGET} budget)"
+  fi
+  [[ -n "$ctx_info" ]] && msg="$ctx_info\n\n$msg"
   [[ -n "$TOKEN_BUDGET_NOTICE" ]] && msg="$TOKEN_BUDGET_NOTICE\n\n$msg"
   local t0=$(date +%s)
   log "run_agent starting (model=free, session=${SESSION_ID:-$SESSION_KEY})"
