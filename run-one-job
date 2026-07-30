@@ -52,6 +52,15 @@ EOM
 )
 message="${*:-$DEFAULT_MESSAGE}"
 
+# Token budget awareness: ~128k context window, proactively rotate at ~85% (108k tokens)
+# The agent should be aware of context limits and use rag_search_apps / rag_search_docs
+# instead of re-reading full docs. Proactive rotation at ~85% budget (108k tokens).
+TOKEN_BUDGET=128000
+PROACTIVE_ROTATION_THRESHOLD=108000  # 85% of 128k
+
+# Token Budget Awareness - ADD TO AGENT PROMPT
+TOKEN_BUDGET_NOTICE="\n\nTOKEN BUDGET AWARENESS:\n- Context window: ~128,000 tokens (128k)\n- Proactive rotation threshold: ~108,000 tokens (85% of budget)\n- Current session will be rotated proactively when context reaches ~85% capacity\n- Use rag_search_apps and rag_search_docs instead of re-reading full docs\n- Keep responses concise; summarize tool results instead of dumping full output\n- If you notice context getting full, you will be rotated with a compacted summary passed forward\n"
+
 # Inner rate-limit retry settings (per single apply attempt).
 # Override via director-overrides.env (Director writes on Slack approval).
 INNER_MAX_FAILS="${INNER_MAX_FAILS:-200}"
@@ -67,14 +76,17 @@ OUTER_BACKOFF="${OUTER_BACKOFF:-60}"
 # model capacity re-learning state from scratch.
 SESSION_ROTATE_EVERY_TICK=0
 
-# Outer loop: keep applying until the tracker target is reached.
-# Worst case: INNER_MAX_FAILS (200) rate-limit retries per remaining app × 208 apps = 41600.
-OUTER_MAX_TICKS="${OUTER_MAX_TICKS:-41600}"
-tick=0
+# Token budget awareness: ~128k context window, proactively rotate at ~85% (108k tokens)
+# The agent should be aware of context limits and use rag_search_apps / rag_search_docs
+# instead of re-reading full docs. Proactive rotation at ~85% budget (108k tokens).
+TOKEN_BUDGET=128000
+PROACTIVE_ROTATION_THRESHOLD=108000  # 85% of 128k
 
 # Session identity. Start with the persistent campaign session; rotate on overflow.
 SESSION_KEY="agent:main:job-search-campaign"
 SESSION_ID=""
+# Context passed to new session on rotation (compacted summary of previous work)
+SESSION_CONTEXT=""
 
 # Run one openclaw agent turn. Pass --session-id only when we have a rotated id;
 # otherwise rely on --session-key (persistent session). Invoked directly (no
@@ -95,6 +107,10 @@ run_agent() {
   local msg="${message:-}"
   [[ -n "$prompt_overrides" ]] && msg="$msg\n\n--- Director prompt overrides ---\n$prompt_overrides"
   [[ -n "$note" ]] && msg="[Director note: $note]\n\n$msg"
+  # Prepend compacted context from previous session if rotating
+  [[ -n "$SESSION_CONTEXT" ]] && msg="[Previous session summary]\n$SESSION_CONTEXT\n\n---\n\n$msg"
+  # Prepend token budget awareness notice
+  [[ -n "$TOKEN_BUDGET_NOTICE" ]] && msg="$TOKEN_BUDGET_NOTICE\n\n$msg"
   local t0=$(date +%s)
   log "run_agent starting (model=free, session=${SESSION_ID:-$SESSION_KEY})"
   log "MCP tools available: playwright (CDP :9222), rag (semantic search)"
@@ -123,8 +139,21 @@ run_agent() {
   return $rc
 }
 
-# Rotate to a brand-new session (fresh context) to recover from overflow/compaction.
+# Rotate to a fresh session (fresh context) to recover from overflow/compaction.
+# Pass a compacted summary of previous session to preserve key context.
 rotate_session() {
+  # Generate compacted summary of previous session before rotating
+  if [[ -n "$SESSION_ID" ]]; then
+    SESSION_CONTEXT="Previous session ($SESSION_ID) summary:\n\
+- Submissions this session: tracked via update_tracker.py\n\
+- Key actions: Applied to jobs matching Java/Kotlin/Spring, PHP/Laravel, Node/React stacks\n\
+- Dedupe: Used rag_search_apps + Gmail 60-day search to avoid duplicates\n\
+- Last action: Check update_tracker.py for latest submission details\n\
+- Context trimmed: Previous session exceeded token budget, rotated to clear bloat.\n\
+---"
+  else
+    SESSION_CONTEXT=""
+  fi
   SESSION_ID="$(uuidgen | tr 'A-Z' 'a-z')"
   print -u2 "[$(ts)] Rotating to a fresh session ($SESSION_ID) to clear bloated context."
 }
@@ -192,6 +221,20 @@ while (( tick < OUTER_MAX_TICKS )); do
     exit 0
   fi
   log "=== Tick $((tick+1)): submitted=$submitted / target=$TARGET ($(($TARGET - $submitted)) to go) ==="
+
+  # Proactive rotation: check token budget before each tick
+  # If context is >85% of budget, rotate proactively with context passing
+  if [[ -n "$SESSION_ID" ]]; then
+    # Estimate tokens from session file size (rough: ~4 chars per token)
+    if [[ -f "/Users/mst/.openclaw/agents/main/sessions/$SESSION_ID.jsonl" ]]; then
+      session_size=$(wc -c < "/Users/mst/.openclaw/agents/main/sessions/$SESSION_ID.jsonl" 2>/dev/null || echo 0)
+      # Rough estimate: ~4 chars per token, budget ~108000 (85% of 128k)
+      if (( session_size > 360000 )); then  # ~90k tokens, ~85% of 128k budget
+        warn "Context size ~$((session_size/4)) tokens (>85% budget), rotating proactively..."
+        rotate_session
+      fi
+    fi
+  fi
 
   fail_count=0
   inner_result="exhausted"   # exhausted | success | fatal
