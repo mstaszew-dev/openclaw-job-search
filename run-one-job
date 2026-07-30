@@ -82,6 +82,9 @@ SESSION_ROTATE_EVERY_TICK=0
 TOKEN_BUDGET=128000
 PROACTIVE_ROTATION_THRESHOLD=108000  # 85% of 128k
 
+# Token budget awareness notice - prepended to agent prompt
+TOKEN_BUDGET_NOTICE=$'TOKEN BUDGET AWARENESS:\n- Context window: ~128,000 tokens (128k)\n- Proactive rotation threshold: ~108,000 tokens (85% of budget)\n- Current session will be rotated proactively when context reaches ~85% capacity\n- Use rag_search_apps and rag_search_docs instead of re-reading full docs\n- Keep responses concise; summarize tool results instead of dumping full output\n- If you notice context getting full, you will be rotated with a compacted summary passed forward'
+
 # Session identity. Start with the persistent campaign session; rotate on overflow.
 SESSION_KEY="agent:main:job-search-campaign"
 SESSION_ID=""
@@ -222,19 +225,16 @@ while (( tick < OUTER_MAX_TICKS )); do
   fi
   log "=== Tick $((tick+1)): submitted=$submitted / target=$TARGET ($(($TARGET - $submitted)) to go) ==="
 
-  # Proactive rotation: check token budget before each tick
-  # If context is >85% of budget, rotate proactively with context passing
+  # Load previous session's summary if it exists (for context continuity)
   if [[ -n "$SESSION_ID" ]]; then
-    # Estimate tokens from session file size (rough: ~4 chars per token)
-    if [[ -f "/Users/mst/.openclaw/agents/main/sessions/$SESSION_ID.jsonl" ]]; then
-      session_size=$(wc -c < "/Users/mst/.openclaw/agents/main/sessions/$SESSION_ID.jsonl" 2>/dev/null || echo 0)
-      # Rough estimate: ~4 chars per token, budget ~108000 (85% of 128k)
-      if (( session_size > 360000 )); then  # ~90k tokens, ~85% of 128k budget
-        warn "Context size ~$((session_size/4)) tokens (>85% budget), rotating proactively..."
-        rotate_session
-      fi
+    local summary_file="/Users/mst/.openclaw/agents/main/sessions/${SESSION_ID}.summary"
+    if [[ -f "$summary_file" ]]; then
+      SESSION_CONTEXT="$(cat "$summary_file" 2>/dev/null)"
+      log "Loaded previous session summary from $summary_file"
     fi
   fi
+
+  # Proactive rotation: check token budget before each tick
 
   fail_count=0
   inner_result="exhausted"   # exhausted | success | fatal
