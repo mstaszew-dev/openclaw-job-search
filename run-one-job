@@ -31,6 +31,7 @@ HARD RULES (do not violate):
 1. NEVER edit, write, or rewrite tracker.json directly. The schema is FIXED. ALWAYS use \`update_tracker.py\` (e.g. \`update_tracker.py submitted '<candidate json>'\`) to record a submission. Direct file writes to tracker.json corrupt the dedupe array and reset the count - this already caused a full tracker reset once. Note: update_tracker.py is ONLY for recording new events (submitted/skipped/etc.) -- it does NOT rebuild or repair the tracker.
 2. tracker.json schema is: { stats: {submitted, skippedDuplicate, ...}, targetApplications, applications: [...] }. Do not add, rename, or 'improve' fields.
 3. CRITICAL: After verifying a successful submission in the browser, use the shell/exec tool to run \`update_tracker.py submitted '<json>'\` IMMEDIATELY as your very next action. Do NOT write the command in a markdown code block — code blocks are just text and do nothing. You must actually INVOKE the exec tool to run the command. Do NOT browse more listings, do NOT check other tabs, do NOT do anything else first. The session may be rotated at any time and you will lose the chance to record. If you verified submission but did not call update_tracker.py, the application counts as LOST.
+4. STOP RULE: After calling \`update_tracker.py submitted\` and confirming it succeeded, you are DONE for this tick. Output \`TICK_COMPLETE\` and stop. Do NOT continue browsing, do NOT search for more jobs, do NOT ask what to do next. The tick is over. Just output \`TICK_COMPLETE\` and nothing else.
 
 Continue the campaign. Apply exactly ONE job this tick. Read campaign/AGENT_TICK.md and campaign/CONTEXT.md first. You are an autonomous agent — use your LLM reasoning and tools, do NOT call automation scripts (no score_candidate.py, no check_dupe.py, no python3 preflight scripts). Only \`update_tracker.py\` is allowed, and only to record a confirmed submission.
 
@@ -136,7 +137,7 @@ run_agent() {
       --agent main \
       --model free \
       --local \
-      --timeout 1200 \
+      --timeout 600 \
       --thinking high \
       --session-id "$SESSION_ID" \
       --message "$msg"
@@ -145,7 +146,7 @@ run_agent() {
       --agent main \
       --model free \
       --local \
-      --timeout 1200 \
+      --timeout 600 \
       --thinking high \
       --session-key "$SESSION_KEY" \
       --message "$msg"
