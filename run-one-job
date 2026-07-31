@@ -159,44 +159,25 @@ run_agent() {
 # Rotate to a fresh session (fresh context) to recover from overflow/compaction.
 # Pass a compacted summary of previous session to preserve key context.
 rotate_session() {
-  # Generate LLM summary of previous session (before rotating, while session is still usable)
+  # Extract key info from tracker for context (LLM can't summarize — session is already too large)
   if [[ -n "$SESSION_ID" ]]; then
-    log "Generating compacted summary of session $SESSION_ID..."
-    local summary_prompt="Summarize this campaign session in 3-4 bullet points for handoff to next session. Focus on:
-- What was accomplished (applications submitted, companies, roles)
-- What blockers occurred (rate limits, 403s, captchas, missing apply buttons)
-- What worked well (which portals, which search strategies)
-- What to avoid next time (broken portals, duplicate companies, etc.)
-- Key context to preserve for next session (companies already applied, search terms that worked)
-Keep it concise (max 5 bullet points)."
-    
-    local summary_output
-    summary_output=$(/Users/mst/bin/openclaw agent \
-      --agent main \
-      --model free \
-      --local \
-      --timeout 60 \
-      --thinking low \
-      --session-id "$SESSION_ID" \
-      --message "$summary_prompt" 2>&1 | tail -20)
-    
-    if [[ -n "$summary_output" ]] && ! echo "$summary_output" | grep -qi "error\|failed\|timeout"; then
-      SESSION_CONTEXT="Previous session ($SESSION_ID) summary:\n$summary_output\n---\nPrevious session ID: $SESSION_ID\n---"
-    else
-      # Fallback: extract what we can from tracker
-      local last_submit=$(python3 -c "
+    local session_context=$(python3 -c "
 import json
 try:
     t = json.load(open('/Users/mst/Downloads/job-search/job-apply/tracker.json'))
-    s = t.get('stats',{}).get('submitted',0)
+    s = t.get('stats',{})
     apps = t.get('applications',[])
-    last = apps[-1] if apps else {}
-    print(f'Submitted: {s}')
-    print(f'Last: {last.get(\"company\",\"?\")} - {last.get(\"roleTitle\",\"?\")} at {last.get(\"appliedAt\",\"?\")[:10]}')
-except: print('(tracker unavailable)')
+    last5 = apps[-5:] if len(apps) > 5 else apps
+    print('---')
+    print(f'Submitted: {s.get(\"submitted\",0)}/{t.get(\"targetApplications\",1200)}')
+    for a in reversed(last5):
+        print(f'  - {a.get(\"company\",\"?\")}: {a.get(\"roleTitle\",\"?\")} ({a.get(\"status\",\"?\")}) at {a.get(\"appliedAt\",\"?\")[:10] or \"?\"}')
+    print('---')
+    print(f'Old session file: $SESSION_ID.jsonl')
+except Exception as e:
+    print(f'(tracker unavailable: {e})')
 " 2>/dev/null)
-      SESSION_CONTEXT="Previous session ($SESSION_ID) summary:\n- Submissions: tracked via update_tracker.py\n- $last_submit\n- Context trimmed: Previous session exceeded token budget, rotated to clear bloat.\n---\nPrevious session ID: $SESSION_ID\n---"
-    fi
+    SESSION_CONTEXT="Previous session ($SESSION_ID) summary:\n$session_context\n---\nPrevious session ID: $SESSION_ID (read session file for full context)"
   else
     SESSION_CONTEXT=""
   fi
