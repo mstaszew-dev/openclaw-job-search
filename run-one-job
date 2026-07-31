@@ -251,27 +251,10 @@ while (( tick < OUTER_MAX_TICKS )); do
     fi
   fi
 
-  # Proactive rotation: check token budget before each tick
-  # If context is >60% of budget, rotate proactively with context passing.
+  # Proactive rotation: check token budget before each tick (rotated sessions only)
   # Session grows during a tick (~30k tokens), so threshold must leave headroom.
-  local session_file=""
-  if [[ -n "$SESSION_ID" ]]; then
-    session_file="/Users/mst/.openclaw/agents/main/sessions/$SESSION_ID.jsonl"
-  else
-    # Check the persistent session file (look it up from sessions.json)
-    session_file=$(python3 -c "
-import json
-try:
-    s = json.load(open('/Users/mst/.openclaw/agents/main/sessions/sessions.json'))
-    for k, v in s.items():
-        if k == 'agent:main:job-search-campaign':
-            print(f'/Users/mst/.openclaw/agents/main/sessions/{v.get(\"sessionId\",\"\")}.jsonl')
-            break
-except: pass
-" 2>/dev/null)
-  fi
-  if [[ -n "$session_file" ]] && [[ -f "$session_file" ]]; then
-    session_size=$(wc -c < "$session_file" 2>/dev/null || echo 0)
+  if [[ -n "$SESSION_ID" ]] && [[ -f "/Users/mst/.openclaw/agents/main/sessions/$SESSION_ID.jsonl" ]]; then
+    session_size=$(wc -c < "/Users/mst/.openclaw/agents/main/sessions/$SESSION_ID.jsonl" 2>/dev/null || echo 0)
     # ~75k tokens, ~60% of 128k budget (leave headroom for one tick's growth)
     if (( session_size > 300000 )); then
       warn "Context size ~$((session_size/4)) tokens (>60% budget), rotating proactively..."
