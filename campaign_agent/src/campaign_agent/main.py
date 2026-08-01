@@ -47,6 +47,8 @@ def classify_failure(text: str) -> str:
         return "context"
     if any(p in text_lower for p in ["rate limit", "429", "too many requests", "timed out", "timeout", "econn"]):
         return "rate"
+    if any(p in text_lower for p in ["connection error", "connection refused", "connection reset", "apiconnectionerror", "connection"]):
+        return "transient"
     if any(p in text_lower for p in ["couldn't generate", "empty response", "no content"]):
         return "transient"
     return "fatal"

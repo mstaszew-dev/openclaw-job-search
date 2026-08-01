@@ -40,6 +40,20 @@ class TestClassifyFailure:
         kind = classify_failure("no_submission: the files are missing")
         assert kind != "fatal"
 
+    def test_connection_error_transient(self):
+        """Connection errors (msrouter restart, network blip) must retry, not
+        fatally stop the campaign. Covers the SDK's 'Connection error.' text."""
+        assert classify_failure("llm_error: Connection error.") == "transient"
+
+    def test_connection_error_plain_transient(self):
+        assert classify_failure("connection error") == "transient"
+
+    def test_connection_refused_transient(self):
+        assert classify_failure("connection refused") == "transient"
+
+    def test_api_connection_error_transient(self):
+        assert classify_failure("APIConnectionError: failed to connect") == "transient"
+
     def test_fatal_unknown(self):
         assert classify_failure("Something completely unexpected") == "fatal"
 
