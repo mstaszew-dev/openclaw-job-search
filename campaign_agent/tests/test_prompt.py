@@ -36,3 +36,9 @@ class TestUserPrompt:
         info = "Context: ~45k tokens (35% budget)"
         prompt = build_user_prompt(Config(), session_context="", token_info=info)
         assert "35%" in prompt
+
+    def test_includes_absolute_campaign_dir(self):
+        cfg = Config()
+        prompt = build_user_prompt(cfg, session_context="", token_info="")
+        assert cfg.campaign_dir in prompt
+        assert "read tool" in prompt.lower()

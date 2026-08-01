@@ -42,7 +42,11 @@ class TestClassifyFailureExpanded:
 class TestRunAgentTurnExpanded:
     @pytest.mark.asyncio
     async def test_multiple_tool_calls_in_one_response(self):
-        """LLM can request multiple tools in one response (parallel calls)."""
+        """LLM can request multiple tools in one response (parallel calls).
+
+        Tools are dispatched, but the turn ends without a recorded submission
+        → failure (anti-gaming: content alone is not a successful tick).
+        """
         mock_llm = MagicMock()
         mock_llm.chat = MagicMock(side_effect=[
             LLMResponse(
@@ -61,7 +65,8 @@ class TestRunAgentTurnExpanded:
         messages: list[dict] = []
         result = await run_agent_turn(mock_llm, tools, messages, max_steps=5)
 
-        assert result.success is True
+        assert result.success is False
+        assert "no_submission" in result.reason
         # Should have: assistant(tool_calls) + tool1 + tool2 + assistant(content) = 4
         assert len(messages) == 4
         # Both tool results should be present
@@ -70,7 +75,7 @@ class TestRunAgentTurnExpanded:
 
     @pytest.mark.asyncio
     async def test_playwright_tool_dispatched(self):
-        """Playwright tool calls go to the MCP client."""
+        """Playwright tool calls go to the MCP client (turn ends without submission)."""
         mock_pw = AsyncMock()
         mock_pw.call_tool = AsyncMock(return_value="### Page\n- URL: https://example.com")
         tools = ToolRouter(playwright_client=mock_pw, rag_client=None)
@@ -89,12 +94,13 @@ class TestRunAgentTurnExpanded:
         messages: list[dict] = []
         result = await run_agent_turn(mock_llm, tools, messages, max_steps=5)
 
-        assert result.success is True
+        assert result.success is False
+        assert "no_submission" in result.reason
         mock_pw.call_tool.assert_called_once_with("browser_navigate", {"url": "https://example.com"})
 
     @pytest.mark.asyncio
     async def test_rag_tool_dispatched(self):
-        """RAG tool calls go to the RAG MCP client."""
+        """RAG tool calls go to the RAG MCP client (turn ends without submission)."""
         mock_rag = AsyncMock()
         mock_rag.call_tool = AsyncMock(return_value="score 0.92: Senior Java @ Foo")
         tools = ToolRouter(playwright_client=None, rag_client=mock_rag)
@@ -113,7 +119,8 @@ class TestRunAgentTurnExpanded:
         messages: list[dict] = []
         result = await run_agent_turn(mock_llm, tools, messages, max_steps=5)
 
-        assert result.success is True
+        assert result.success is False
+        assert "no_submission" in result.reason
         mock_rag.call_tool.assert_called_once_with("rag_search_apps", {"query": "Java developer"})
 
     @pytest.mark.asyncio
@@ -138,14 +145,15 @@ class TestRunAgentTurnExpanded:
         messages: list[dict] = []
         result = await run_agent_turn(mock_llm, tools, messages, max_steps=5)
 
-        assert result.success is True
+        assert result.success is False
+        assert "no_submission" in result.reason
         # Error result should be in messages
         tool_msgs = [m for m in messages if m["role"] == "tool"]
         assert "Error" in tool_msgs[0]["content"]
 
     @pytest.mark.asyncio
     async def test_long_conversation_multiple_steps(self):
-        """Agent makes multiple tool calls over several steps."""
+        """Agent makes multiple tool calls over several steps (no submission)."""
         mock_llm = MagicMock()
         mock_llm.chat = MagicMock(side_effect=[
             LLMResponse(content="", tool_calls=[ToolCall(id="c1", name="exec", arguments={"command": "echo step1"})], finish_reason="tool_calls"),
@@ -159,12 +167,17 @@ class TestRunAgentTurnExpanded:
         messages: list[dict] = []
         result = await run_agent_turn(mock_llm, tools, messages, max_steps=10)
 
-        assert result.success is True
+        assert result.success is False
+        assert "no_submission" in result.reason
         assert mock_llm.chat.call_count == 4  # 3 tool calls + 1 final
 
     @pytest.mark.asyncio
     async def test_update_tracker_submission_detected(self):
-        """When exec calls update_tracker.py submitted, it's in the log."""
+        """exec update_tracker.py submitted with exit=0 → successful submission tick."""
+        tools = MagicMock()
+        tools.schemas = []
+        tools.dispatch = AsyncMock(return_value="saved 1133/1200 exit=0")
+
         mock_llm = MagicMock()
         mock_llm.chat = MagicMock(side_effect=[
             LLMResponse(
@@ -178,12 +191,12 @@ class TestRunAgentTurnExpanded:
             LLMResponse(content="Submission recorded", tool_calls=[], finish_reason="stop"),
         ])
         mock_llm.model = "test"
-        tools = ToolRouter(playwright_client=None, rag_client=None)
 
         messages: list[dict] = []
         result = await run_agent_turn(mock_llm, tools, messages, max_steps=5)
 
         assert result.success is True
+        assert result.submitted == 1
 
 
 class TestLLMClientExpanded:

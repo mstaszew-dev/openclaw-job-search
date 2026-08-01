@@ -99,6 +99,10 @@ class LLMClient:
             base_url=base_url,
             api_key=api_key,
             timeout=timeout,
+            # llm.py's chat() loop below is the single retry layer; disable the
+            # SDK's internal retries so they do not stack (double worst-case
+            # wait under msrouter 429 storms, confusing request accounting).
+            max_retries=0,
         )
 
     def chat(

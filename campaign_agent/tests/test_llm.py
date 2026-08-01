@@ -75,6 +75,18 @@ class TestLLMClient:
         )
         assert client.model == "mst/free"
 
+    def test_sdk_client_created_without_internal_retries(self):
+        """The SDK's own retries must be disabled (max_retries=0).
+
+        llm.py's chat() loop is the single retry layer. SDK-internal retries
+        (default 2) stack on top of it, doubling worst-case wait during
+        msrouter chain 429 storms and making request accounting confusing.
+        """
+        with patch("campaign_agent.llm.OpenAI") as mock_openai:
+            LLMClient(base_url="http://127.0.0.1:8787/v1", api_key="k", model="mst/free")
+        call_kwargs = mock_openai.call_args.kwargs
+        assert call_kwargs["max_retries"] == 0
+
     def test_chat_returns_response(self, mock_openai_client):
         mock_resp = MagicMock()
         mock_resp.choices = [MagicMock()]

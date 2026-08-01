@@ -31,8 +31,16 @@ class TickResult:
 
 
 def classify_failure(text: str) -> str:
-    """Classify an error output into rate/context/transient/fatal."""
+    """Classify an error output into rate/context/transient/fatal.
+
+    Matches the exact reason tokens emitted by run_agent_turn
+    ('empty_response', 'no_submission: ...') in addition to free-text phrases,
+    so those retryable reasons never fall through to fatal.
+    """
     text_lower = text.lower()
+    # run_agent_turn reason tokens (retryable, never fatal)
+    if text_lower.startswith("empty_response") or text_lower.startswith("no_submission"):
+        return "transient"
     if any(p in text_lower for p in ["failover", "streaming response failed", "stream fail", "no_provider_available"]):
         return "transient"
     if any(p in text_lower for p in ["context overflow", "prompt too large", "compaction", "maximum context", "token"]):
@@ -54,6 +62,7 @@ async def run_agent_turn(
     Run one agent turn: LLM call → tool dispatch → repeat until done or max_steps.
     The turn ends when the LLM responds with content and no tool calls.
     """
+    recorded_submission = False
     for step in range(max_steps):
         log.info("Agent step %d/%d", step + 1, max_steps)
 
@@ -71,7 +80,11 @@ async def run_agent_turn(
 
         if not response.tool_calls:
             log.info("Agent turn complete: %s", response.content[:200])
-            return TickResult(success=True, reason=response.content[:200])
+            # Anti-gaming: content alone is NOT a successful tick. A tick only
+            # succeeds when update_tracker.py submitted was invoked and exit=0.
+            if recorded_submission:
+                return TickResult(success=True, reason=response.content[:200], submitted=1)
+            return TickResult(success=False, reason=f"no_submission: {response.content[:200]}")
 
         # Dispatch each tool call
         for tc in response.tool_calls:
@@ -83,11 +96,17 @@ async def run_agent_turn(
                 "content": str(result),
             })
 
-            # Check if update_tracker.py was called (potential submission)
-            if tc.name == "exec" and "update_tracker.py submitted" in str(tc.arguments.get("command", "")):
-                log.info("update_tracker.py submitted called")
+            # A submission is recorded only when update_tracker.py submitted
+            # actually succeeded (exit=0). Failed commands do not count.
+            if tc.name == "exec":
+                command = str(tc.arguments.get("command", ""))
+                if "update_tracker.py submitted" in command and "exit=0" in str(result):
+                    recorded_submission = True
+                    log.info("Submission recorded: %s", command[:120])
 
     log.warning("Max steps (%d) exceeded", max_steps)
+    if recorded_submission:
+        return TickResult(success=True, reason="max_steps_after_submission", submitted=1)
     return TickResult(success=False, reason="max_steps_exceeded")
 
 
@@ -112,6 +131,7 @@ async def run_campaign(config: Config) -> None:
         api_key=config.msrouter_api_key,
         model=config.msrouter_model,
         max_retries=3,
+        timeout=config.timeout_seconds,
     )
 
     # MCP clients will be initialized when tools are set up
@@ -128,7 +148,7 @@ async def run_campaign(config: Config) -> None:
         log.error("MCP connection failed: %s", e)
         log.info("Continuing without MCP (exec-only mode)")
 
-    tools = ToolRouter(playwright_client=pw, rag_client=rag)
+    tools = ToolRouter(playwright_client=pw, rag_client=rag, default_cwd=config.campaign_dir)
 
     system_prompt = build_system_prompt(config)
     tick = 0
@@ -144,22 +164,20 @@ async def run_campaign(config: Config) -> None:
             log.info("=== Tick %d: %d/%d (%d to go) ===",
                      tick, tracker.submitted(), tracker.target(), tracker.remaining())
 
-            # Build messages for this tick
+            # Build context for this tick
             session_context = session.build_rotation_context() if session.session_id else ""
             token_info = f"~{session.estimate_tokens()} tokens ({session.estimate_tokens() * 100 // config.token_budget}% of budget)"
 
             user_prompt = build_user_prompt(config, session_context, token_info)
 
-            # Fresh message list each tick (system + user)
-            messages: list[dict[str, Any]] = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
-
             # Proactive rotation check
-            if session.should_rotate(messages):
+            if session.should_rotate([{"role": "system", "content": system_prompt},
+                                      {"role": "user", "content": user_prompt}]):
                 log.warning("Context near budget, rotating...")
                 session.rotate()
+                session_context = session.build_rotation_context() if session.session_id else ""
+                token_info = f"~{session.estimate_tokens()} tokens ({session.estimate_tokens() * 100 // config.token_budget}% of budget)"
+                user_prompt = build_user_prompt(config, session_context, token_info)
 
             # Run the agent turn
             fail_count = 0
@@ -167,6 +185,13 @@ async def run_campaign(config: Config) -> None:
 
             while fail_count < config.inner_max_fails:
                 log.info("Attempt %d/%d", fail_count + 1, config.inner_max_fails)
+
+                # Fresh messages per attempt (mirrors run-one-job: each attempt
+                # is a clean turn with the same tick prompt)
+                messages: list[dict[str, Any]] = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
 
                 t0 = time.time()
                 result = await run_agent_turn(llm, tools, messages, config.max_steps)
@@ -181,17 +206,18 @@ async def run_campaign(config: Config) -> None:
 
                 fail_count += 1
                 kind = classify_failure(result.reason)
+                if result.reason.startswith("no_submission"):
+                    kind = "no_submission"
 
                 if kind == "context":
                     log.warning("Context overflow, rotating session")
                     session.rotate()
-                    # Rebuild messages for fresh session
-                    session_context = session.build_rotation_context()
+                    session_context = session.build_rotation_context() if session.session_id else ""
                     user_prompt = build_user_prompt(config, session_context, "")
-                    messages = [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ]
+                elif kind == "no_submission":
+                    log.warning("Agent finished without recording a submission; retrying fresh in %ss",
+                                config.inner_sleep)
+                    await asyncio.sleep(config.inner_sleep)
                 elif kind == "rate":
                     log.warning("Rate limit, backing off %ss", config.inner_sleep)
                     await asyncio.sleep(config.inner_sleep)

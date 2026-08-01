@@ -21,7 +21,10 @@ REGIONS:
 
 TOOLS AVAILABLE:
 - exec: Run shell commands (e.g., update_tracker.py, tick_status.sh). \
+The working directory is the campaign directory. \
 Only update_tracker.py for recording submissions. No score_candidate.py, no check_dupe.py.
+- read: Read file contents (AGENT_TICK.md, CONTEXT.md, PORTALS.md, etc.). \
+Relative paths resolve against the campaign directory.
 - playwright tools: browser_navigate, browser_snapshot, browser_click, browser_fill_form, \
 browser_file_upload, browser_evaluate, browser_type, browser_wait_for, browser_find, etc. \
 Connects to existing Chrome at http://127.0.0.1:9222. Do NOT launch or close Chrome.
@@ -48,7 +51,12 @@ USER_PROMPT_TEMPLATE = """\
 
 {token_info}
 
-Apply exactly ONE job this tick. Read campaign/AGENT_TICK.md and campaign/CONTEXT.md first. \
+Apply exactly ONE job this tick. Read the campaign state files first using the read tool:
+- {campaign_dir}/AGENT_TICK.md
+- {campaign_dir}/CONTEXT.md
+
+The exec tool runs with the working directory set to the campaign directory \
+({campaign_dir}); use relative paths for files there. \
 Use the existing logged-in Chrome through Playwright MCP at http://127.0.0.1:9222. \
 Verify an explicit confirmation/thank-you in the browser before running \
 update_tracker.py submitted.
@@ -80,5 +88,6 @@ def build_user_prompt(
     template = USER_PROMPT_TEMPLATE.format(
         session_context=ctx_section,
         token_info=token_section,
+        campaign_dir=config.campaign_dir,
     )
     return template.strip()

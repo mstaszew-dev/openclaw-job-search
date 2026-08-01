@@ -25,6 +25,15 @@ class TestToolSchemas:
         for schema in TOOL_SCHEMAS:
             assert schema["type"] == "function"
 
+    def test_read_schema_exists(self):
+        names = [t["function"]["name"] for t in TOOL_SCHEMAS]
+        assert "read" in names
+
+    def test_read_schema_has_path_param(self):
+        read_schema = next(t for t in TOOL_SCHEMAS if t["function"]["name"] == "read")
+        params = read_schema["function"]["parameters"]["properties"]
+        assert "path" in params
+
 
 class TestExecTool:
     def test_exec_echo(self):
@@ -45,6 +54,68 @@ class TestExecTool:
         # Should timeout and report it
         assert "timeout" in result.lower() or "timed out" in result.lower()
 
+    def test_exec_includes_stderr_on_success(self):
+        result = exec_tool("echo boom 1>&2", timeout=5)
+        assert "stderr:" in result
+        assert "boom" in result
+        assert "exit=0" in result
+
+    def test_exec_captures_generic_error(self):
+        with patch("campaign_agent.tools.subprocess.run",
+                   side_effect=RuntimeError("spawn failed")):
+            result = exec_tool("echo x", timeout=5)
+        assert "Error:" in result
+
+
+class TestReadTool:
+    def test_read_absolute_path(self, tmp_path):
+        f = tmp_path / "notes.txt"
+        f.write_text("hello world")
+        router = ToolRouter(playwright_client=None, rag_client=None)
+        result = router.dispatch_sync("read", {"path": str(f)})
+        assert "hello world" in result
+
+    def test_read_relative_resolves_against_default_cwd(self, tmp_path):
+        (tmp_path / "AGENT_TICK.md").write_text("tick 1133: apply one job")
+        router = ToolRouter(playwright_client=None, rag_client=None,
+                            default_cwd=str(tmp_path))
+        result = router.dispatch_sync("read", {"path": "AGENT_TICK.md"})
+        assert "tick 1133" in result
+
+    def test_read_missing_file_returns_error(self, tmp_path):
+        router = ToolRouter(playwright_client=None, rag_client=None,
+                            default_cwd=str(tmp_path))
+        result = router.dispatch_sync("read", {"path": "no-such-file.md"})
+        assert "error" in result.lower() or "not found" in result.lower()
+
+    def test_read_directory_returns_error(self, tmp_path):
+        router = ToolRouter(playwright_client=None, rag_client=None,
+                            default_cwd=str(tmp_path))
+        result = router.dispatch_sync("read", {"path": str(tmp_path)})
+        assert "directory" in result.lower() or "error" in result.lower()
+
+    def test_read_truncates_large_files(self, tmp_path):
+        f = tmp_path / "big.txt"
+        f.write_text("x" * 50000)
+        router = ToolRouter(playwright_client=None, rag_client=None,
+                            default_cwd=str(tmp_path))
+        result = router.dispatch_sync("read", {"path": "big.txt"})
+        assert "truncated" in result
+        assert len(result) < 25000
+
+    def test_read_via_async_dispatch(self, tmp_path):
+        f = tmp_path / "context.txt"
+        f.write_text("campaign context")
+        router = ToolRouter(playwright_client=None, rag_client=None,
+                            default_cwd=str(tmp_path))
+
+        async def run():
+            return await router.dispatch("read", {"path": "context.txt"})
+
+        import asyncio
+        result = asyncio.run(run())
+        assert "campaign context" in result
+
 
 class TestToolRouter:
     def test_dispatch_exec(self):
@@ -52,10 +123,31 @@ class TestToolRouter:
         result = router.dispatch_sync("exec", {"command": "echo test", "timeout": 5})
         assert "test" in result
 
+    def test_exec_uses_default_cwd_when_no_cwd_arg(self, tmp_path):
+        router = ToolRouter(playwright_client=None, rag_client=None,
+                            default_cwd=str(tmp_path))
+        result = router.dispatch_sync("exec", {"command": "pwd", "timeout": 5})
+        assert str(tmp_path) in result
+        assert "exit=0" in result
+
+    def test_exec_explicit_cwd_overrides_default(self, tmp_path, tmp_path_factory):
+        other = tmp_path_factory.mktemp("other")
+        router = ToolRouter(playwright_client=None, rag_client=None,
+                            default_cwd=str(tmp_path))
+        result = router.dispatch_sync("exec", {"command": "pwd", "cwd": str(other), "timeout": 5})
+        assert str(other) in result
+        assert str(tmp_path) not in result
+
     def test_dispatch_unknown_tool(self):
         router = ToolRouter(playwright_client=None, rag_client=None)
         result = router.dispatch_sync("nonexistent_tool", {})
         assert "error" in result.lower() or "unknown" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_async_dispatch_unknown_tool(self):
+        router = ToolRouter(playwright_client=None, rag_client=None)
+        result = await router.dispatch("nonexistent_tool", {})
+        assert "unknown" in result.lower()
 
     def test_dispatch_playwright_without_client(self):
         router = ToolRouter(playwright_client=None, rag_client=None)
@@ -82,3 +174,33 @@ class TestToolRouter:
         router = ToolRouter(playwright_client=None, rag_client=mock_rag)
         result = await router.dispatch("rag_search_apps", {"query": "Java"})
         assert "No matches" in result
+
+    @pytest.mark.asyncio
+    async def test_async_dispatch_playwright_without_client(self):
+        router = ToolRouter(playwright_client=None, rag_client=None)
+        result = await router.dispatch("browser_navigate", {"url": "https://example.com"})
+        assert "not available" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_async_dispatch_rag_without_client(self):
+        router = ToolRouter(playwright_client=None, rag_client=None)
+        result = await router.dispatch("rag_search_apps", {"query": "Java"})
+        assert "not available" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_async_dispatch_playwright_client_raises(self):
+        mock_pw = AsyncMock()
+        mock_pw.call_tool = AsyncMock(side_effect=ConnectionError("cdp refused"))
+        router = ToolRouter(playwright_client=mock_pw, rag_client=None)
+        result = await router.dispatch("browser_snapshot", {})
+        assert "failed" in result.lower()
+        assert "cdp refused" in result
+
+    @pytest.mark.asyncio
+    async def test_async_dispatch_rag_client_raises(self):
+        mock_rag = AsyncMock()
+        mock_rag.call_tool = AsyncMock(side_effect=RuntimeError("rag down"))
+        router = ToolRouter(playwright_client=None, rag_client=mock_rag)
+        result = await router.dispatch("rag_search_docs", {"query": "IL boards"})
+        assert "failed" in result.lower()
+        assert "rag down" in result

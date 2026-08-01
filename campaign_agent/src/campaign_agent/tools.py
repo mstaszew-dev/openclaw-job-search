@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
+from pathlib import Path
 from typing import Any, Protocol
 
 log = logging.getLogger(__name__)
@@ -17,15 +18,29 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "exec",
-            "description": "Run a shell command. Use for update_tracker.py, tick_status.sh, etc.",
+            "description": "Run a shell command (working directory defaults to the campaign directory). Use for update_tracker.py, tick_status.sh, etc.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {"type": "string", "description": "Shell command to execute"},
                     "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
-                    "cwd": {"type": "string", "description": "Working directory", "default": None},
+                    "cwd": {"type": "string", "description": "Working directory override (defaults to campaign directory)", "default": None},
                 },
                 "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read",
+            "description": "Read the contents of a file. Relative paths resolve against the campaign directory. Use for AGENT_TICK.md, CONTEXT.md, PORTALS.md, tracker.json, etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Absolute path, or path relative to the campaign directory"},
+                },
+                "required": ["path"],
             },
         },
     },
@@ -233,6 +248,24 @@ def exec_tool(command: str, timeout: int = 30, cwd: str | None = None) -> str:
         return f"Error: {e}"
 
 
+def read_file(path: str, base_dir: str | None = None, max_chars: int = 20000) -> str:
+    """Read a file's contents, resolving relative paths against base_dir."""
+    try:
+        p = Path(path)
+        if not p.is_absolute() and base_dir:
+            p = Path(base_dir) / p
+        text = p.read_text()
+        if len(text) > max_chars:
+            text = text[:max_chars] + f"\n...[truncated: file exceeds {max_chars} chars]"
+        return text
+    except FileNotFoundError:
+        return f"Error: file not found: {path}"
+    except IsADirectoryError:
+        return f"Error: path is a directory: {path}"
+    except Exception as e:
+        return f"Error reading {path}: {e}"
+
+
 class ToolRouter:
     """Routes tool calls to the appropriate dispatcher."""
 
@@ -240,9 +273,11 @@ class ToolRouter:
         self,
         playwright_client: MCPClient | None = None,
         rag_client: MCPClient | None = None,
+        default_cwd: str | None = None,
     ) -> None:
         self.playwright = playwright_client
         self.rag = rag_client
+        self.default_cwd = default_cwd
 
     @property
     def schemas(self) -> list[dict[str, Any]]:
@@ -255,8 +290,11 @@ class ToolRouter:
             return exec_tool(
                 args.get("command", ""),
                 timeout=args.get("timeout", 30),
-                cwd=args.get("cwd"),
+                cwd=args.get("cwd") or self.default_cwd,
             )
+
+        if name == "read":
+            return read_file(args.get("path", ""), self.default_cwd)
 
         if name in PLAYWRIGHT_TOOLS:
             if self.playwright is None:
@@ -282,8 +320,11 @@ class ToolRouter:
             return exec_tool(
                 args.get("command", ""),
                 timeout=args.get("timeout", 30),
-                cwd=args.get("cwd"),
+                cwd=args.get("cwd") or self.default_cwd,
             )
+
+        if name == "read":
+            return read_file(args.get("path", ""), self.default_cwd)
 
         if name in PLAYWRIGHT_TOOLS and self.playwright is None:
             return "Error: Playwright MCP not available"
