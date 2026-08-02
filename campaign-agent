@@ -6,6 +6,11 @@
 # '/bin/zsh <path>/job-search-agent' in its command line - this is what the
 # Director's pgrep-based supervision (detectWorker) matches, exactly like the
 # old run-one-job launcher. The python child does the campaign work.
+#
+# SIGTERM handling: the Director's stopWorker signals this launcher; the trap
+# forwards TERM to the python child so the whole agent dies. Without this, the
+# python child would survive orphaned and a restart would leave a duplicate
+# running (the Director also detects + kills the python child as a backstop).
 set -euo pipefail
 
 # Resolve the real launcher directory even when invoked through a PATH symlink.
@@ -13,4 +18,7 @@ LAUNCHER_DIR="$(python3 -c 'import os, sys; print(os.path.dirname(os.path.realpa
 cd "$LAUNCHER_DIR/campaign_agent" || exit 1
 
 export PYTHONPATH="src${PYTHONPATH:+:$PYTHONPATH}"
-.venv/bin/python -m campaign_agent.main
+.venv/bin/python -m campaign_agent.main &
+child=$!
+trap 'kill -TERM $child 2>/dev/null' TERM
+wait $child
