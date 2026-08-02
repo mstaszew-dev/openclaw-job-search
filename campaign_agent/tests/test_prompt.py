@@ -41,4 +41,11 @@ class TestUserPrompt:
         cfg = Config()
         prompt = build_user_prompt(cfg, session_context="", token_info="")
         assert cfg.campaign_dir in prompt
-        assert "read tool" in prompt.lower()
+
+    def test_inlines_campaign_files(self):
+        """AGENT_TICK.md and CONTEXT.md contents are inlined so the first
+        LLM call doesn't need a tool call (free-tier models stall on tools)."""
+        cfg = Config()
+        prompt = build_user_prompt(cfg, session_context="", token_info="")
+        assert "=== AGENT_TICK.md ===" in prompt
+        assert "=== CONTEXT.md ===" in prompt

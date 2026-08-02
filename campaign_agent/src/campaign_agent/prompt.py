@@ -57,9 +57,10 @@ USER_PROMPT_TEMPLATE = """\
 
 {token_info}
 
-Apply exactly ONE job this tick. Read the campaign state files first using the read tool:
-- {campaign_dir}/AGENT_TICK.md
-- {campaign_dir}/CONTEXT.md
+{campaign_files}
+
+Apply exactly ONE job this tick. The campaign state files above are already \
+included - you do NOT need to read them again. Start browsing for a job immediately.
 
 The exec tool runs with the working directory set to the campaign directory \
 ({campaign_dir}); use relative paths for files there. \
@@ -72,6 +73,27 @@ Stop after one confirmed submission.
 """
 
 
+def _inline_campaign_files(config: Config) -> str:
+    """Read AGENT_TICK.md and CONTEXT.md and inline them into the prompt.
+
+    This avoids requiring a tool call (read) on the first LLM turn, which is
+    critical because free-tier models frequently stall on tool-calling requests.
+    By inlining the state, the first call can succeed without tools.
+    """
+    import os
+    parts = []
+    for name in ("AGENT_TICK.md", "CONTEXT.md"):
+        path = os.path.join(config.campaign_dir, name)
+        try:
+            content = open(path).read()
+            if len(content) > 8000:
+                content = content[:8000] + "\n...[truncated]"
+            parts.append(f"=== {name} ===\n{content}")
+        except (FileNotFoundError, OSError):
+            parts.append(f"=== {name} ===\n(file not found - use read tool if needed)")
+    return "\n\n".join(parts)
+
+
 def build_system_prompt(config: Config) -> str:
     """Build the system prompt with campaign rules."""
     return SYSTEM_PROMPT
@@ -82,7 +104,11 @@ def build_user_prompt(
     session_context: str = "",
     token_info: str = "",
 ) -> str:
-    """Build the user prompt for a single tick."""
+    """Build the user prompt for a single tick.
+
+    Inlines AGENT_TICK.md and CONTEXT.md contents so the first LLM call
+    doesn't need a tool call (free-tier models stall on tool-calling).
+    """
     ctx_section = ""
     if session_context:
         ctx_section = f"Previous session context:\n{session_context}"
@@ -91,9 +117,12 @@ def build_user_prompt(
     if token_info:
         token_section = f"TOKEN BUDGET: {token_info}"
 
+    files_section = _inline_campaign_files(config)
+
     template = USER_PROMPT_TEMPLATE.format(
         session_context=ctx_section,
         token_info=token_section,
         campaign_dir=config.campaign_dir,
+        campaign_files=files_section,
     )
     return template.strip()
