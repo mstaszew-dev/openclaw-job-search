@@ -1,37 +1,32 @@
-# OpenClaw Job Search Agent
+# openclaw-job-search
 
-This workspace runs OpenClaw against the live job-search campaign without copying campaign state.
+Autonomous job-application campaign agent. Python agent that applies to jobs
+through a browser (Chrome CDP via Playwright MCP), using msrouter as the LLM
+gateway and a RAG server for deduplication.
 
-## Run one application
+## Structure
 
-Keep the campaign Chrome running with CDP on port `9222`, then run:
-
-```bash
-job-search-agent
+```
+campaign_agent/     Python campaign agent (the current agent)
+campaign-agent      zsh launcher (supervised by the Director via pgrep)
+rag/                RAG MCP server (semantic search for dedup)
+archive/            Legacy code and intermediate artifacts (run-one-job, CDP scripts, etc.)
 ```
 
-You may add an instruction for the same single-job run:
+## Run
 
-```bash
-job-search-agent "Prefer an Israeli remote Java/Spring role this tick."
+```zsh
+# Start the agent (Director-supervised, auto-restarts in iTerm)
+/Users/mst/bin/job-search-agent
+
+# Or directly
+cd campaign_agent && PYTHONPATH=src .venv/bin/python -m campaign_agent.main
 ```
 
-The launcher refuses to start if Chrome CDP is unavailable. The agent must follow `AGENTS.md`, the canonical campaign runbook, dedupe and scoring gates, and browser confirmation before updating the tracker.
+See `campaign_agent/README.md` for supervision wiring and runtime notes.
 
-## Operator commands
+## Tests
 
-```bash
-openclaw gateway status
-openclaw models status
-openclaw mcp probe playwright
-openclaw dashboard
-openclaw tui
+```zsh
+cd campaign_agent && .venv/bin/python -m pytest --cov=campaign_agent
 ```
-
-## Live paths
-
-- `campaign/` -> `/Users/mst/Downloads/job-search/job-apply`
-- `joblooper/` -> `/Users/mst/ZCodeProject/joblooper`
-- Playwright MCP -> existing Chrome at `http://127.0.0.1:9222`
-- Model -> OpenRouter free router
-- OpenRouter credential -> SecretRef into OpenCode's credential store; no duplicate API-key copy
