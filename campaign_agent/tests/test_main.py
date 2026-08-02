@@ -54,6 +54,15 @@ class TestClassifyFailure:
     def test_api_connection_error_transient(self):
         assert classify_failure("APIConnectionError: failed to connect") == "transient"
 
+    def test_nonetype_parse_error_transient(self):
+        """Malformed free-model responses cause parse errors (NoneType, KeyError,
+        IndexError). These are transient: the next provider/model will likely
+        return a valid response."""
+        assert classify_failure("llm_error: 'NoneType' object is not subscriptable") == "transient"
+
+    def test_key_error_transient(self):
+        assert classify_failure("llm_error: 'choices'") == "transient"
+
     def test_fatal_unknown(self):
         assert classify_failure("Something completely unexpected") == "fatal"
 

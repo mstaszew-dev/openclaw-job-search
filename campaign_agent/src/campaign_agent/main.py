@@ -49,6 +49,10 @@ def classify_failure(text: str) -> str:
         return "rate"
     if any(p in text_lower for p in ["connection error", "connection refused", "connection reset", "apiconnectionerror", "connection"]):
         return "transient"
+    # Parse errors from malformed free-model responses (NoneType subscript,
+    # KeyError on missing 'choices', IndexError). Transient: next model differs.
+    if "nonetype" in text_lower or "llm_error:" in text_lower:
+        return "transient"
     if any(p in text_lower for p in ["couldn't generate", "empty response", "no content"]):
         return "transient"
     return "fatal"

@@ -46,6 +46,31 @@ class TestLLMResponse:
         assert r.tool_calls[0].arguments == {"command": "echo hi"}
         assert r.finish_reason == "tool_calls"
 
+    def test_from_openai_choices_none(self):
+        """Free models sometimes return responses with choices=None.
+        Must not crash; should yield an empty (is_empty) response."""
+        mock_resp = MagicMock()
+        mock_resp.choices = None
+        r = LLMResponse.from_openai(mock_resp)
+        assert r.content == ""
+        assert r.tool_calls == []
+        assert r.is_empty()
+
+    def test_from_openai_choices_empty_list(self):
+        """Empty choices list must not crash."""
+        mock_resp = MagicMock()
+        mock_resp.choices = []
+        r = LLMResponse.from_openai(mock_resp)
+        assert r.is_empty()
+
+    def test_from_openai_choice_missing_message(self):
+        """A choice with no message must not crash."""
+        mock_resp = MagicMock()
+        mock_resp.choices = [MagicMock()]
+        mock_resp.choices[0].message = None
+        r = LLMResponse.from_openai(mock_resp)
+        assert r.is_empty()
+
     def test_assistant_message_dict_without_tools(self):
         r = LLMResponse(content="Done", tool_calls=[], finish_reason="stop")
         d = r.assistant_message_dict()

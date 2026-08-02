@@ -32,9 +32,20 @@ class LLMResponse:
 
     @classmethod
     def from_openai(cls, response: Any) -> LLMResponse:
-        """Parse an OpenAI SDK response into LLMResponse."""
-        choice = response.choices[0]
-        msg = choice.message
+        """Parse an OpenAI SDK response into LLMResponse.
+
+        Handles malformed responses from free-tier models (choices=None,
+        empty choices list, missing message) by returning an empty response
+        instead of crashing.
+        """
+        choices = getattr(response, "choices", None)
+        if not choices:
+            return cls(content="", tool_calls=[], finish_reason="empty")
+        choice = choices[0]
+        msg = getattr(choice, "message", None)
+        if msg is None:
+            return cls(content="", tool_calls=[],
+                       finish_reason=getattr(choice, "finish_reason", "empty") or "empty")
 
         content = msg.content or ""
 
