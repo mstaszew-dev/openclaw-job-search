@@ -137,7 +137,11 @@ async def run_campaign(config: Config) -> None:
         api_key=config.msrouter_api_key,
         model=config.msrouter_model,
         max_retries=3,
-        timeout=config.timeout_seconds,
+        # Cap the client timeout at 120s even if config allows more. Free-tier
+        # providers intermittently stall (accept connection, never respond);
+        # a long timeout wastes 10 min per stall. 120s is enough for a healthy
+        # chain walk while failing fast on stalled providers so retries kick in.
+        timeout=min(config.timeout_seconds, 120),
     )
 
     # MCP clients will be initialized when tools are set up

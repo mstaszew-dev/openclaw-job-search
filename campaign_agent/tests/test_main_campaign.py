@@ -374,10 +374,13 @@ def test_main_cli_entry(tmp_path):
 
 @pytest.mark.asyncio
 async def test_llm_client_wired_with_timeout_seconds(tmp_path):
-    """LLMClient must inherit config.timeout_seconds (not the 120s default).
+    """LLMClient timeout must be short enough to fail fast on stalled providers.
 
-    msrouter's chain walk can exceed 120s during rate-limit storms; the client
-    timeout must be at least as long as the gateway's processing time.
+    Free-tier providers intermittently accept a connection but never respond.
+    A 600s timeout means 10 min wasted per stalled attempt. The client uses a
+    shorter timeout (120s) so stalled requests fail fast and retry, while
+    llm.py's own retry loop (max_retries=3) handles reattempts. The config's
+    timeout_seconds is the upper bound, but the client caps it.
     """
     h = _PatchHarness()
     try:
@@ -400,6 +403,6 @@ async def test_llm_client_wired_with_timeout_seconds(tmp_path):
             await run_campaign(cfg)
 
         call_kwargs = h.LLMClient.call_args.kwargs
-        assert call_kwargs["timeout"] == 600
+        assert call_kwargs["timeout"] <= 120
     finally:
         h.stop()
