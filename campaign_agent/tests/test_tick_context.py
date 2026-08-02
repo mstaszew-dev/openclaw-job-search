@@ -40,3 +40,35 @@ class TestTickContext:
         loaded = TickContext(path).load()
         assert len(loaded) <= 115  # 100 + "\n...[truncated]" (15 chars)
         assert "truncated" in loaded
+
+
+class TestBuildTickSummaryGaps:
+    """Tests for the context-passing gaps."""
+
+    def test_summary_includes_3_recent_apps(self):
+        """Gap A: build_tick_summary should list the last 3 submissions,
+        not just 1, for richer cross-tick context."""
+        from unittest.mock import MagicMock
+        from campaign_agent.session import build_tick_summary
+        tracker = MagicMock()
+        tracker.recent_applications.return_value = [
+            {"company": "Acme", "roleTitle": "Backend Dev", "appliedAt": "2026-08-02T10:00:00+00:00"},
+            {"company": "Globex", "roleTitle": "Java Dev", "appliedAt": "2026-08-01T10:00:00+00:00"},
+            {"company": "Initech", "roleTitle": "Spring Dev", "appliedAt": "2026-07-31T10:00:00+00:00"},
+        ]
+        summary = build_tick_summary(tracker=tracker, attempts=2, reason="success")
+        assert "Acme" in summary
+        assert "Globex" in summary
+        assert "Initech" in summary
+
+    def test_summary_fewer_than_3_apps(self):
+        """If tracker has fewer than 3 apps, include all available."""
+        from unittest.mock import MagicMock
+        from campaign_agent.session import build_tick_summary
+        tracker = MagicMock()
+        tracker.recent_applications.return_value = [
+            {"company": "Acme", "roleTitle": "Dev", "appliedAt": "2026-08-02T10:00:00+00:00"},
+        ]
+        summary = build_tick_summary(tracker=tracker, attempts=1, reason="success")
+        assert "Acme" in summary
+        assert "no submission" not in summary.lower()

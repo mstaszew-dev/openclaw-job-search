@@ -175,13 +175,15 @@ async def run_campaign(config: Config) -> None:
             log.info("=== Tick %d: %d/%d (%d to go) ===",
                      tick, tracker.submitted(), tracker.target(), tracker.remaining())
 
-            # Build context for this tick: summarized previous tick if present,
-            # else session rotation context
+            # Build context for this tick: combine the summarized previous tick
+            # (if any) with the session rotation context (5 recent apps from
+            # tracker). Both are useful; neither should shadow the other.
             prev_summary = tick_context.load()
-            session_context = prev_summary or (
-                session.build_rotation_context() if session.session_id else ""
-            )
-            token_info = f"~{session.estimate_tokens()} tokens ({session.estimate_tokens() * 100 // config.token_budget}% of budget)"
+            rot_ctx = session.build_rotation_context() if session.session_id else ""
+            parts = [p for p in [prev_summary, rot_ctx] if p]
+            session_context = "\n\n".join(parts)
+            budget = max(config.token_budget, 1)
+            token_info = f"~{session.estimate_tokens()} tokens ({session.estimate_tokens() * 100 // budget}% of budget)"
 
             user_prompt = build_user_prompt(config, session_context, token_info)
 
@@ -191,7 +193,8 @@ async def run_campaign(config: Config) -> None:
                 log.warning("Context near budget, rotating...")
                 session.rotate()
                 session_context = session.build_rotation_context() if session.session_id else ""
-                token_info = f"~{session.estimate_tokens()} tokens ({session.estimate_tokens() * 100 // config.token_budget}% of budget)"
+                budget = max(config.token_budget, 1)
+                token_info = f"~{session.estimate_tokens()} tokens ({session.estimate_tokens() * 100 // budget}% of budget)"
                 user_prompt = build_user_prompt(config, session_context, token_info)
 
             # Run the agent turn
@@ -252,8 +255,11 @@ async def run_campaign(config: Config) -> None:
                 log.warning("Retries exhausted, backing off %ss", config.outer_backoff)
                 await asyncio.sleep(config.outer_backoff)
 
-            # Persist a summarized context for the next tick
+            # Persist a summarized context for the next tick.
+            # Reload the tracker first so a late submission (recorded via
+            # update_tracker.py during the tick) is reflected in the summary.
             try:
+                tracker.reload()
                 summary = build_tick_summary(
                     tracker=tracker, attempts=fail_count, reason=result.reason,
                 )

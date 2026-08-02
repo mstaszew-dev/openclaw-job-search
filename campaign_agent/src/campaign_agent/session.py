@@ -50,15 +50,19 @@ def build_tick_summary(
     attempts: int,
     reason: str,
 ) -> str:
-    """Build a structured summary of the tick that just completed."""
+    """Build a structured summary of the tick that just completed.
+
+    Includes the last 3 submissions (not just 1) for richer cross-tick context.
+    """
     lines: list[str] = []
-    recent = tracker.recent_applications(1)
+    recent = tracker.recent_applications(3)
     if recent:
-        app = recent[0]
-        lines.append(
-            f"Last tick result: submitted {app.get('company', '?')} / "
-            f"{app.get('roleTitle', '?')} ({app.get('appliedAt', '?')[:10]})"
-        )
+        lines.append("Recent submissions:")
+        for app in recent:
+            lines.append(
+                f"  - {app.get('company', '?')} / "
+                f"{app.get('roleTitle', '?')} ({app.get('appliedAt', '?')[:10]})"
+            )
     else:
         lines.append("Last tick result: no submission recorded.")
     lines.append(f"Attempts used this tick: {attempts}")
