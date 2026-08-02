@@ -1,55 +1,18 @@
 """
 Prompt builder: single source of truth for campaign policy and prompt assembly.
-Replaces the duplicated .md content with one Python module.
+
+IMPORTANT (empirically verified): free-tier models time out on tool-calling
+requests when the SYSTEM prompt exceeds roughly 0.5-1 KB. User-message size
+is fine (2 KB user + tools works). So the system prompt is kept minimal and
+all detailed rules live in the user prompt.
 """
 from __future__ import annotations
 
 from campaign_agent.config import Config
 
 SYSTEM_PROMPT = """\
-You are an autonomous job application agent. You apply to exactly ONE job per tick, \
-then stop. You are authorized to apply without asking permission.
-
-CRITICAL: On every turn, your FIRST action must be a TOOL CALL, not text. \
-Do NOT narrate your plan ("Let me start by reading..."), do NOT explain what you \
-will do, do NOT output a preamble. Immediately call the read tool to read \
-AGENT_TICK.md and CONTEXT.md. If you respond with text and no tool calls, the \
-turn ends as a failure and you start over. ACT, don't talk.
-
-STACK TARGETS: Java/Kotlin/Spring, PHP/Laravel/Symfony, Node/React/NestJS. \
-Skip: ABAP, Salesforce, pure QA, C/C++, .NET, mobile-lead, ML/data, DevOps-only.
-SENIORITY: Mid-to-senior preferred, junior/entry allowed. \
-Skip: team lead, tech lead, architect, manager, director, head, vp.
-
-REGIONS:
-- IL: remote/hybrid/onsite all OK. Onsite/hybrid in central Israel only. Remote OK anywhere.
-- EU/PL/GLOBAL: full remote only, B2B >= 15,000 PLN/month when salary listed.
-
-TOOLS AVAILABLE:
-- exec: Run shell commands (e.g., update_tracker.py, tick_status.sh). \
-The working directory is the campaign directory. \
-Only update_tracker.py for recording submissions. No score_candidate.py, no check_dupe.py.
-- read: Read file contents (AGENT_TICK.md, CONTEXT.md, PORTALS.md, etc.). \
-Relative paths resolve against the campaign directory.
-- playwright tools: browser_navigate, browser_snapshot, browser_click, browser_fill_form, \
-browser_file_upload, browser_evaluate, browser_type, browser_wait_for, browser_find, etc. \
-Connects to existing Chrome at http://127.0.0.1:9222. Do NOT launch or close Chrome.
-- rag_search_apps: Semantic search over past applications for dedupe. \
-Call before applying. Skip if score > 0.85 AND within 60d.
-- rag_search_docs: Search campaign docs (PORTALS.md, IL_BOARDS.md, etc.) for context.
-
-HARD RULES:
-1. NEVER edit tracker.json directly. Use update_tracker.py submitted '<json>'.
-2. After verifying a submission in the browser, call update_tracker.py IMMEDIATELY \
-as your next action via the exec tool. Do NOT write commands in code blocks.
-3. After recording a submission, stop generating and end your turn. \
-Do NOT output any stop tokens or completion markers.
-4. Dedupe: use rag_search_apps + Gmail search via Playwright (60d window). One company once.
-5. Score candidates yourself against CV knowledge. Do NOT call score_candidate.py.
-6. Scripts: create any temp scripts in /tmp/, NOT in the campaign directory.
-
-FORBIDDEN: Asking "Shall I?", "Should I proceed?", "Would you like me to?". \
-You are authorized. Execute. Do NOT ask for permission.
+You are an autonomous job application agent. First action must be a TOOL CALL. \
+Follow the rules in the task message. Apply exactly ONE job per tick.
 """
 
 USER_PROMPT_TEMPLATE = """\
@@ -57,41 +20,25 @@ USER_PROMPT_TEMPLATE = """\
 
 {token_info}
 
-{campaign_files}
+TASK: Apply exactly ONE job this tick. Start with the read tool on AGENT_TICK.md \
+and CONTEXT.md (relative to the campaign dir), then browse for a job.
 
-Apply exactly ONE job this tick. The campaign state files above are already \
-included - you do NOT need to read them again. Start browsing for a job immediately.
+RULES:
+- Targets: Java/Kotlin/Spring, PHP/Laravel, Node/React. Skip: ABAP, Salesforce, \
+QA, C/C++, .NET, mobile-lead, ML/data, DevOps, lead/manager/architect/junior.
+- IL: remote/hybrid/onsite (central only). EU/PL: full remote, B2B >= 15000 PLN.
+- Record submissions ONLY via exec: update_tracker.py submitted '<json>'. Never \
+edit tracker.json directly. Record immediately after browser confirmation.
+- Dedupe: rag_search_apps + Gmail (60d). One company once. Do NOT call automation \
+scripts (no score_candidate.py, no check_dupe.py).
+- Browser: existing Chrome at http://127.0.0.1:9222. Do NOT launch/close Chrome.
+- Never ask permission. No stop tokens. After recording a submission, end your turn.
+- Temp scripts go in /tmp/, not the campaign dir.
+- The exec tool's working directory is {campaign_dir}; use relative paths there.
 
-The exec tool runs with the working directory set to the campaign directory \
-({campaign_dir}); use relative paths for files there. \
-Use the existing logged-in Chrome through Playwright MCP at http://127.0.0.1:9222. \
-Verify an explicit confirmation/thank-you in the browser before running \
-update_tracker.py submitted.
-
-Work order: IL remote/hybrid/onsite -> EU/PL full remote -> other EU full remote. \
+Work order: IL -> EU/PL full remote -> other EU full remote. \
 Stop after one confirmed submission.
 """
-
-
-def _inline_campaign_files(config: Config) -> str:
-    """Read AGENT_TICK.md and CONTEXT.md and inline them into the prompt.
-
-    This avoids requiring a tool call (read) on the first LLM turn, which is
-    critical because free-tier models frequently stall on tool-calling requests.
-    By inlining the state, the first call can succeed without tools.
-    """
-    import os
-    parts = []
-    for name in ("AGENT_TICK.md", "CONTEXT.md"):
-        path = os.path.join(config.campaign_dir, name)
-        try:
-            content = open(path).read()
-            if len(content) > 8000:
-                content = content[:8000] + "\n...[truncated]"
-            parts.append(f"=== {name} ===\n{content}")
-        except (FileNotFoundError, OSError):
-            parts.append(f"=== {name} ===\n(file not found - use read tool if needed)")
-    return "\n\n".join(parts)
 
 
 def build_system_prompt(config: Config) -> str:
@@ -104,11 +51,7 @@ def build_user_prompt(
     session_context: str = "",
     token_info: str = "",
 ) -> str:
-    """Build the user prompt for a single tick.
-
-    Inlines AGENT_TICK.md and CONTEXT.md contents so the first LLM call
-    doesn't need a tool call (free-tier models stall on tool-calling).
-    """
+    """Build the user prompt for a single tick."""
     ctx_section = ""
     if session_context:
         ctx_section = f"Previous session context:\n{session_context}"
@@ -117,12 +60,9 @@ def build_user_prompt(
     if token_info:
         token_section = f"TOKEN BUDGET: {token_info}"
 
-    files_section = _inline_campaign_files(config)
-
     template = USER_PROMPT_TEMPLATE.format(
         session_context=ctx_section,
         token_info=token_section,
         campaign_dir=config.campaign_dir,
-        campaign_files=files_section,
     )
     return template.strip()
