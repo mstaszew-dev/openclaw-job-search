@@ -274,7 +274,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Campaign agent")
-    parser.add_argument("--config", default="~/.openclaw/director-overrides.env",
+    parser.add_argument("--config", default="~/.campaign-agent/director-overrides.env",
                         help="Path to overrides file")
     parser.add_argument("--model", default=None, help="Override model")
     args = parser.parse_args()

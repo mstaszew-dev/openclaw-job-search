@@ -60,13 +60,13 @@ class Config:
     timeout_seconds: int = 600
 
     # Session directory (OpenClaw sessions)
-    session_dir: str = os.path.expanduser("~/.openclaw/agents/main/sessions")
+    session_dir: str = os.path.expanduser("~/.campaign-agent/sessions")
 
     # Summarized previous-tick context file
     tick_context_path: str = "/Users/mst/ZCodeProject/openclaw-job-search/campaign_agent/state/tick-context.md"
 
     # Director-controlled overrides (patch surface)
-    director_prompt_overrides_path: str = os.path.expanduser("~/.openclaw/director-prompt-overrides.md")
+    director_prompt_overrides_path: str = os.path.expanduser("~/.campaign-agent/director-prompt-overrides.md")
     skip_companies: set[str] = field(default_factory=set)
 
     # Playwright MCP launch
@@ -88,7 +88,7 @@ class Config:
     ])
 
     # Director overrides
-    overrides_path: str = os.path.expanduser("~/.openclaw/director-overrides.env")
+    overrides_path: str = os.path.expanduser("~/.campaign-agent/director-overrides.env")
 
     @classmethod
     def from_env(cls) -> Config:
