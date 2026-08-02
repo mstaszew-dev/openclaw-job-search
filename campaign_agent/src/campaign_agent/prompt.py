@@ -20,6 +20,8 @@ USER_PROMPT_TEMPLATE = """\
 
 {token_info}
 
+{director_extras}
+
 TASK: Apply exactly ONE job this tick. Start with the read tool on AGENT_TICK.md \
 and CONTEXT.md (relative to the campaign dir), then browse for a job.
 
@@ -60,9 +62,20 @@ def build_user_prompt(
     if token_info:
         token_section = f"TOKEN BUDGET: {token_info}"
 
+    extras: list[str] = []
+    if config.skip_companies:
+        extras.append(
+            "DIRECTOR SKIP LIST: do NOT apply to any of these companies: "
+            + ", ".join(sorted(config.skip_companies)) + "."
+        )
+    director_note = config.director_note
+    if director_note:
+        extras.append(f"DIRECTOR NOTE: {director_note}")
+
     template = USER_PROMPT_TEMPLATE.format(
         session_context=ctx_section,
         token_info=token_section,
         campaign_dir=config.campaign_dir,
+        director_extras="\n\n".join(extras),
     )
     return template.strip()

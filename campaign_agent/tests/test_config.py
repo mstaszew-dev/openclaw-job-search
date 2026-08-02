@@ -108,3 +108,33 @@ class TestConfigPlaywrightArgs:
         cfg = Config()
         joined = " ".join(cfg.playwright_args)
         assert "http://127.0.0.1:9222" in joined
+
+
+class TestDirectorOverrides:
+    def test_parses_portal_skip_companies(self, tmp_path):
+        env = tmp_path / "overrides.env"
+        env.write_text("PORTAL_SKIP_RYBTECH=1\nPORTAL_SKIP_MINDBOX=1\nPORTAL_SKIP_ANTAL=1\n")
+        cfg = Config.from_overrides(str(env))
+        assert "rybtech" in cfg.skip_companies
+        assert "mindbox" in cfg.skip_companies
+        assert "antal" in cfg.skip_companies
+        assert len(cfg.skip_companies) == 3
+
+    def test_no_skip_companies_when_unset(self, tmp_path):
+        env = tmp_path / "overrides.env"
+        env.write_text("MSROUTER_MODEL=mst/free\n")
+        cfg = Config.from_overrides(str(env))
+        assert cfg.skip_companies == set()
+
+    def test_skip_companies_normalized_lowercase(self, tmp_path):
+        env = tmp_path / "overrides.env"
+        env.write_text("PORTAL_SKIP_AcmeCorp=1\n")
+        cfg = Config.from_overrides(str(env))
+        assert "acmecorp" in cfg.skip_companies
+
+    def test_director_note_loaded_from_prompt_overrides(self, tmp_path):
+        prompt_md = tmp_path / "director-prompt-overrides.md"
+        prompt_md.write_text("STOP applying for excluded roles.\n")
+        cfg = Config()
+        cfg.director_prompt_overrides_path = str(prompt_md)
+        assert "excluded roles" in cfg.director_note

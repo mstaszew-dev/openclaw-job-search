@@ -54,3 +54,26 @@ class TestUserPrompt:
         tool-calling requests with large prompts."""
         prompt = build_system_prompt(Config())
         assert len(prompt) < 1500
+
+
+class TestDirectorOverridesInPrompt:
+    def test_skip_companies_included_in_user_prompt(self):
+        cfg = Config()
+        cfg.skip_companies = {"rybtech", "mindbox"}
+        prompt = build_user_prompt(cfg, session_context="", token_info="")
+        assert "rybtech" in prompt.lower()
+        assert "mindbox" in prompt.lower()
+
+    def test_director_note_included_in_user_prompt(self, tmp_path):
+        note = tmp_path / "director-prompt-overrides.md"
+        note.write_text("STOP applying for excluded seniority roles.")
+        cfg = Config()
+        cfg.director_prompt_overrides_path = str(note)
+        prompt = build_user_prompt(cfg, session_context="", token_info="")
+        assert "excluded seniority" in prompt
+
+    def test_no_director_sections_when_empty(self):
+        cfg = Config()
+        cfg.skip_companies = set()
+        prompt = build_user_prompt(cfg, session_context="", token_info="")
+        assert "SKIP COMPANIES" not in prompt.upper() or "director note" not in prompt.lower()

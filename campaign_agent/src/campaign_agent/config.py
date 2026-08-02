@@ -65,6 +65,10 @@ class Config:
     # Summarized previous-tick context file
     tick_context_path: str = "/Users/mst/ZCodeProject/openclaw-job-search/campaign_agent/state/tick-context.md"
 
+    # Director-controlled overrides (patch surface)
+    director_prompt_overrides_path: str = os.path.expanduser("~/.openclaw/director-prompt-overrides.md")
+    skip_companies: set[str] = field(default_factory=set)
+
     # Playwright MCP launch
     playwright_command: str = "/opt/homebrew/opt/node@24/bin/node"
     playwright_args: list[str] = field(default_factory=lambda: [
@@ -133,6 +137,22 @@ class Config:
         for key, attr in float_fields.items():
             if key in d and d[key]:
                 setattr(self, attr, float(d[key]))
+
+        # PORTAL_SKIP_<Company>=1 -> skip_companies (lowercased)
+        for key, value in d.items():
+            if key.startswith("PORTAL_SKIP_") and value:
+                company = key[len("PORTAL_SKIP_"):].strip().lower()
+                if company:
+                    self.skip_companies.add(company)
+
+    @property
+    def director_note(self) -> str:
+        """Content of the director-prompt-overrides.md note (or '')."""
+        try:
+            return Path(self.director_prompt_overrides_path).read_text(
+                encoding="utf-8").strip()
+        except (FileNotFoundError, OSError):
+            return ""
 
     @property
     def rotation_token_threshold(self) -> int:
