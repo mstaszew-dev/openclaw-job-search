@@ -62,6 +62,9 @@ class Config:
     # Session directory (OpenClaw sessions)
     session_dir: str = os.path.expanduser("~/.openclaw/agents/main/sessions")
 
+    # Summarized previous-tick context file
+    tick_context_path: str = "/Users/mst/ZCodeProject/openclaw-job-search/campaign_agent/state/tick-context.md"
+
     # Playwright MCP launch
     playwright_command: str = "/opt/homebrew/opt/node@24/bin/node"
     playwright_args: list[str] = field(default_factory=lambda: [

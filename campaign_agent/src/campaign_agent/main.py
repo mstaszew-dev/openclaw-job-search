@@ -15,7 +15,7 @@ from typing import Any
 from campaign_agent.config import Config
 from campaign_agent.llm import LLMClient, LLMResponse
 from campaign_agent.prompt import build_system_prompt, build_user_prompt
-from campaign_agent.session import SessionManager
+from campaign_agent.session import SessionManager, TickContext, build_tick_summary
 from campaign_agent.tools import ToolRouter
 from campaign_agent.tracker import Tracker
 
@@ -131,6 +131,7 @@ async def run_campaign(config: Config) -> None:
         token_budget=config.token_budget,
         rotation_threshold=config.rotation_threshold,
     )
+    tick_context = TickContext(config.tick_context_path)
 
     llm = LLMClient(
         base_url=config.msrouter_url,
@@ -174,8 +175,12 @@ async def run_campaign(config: Config) -> None:
             log.info("=== Tick %d: %d/%d (%d to go) ===",
                      tick, tracker.submitted(), tracker.target(), tracker.remaining())
 
-            # Build context for this tick
-            session_context = session.build_rotation_context() if session.session_id else ""
+            # Build context for this tick: summarized previous tick if present,
+            # else session rotation context
+            prev_summary = tick_context.load()
+            session_context = prev_summary or (
+                session.build_rotation_context() if session.session_id else ""
+            )
             token_info = f"~{session.estimate_tokens()} tokens ({session.estimate_tokens() * 100 // config.token_budget}% of budget)"
 
             user_prompt = build_user_prompt(config, session_context, token_info)
@@ -246,6 +251,16 @@ async def run_campaign(config: Config) -> None:
             if inner_result != "success":
                 log.warning("Retries exhausted, backing off %ss", config.outer_backoff)
                 await asyncio.sleep(config.outer_backoff)
+
+            # Persist a summarized context for the next tick
+            try:
+                summary = build_tick_summary(
+                    tracker=tracker, attempts=fail_count, reason=result.reason,
+                )
+                tick_context.save(summary)
+                log.info("Saved tick context: %s", summary.replace("\n", " | ")[:120])
+            except Exception as e:
+                log.warning("Could not save tick context: %s", e)
 
             await asyncio.sleep(2)  # brief pause between ticks
 

@@ -7,11 +7,64 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from pathlib import Path
 from typing import Any
 
 from campaign_agent.tracker import Tracker
 
 log = logging.getLogger(__name__)
+
+
+class TickContext:
+    """Persists a summarized previous-tick context between ticks.
+
+    The summary is loaded at the start of each tick and injected into the user
+    prompt so the model knows what happened in prior ticks (submitted jobs,
+    blockers) even though each attempt starts with fresh messages.
+    """
+
+    def __init__(self, path: str, max_chars: int = 8000) -> None:
+        self.path = path
+        self.max_chars = max_chars
+
+    def save(self, summary: str) -> None:
+        """Write the summary, truncating if needed. Creates parent dirs."""
+        text = summary.strip()
+        if len(text) > self.max_chars:
+            text = text[: self.max_chars] + "\n...[truncated]"
+        p = Path(self.path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+
+    def load(self) -> str:
+        """Return the previous tick summary, or '' if none exists."""
+        try:
+            return Path(self.path).read_text(encoding="utf-8").strip()
+        except (FileNotFoundError, OSError):
+            return ""
+
+
+def build_tick_summary(
+    *,
+    tracker: Tracker,
+    attempts: int,
+    reason: str,
+) -> str:
+    """Build a structured summary of the tick that just completed."""
+    lines: list[str] = []
+    recent = tracker.recent_applications(1)
+    if recent:
+        app = recent[0]
+        lines.append(
+            f"Last tick result: submitted {app.get('company', '?')} / "
+            f"{app.get('roleTitle', '?')} ({app.get('appliedAt', '?')[:10]})"
+        )
+    else:
+        lines.append("Last tick result: no submission recorded.")
+    lines.append(f"Attempts used this tick: {attempts}")
+    if reason:
+        lines.append(f"Tick outcome: {reason[:300]}")
+    return "\n".join(lines)
 
 
 class SessionManager:
