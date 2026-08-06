@@ -49,6 +49,20 @@ class TestUserPrompt:
         prompt = build_user_prompt(cfg, session_context="", token_info="")
         assert cfg.campaign_dir in prompt
 
+    def test_includes_cv_path(self):
+        """The model must know the exact absolute CV path for uploads (it is a
+        regular file in the campaign cv/ dir, not a symlink)."""
+        cfg = Config()
+        prompt = build_user_prompt(cfg, session_context="", token_info="")
+        assert cfg.cv_path in prompt
+
+    def test_includes_playwright_output_dir(self):
+        """The model must know playwright page snapshots live under the
+        absolute output dir, NOT relative to the campaign dir."""
+        cfg = Config()
+        prompt = build_user_prompt(cfg, session_context="", token_info="")
+        assert cfg.playwright_output_dir in prompt
+
     def test_system_prompt_is_compact(self):
         """System prompt must stay small (< 1.5 KB): free-tier models stall on
         tool-calling requests with large prompts."""

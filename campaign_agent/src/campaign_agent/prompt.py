@@ -34,6 +34,9 @@ edit tracker.json directly. Record immediately after browser confirmation.
 - Dedupe: rag_search_apps + Gmail (60d). One company once. Do NOT call automation \
 scripts (no score_candidate.py, no check_dupe.py).
 - Browser: existing Chrome at http://127.0.0.1:9222. Do NOT launch/close Chrome.
+- CV to upload: {cv_path} (absolute path; it is a regular file).
+- Playwright page snapshots are saved under {playwright_output_dir} (absolute \
+path, NOT relative to the campaign dir); read them from there if needed.
 - Never ask permission. No stop tokens. After recording a submission, end your turn.
 - Temp scripts go in /tmp/, not the campaign dir.
 - The exec tool's working directory is {campaign_dir}; use relative paths there.
@@ -76,6 +79,8 @@ def build_user_prompt(
         session_context=ctx_section,
         token_info=token_section,
         campaign_dir=config.campaign_dir,
+        cv_path=config.cv_path,
+        playwright_output_dir=config.playwright_output_dir,
         director_extras="\n\n".join(extras),
     )
     return template.strip()

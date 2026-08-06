@@ -42,6 +42,11 @@ class Config:
     campaign_dir: str = "/Users/mst/Downloads/job-search/job-apply"
     workspace: str = "/Users/mst/ZCodeProject/openclaw-job-search"
 
+    # Absolute paths the agent must know for file operations (CV uploads and
+    # Playwright page snapshots live outside the campaign dir).
+    cv_path: str = "/Users/mst/Downloads/job-search/job-apply/cv/michael-staszewski-cv.pdf"
+    playwright_output_dir: str = "/Users/mst/ZCodeProject/openclaw-job-search/playwright-output"
+
     # Chrome CDP
     cdp_url: str = "http://127.0.0.1:9222"
 
