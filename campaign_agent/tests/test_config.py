@@ -48,7 +48,7 @@ class TestConfigDefaults:
 
     def test_default_max_steps(self):
         cfg = Config()
-        assert cfg.max_steps == 30
+        assert cfg.max_steps == 200
 
 
 class TestConfigFromEnv:

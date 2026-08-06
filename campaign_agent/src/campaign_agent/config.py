@@ -56,7 +56,7 @@ class Config:
     outer_max_ticks: int = 41600
 
     # Agent loop
-    max_steps: int = 30
+    max_steps: int = 200
     timeout_seconds: int = 600
 
     # Session directory (OpenClaw sessions)
@@ -74,7 +74,7 @@ class Config:
     playwright_args: list[str] = field(default_factory=lambda: [
         "/Users/mst/.local/share/openclaw-tools/node_modules/@playwright/mcp/cli.js",
         "--cdp-endpoint", "http://127.0.0.1:9222",
-        "--cdp-timeout", "30000",
+        "--cdp-timeout", "120000",
         "--output-dir", "/Users/mst/ZCodeProject/openclaw-job-search/playwright-output",
         "--output-mode", "file",
         "--save-session",

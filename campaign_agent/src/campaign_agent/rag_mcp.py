@@ -3,6 +3,7 @@ RAG MCP client: async wrapper that spawns the RAG server as a stdio subprocess.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -33,12 +34,15 @@ class RAGMCP:
         await self._session.initialize()
         log.info("RAG MCP connected")
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
-        """Call a tool on the RAG MCP server."""
+    async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float = 60.0) -> str:
+        """Call a tool on the RAG MCP server with a timeout."""
         if self._session is None:
             return "Error: RAG MCP not connected"
         try:
-            result = await self._session.call_tool(name, arguments)
+            result = await asyncio.wait_for(
+                self._session.call_tool(name, arguments),
+                timeout=timeout,
+            )
             texts = []
             for content in result.content:
                 if hasattr(content, "text"):
@@ -46,6 +50,9 @@ class RAGMCP:
                 elif isinstance(content, dict) and "text" in content:
                     texts.append(content["text"])
             return "\n".join(texts) if texts else str(result)
+        except asyncio.TimeoutError:
+            log.error("RAG MCP tool '%s' timed out after %.1fs", name, timeout)
+            return f"Error: RAG tool '{name}' timed out after {timeout}s"
         except Exception as e:
             log.error("RAG MCP tool '%s' failed: %s", name, e)
             return f"Error: {e}"

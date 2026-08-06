@@ -4,6 +4,10 @@ Owns the LLM → tool_call → dispatch → repeat loop.
 """
 from __future__ import annotations
 
+# Suppress the "leaked semaphore" warning from loky/joblib at shutdown
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.resource_tracker")
+
 import asyncio
 import logging
 import re
@@ -41,6 +45,12 @@ def classify_failure(text: str) -> str:
     # run_agent_turn reason tokens (retryable, never fatal)
     if text_lower.startswith("empty_response") or text_lower.startswith("no_submission"):
         return "transient"
+    # max_steps_exceeded: the agent looped to the step cap without submitting.
+    # The context at that point is huge, so treat it like context pressure:
+    # rotate (compress) the session and keep going. NEVER fatal - the campaign
+    # must not stop just because one tick's chain walk was long.
+    if text_lower.startswith("max_steps"):
+        return "max_steps"
     if any(p in text_lower for p in ["failover", "streaming response failed", "stream fail", "no_provider_available"]):
         return "transient"
     if any(p in text_lower for p in ["context overflow", "prompt too large", "compaction", "maximum context", "token"]):
@@ -62,7 +72,7 @@ async def run_agent_turn(
     llm: LLMClient,
     tools: ToolRouter,
     messages: list[dict[str, Any]],
-    max_steps: int = 30,
+    max_steps: int = 200,
 ) -> TickResult:
     """
     Run one agent turn: LLM call → tool dispatch → repeat until done or max_steps.
@@ -232,6 +242,16 @@ async def run_campaign(config: Config) -> None:
                     session.rotate()
                     session_context = session.build_rotation_context() if session.session_id else ""
                     user_prompt = build_user_prompt(config, session_context, "")
+                elif kind == "max_steps":
+                    # The agent burned the full step budget without submitting.
+                    # Rotate (compress) the session context so the next attempt
+                    # starts lean, then retry. If retries exhaust, the tick ends
+                    # and the next tick opens with the compressed tick summary.
+                    log.warning("Max steps exceeded, rotating session for compressed context")
+                    session.rotate()
+                    session_context = session.build_rotation_context() if session.session_id else ""
+                    user_prompt = build_user_prompt(config, session_context, "")
+                    await asyncio.sleep(config.inner_sleep)
                 elif kind == "no_submission":
                     log.warning("Agent finished without recording a submission; retrying fresh in %ss",
                                 config.inner_sleep)

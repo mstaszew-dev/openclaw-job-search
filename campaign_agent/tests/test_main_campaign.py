@@ -176,6 +176,43 @@ async def test_context_overflow_rotates_session(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_max_steps_exceeded_does_not_stop_campaign(tmp_path):
+    """When the agent exceeds max steps without submitting, the campaign must
+    NOT stop: the session is rotated (compressed context) and it keeps going."""
+    h = _PatchHarness()
+    try:
+        cfg = _cfg(tmp_path)
+        cfg.inner_max_fails = 3
+
+        tracker = h.Tracker.return_value
+        tracker.campaign_complete.side_effect = [False, False, True]
+        tracker.submitted.return_value = 5
+        tracker.target.return_value = 10
+
+        session = h.SessionManager.return_value
+        session.session_id = "sess-abc"
+        session.should_rotate.return_value = False
+        session.build_rotation_context.return_value = "compressed previous context"
+
+        calls = {"n": 0}
+
+        async def fake_turn(llm, tools, messages, max_steps):
+            calls["n"] += 1
+            return MagicMock(success=False, reason="max_steps_exceeded")
+
+        with patch("campaign_agent.main.run_agent_turn", side_effect=fake_turn):
+            await run_campaign(cfg)
+
+        # Not fatal: inner retries ran (3 attempts), then the campaign
+        # continued to a second tick (campaign_complete polled again) instead
+        # of stopping. 2 ticks x 3 attempts = 6 turns.
+        assert calls["n"] == 6
+        session.rotate.assert_called()
+    finally:
+        h.stop()
+
+
+@pytest.mark.asyncio
 async def test_fatal_error_stops_campaign(tmp_path):
     h = _PatchHarness()
     try:

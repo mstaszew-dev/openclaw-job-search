@@ -66,6 +66,17 @@ class TestClassifyFailure:
     def test_fatal_unknown(self):
         assert classify_failure("Something completely unexpected") == "fatal"
 
+    def test_max_steps_exceeded_not_fatal(self):
+        """max_steps_exceeded must never stop the campaign: it is classified
+        as its own retryable kind (rotate + retry), not 'fatal'."""
+        assert classify_failure("max_steps_exceeded") == "max_steps"
+
+    def test_max_steps_after_submission_is_success_token(self):
+        """The success path after max steps (submission recorded) must not be
+        misclassified as fatal either."""
+        kind = classify_failure("max_steps_after_submission: done")
+        assert kind == "max_steps"
+
 
 class TestRunAgentTurn:
     @pytest.mark.asyncio

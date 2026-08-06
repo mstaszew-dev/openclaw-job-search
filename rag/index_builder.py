@@ -17,6 +17,10 @@ Usage:
 """
 from __future__ import annotations
 
+# Suppress the "leaked semaphore" warning from loky/joblib at shutdown
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.resource_tracker")
+
 import json
 import re
 import sqlite3

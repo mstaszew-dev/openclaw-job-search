@@ -4,6 +4,7 @@ as a stdio subprocess and provides call_tool().
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -34,12 +35,16 @@ class PlaywrightMCP:
         await self._session.initialize()
         log.info("Playwright MCP connected")
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
-        """Call a tool on the Playwright MCP server."""
+    async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float = 120.0) -> str:
+        """Call a tool on the Playwright MCP server with a timeout."""
         if self._session is None:
             return "Error: Playwright MCP not connected"
         try:
-            result = await self._session.call_tool(name, arguments)
+            # Use asyncio.wait_for to enforce a timeout on the tool call
+            result = await asyncio.wait_for(
+                self._session.call_tool(name, arguments),
+                timeout=timeout,
+            )
             # Extract text from result content
             texts = []
             for content in result.content:
@@ -48,6 +53,9 @@ class PlaywrightMCP:
                 elif isinstance(content, dict) and "text" in content:
                     texts.append(content["text"])
             return "\n".join(texts) if texts else str(result)
+        except asyncio.TimeoutError:
+            log.error("Playwright MCP tool '%s' timed out after %.1fs", name, timeout)
+            return f"Error: Playwright tool '{name}' timed out after {timeout}s"
         except Exception as e:
             log.error("Playwright MCP tool '%s' failed: %s", name, e)
             return f"Error: {e}"

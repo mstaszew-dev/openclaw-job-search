@@ -12,6 +12,12 @@ from typing import Any, Protocol
 
 log = logging.getLogger(__name__)
 
+# Default timeout for Playwright MCP tool calls (seconds)
+PLAYWRIGHT_TOOL_TIMEOUT = 120.0
+
+# Default timeout for RAG MCP tool calls (seconds)
+RAG_TOOL_TIMEOUT = 60.0
+
 # OpenAI function-calling tool schemas
 TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
@@ -300,7 +306,7 @@ class ToolRouter:
             if self.playwright is None:
                 return f"Error: Playwright MCP not available"
             try:
-                return await self.playwright.call_tool(name, args)
+                return await self.playwright.call_tool(name, args, timeout=PLAYWRIGHT_TOOL_TIMEOUT)
             except Exception as e:
                 return f"Error: Playwright tool '{name}' failed: {e}"
 
@@ -308,7 +314,7 @@ class ToolRouter:
             if self.rag is None:
                 return f"Error: RAG MCP not available"
             try:
-                return await self.rag.call_tool(name, args)
+                return await self.rag.call_tool(name, args, timeout=RAG_TOOL_TIMEOUT)
             except Exception as e:
                 return f"Error: RAG tool '{name}' failed: {e}"
 

@@ -96,7 +96,9 @@ class TestRunAgentTurnExpanded:
 
         assert result.success is False
         assert "no_submission" in result.reason
-        mock_pw.call_tool.assert_called_once_with("browser_navigate", {"url": "https://example.com"})
+        mock_pw.call_tool.assert_called_once_with(
+            "browser_navigate", {"url": "https://example.com"}, timeout=120.0
+        )
 
     @pytest.mark.asyncio
     async def test_rag_tool_dispatched(self):
@@ -121,7 +123,9 @@ class TestRunAgentTurnExpanded:
 
         assert result.success is False
         assert "no_submission" in result.reason
-        mock_rag.call_tool.assert_called_once_with("rag_search_apps", {"query": "Java developer"})
+        mock_rag.call_tool.assert_called_once_with(
+            "rag_search_apps", {"query": "Java developer"}, timeout=60.0
+        )
 
     @pytest.mark.asyncio
     async def test_tool_error_continues_loop(self):
