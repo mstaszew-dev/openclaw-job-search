@@ -138,3 +138,43 @@ class TestDirectorOverrides:
         cfg = Config()
         cfg.director_prompt_overrides_path = str(prompt_md)
         assert "excluded roles" in cfg.director_note
+
+
+class TestConfigFileEdgeCases:
+    def test_env_file_skips_lines_without_equals(self, tmp_path):
+        from campaign_agent.config import _load_env_file
+
+        env = tmp_path / "e.env"
+        env.write_text(
+            "KEY1=val1\n"
+            "no-equals-here\n"
+            "# comment line\n"
+            "\n"
+            "KEY2=two=parts\n"
+        )
+        d = _load_env_file(str(env))
+        assert d == {"KEY1": "val1", "KEY2": "two=parts"}
+
+    def test_director_note_missing_file_returns_empty(self, tmp_path):
+        cfg = Config()
+        cfg.director_prompt_overrides_path = str(tmp_path / "missing.md")
+        assert cfg.director_note == ""
+
+    def test_director_note_strips_whitespace(self, tmp_path):
+        note = tmp_path / "note.md"
+        note.write_text("  padded content  \n")
+        cfg = Config()
+        cfg.director_prompt_overrides_path = str(note)
+        assert cfg.director_note == "padded content"
+
+    def test_env_override_float_field(self, monkeypatch):
+        """INNER_SLEEP is a float field; from_env must coerce it (not int())."""
+        monkeypatch.setenv("INNER_SLEEP", "2.5")
+        cfg = Config.from_env()
+        assert cfg.inner_sleep == 2.5
+
+    def test_rotation_token_threshold(self):
+        cfg = Config()
+        cfg.token_budget = 100000
+        cfg.rotation_threshold = 0.6
+        assert cfg.rotation_token_threshold == 60000

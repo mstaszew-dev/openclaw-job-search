@@ -4,7 +4,29 @@ from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
 
-from campaign_agent.tools import ToolRouter, exec_tool, TOOL_SCHEMAS
+from campaign_agent.tools import ToolRouter, exec_tool, TOOL_SCHEMAS, read_file
+
+
+class TestReadFile:
+    def test_read_missing_file(self, tmp_path):
+        result = read_file(str(tmp_path / "nope.md"), base_dir=None)
+        assert "not found" in result
+
+    def test_read_directory_returns_directory_error(self, tmp_path):
+        result = read_file(str(tmp_path), base_dir=None)
+        assert "directory" in result
+
+    def test_read_truncates_long_files(self, tmp_path):
+        p = tmp_path / "big.md"
+        p.write_text("x" * 30000)
+        result = read_file(str(p), base_dir=None, max_chars=20000)
+        assert "[truncated" in result
+        assert len(result) < 20500
+
+    def test_read_resolves_relative_to_base_dir(self, tmp_path):
+        (tmp_path / "doc.md").write_text("hello")
+        result = read_file("doc.md", base_dir=str(tmp_path))
+        assert "hello" in result
 
 
 class TestToolSchemas:

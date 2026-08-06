@@ -123,3 +123,35 @@ class TestTrackerContextSummary:
         t = Tracker(tracker_file)
         summary = t.context_summary()
         assert "70" in summary  # remaining
+
+
+class TestTrackerEdgeCases:
+    def test_malformed_json_returns_empty(self, tmp_path):
+        p = tmp_path / "tracker.json"
+        p.write_text("{not json")
+        t = Tracker(str(p))
+        assert t._data == {}
+        assert t.submitted() == 0
+
+    def test_generic_read_error_returns_empty(self, tmp_path):
+        """A directory in place of the file raises IsADirectoryError, which
+        must be swallowed by the generic-exception branch (never crash)."""
+        d = tmp_path / "tracker.json"
+        d.mkdir()
+        t = Tracker(str(d))
+        assert t._data == {}
+
+    def test_reload_picks_up_disk_changes(self, tmp_path):
+        p = tmp_path / "tracker.json"
+        p.write_text(json.dumps({"stats": {"submitted": 1}}))
+        t = Tracker(str(p))
+        assert t.submitted() == 1
+        p.write_text(json.dumps({"stats": {"submitted": 2}}))
+        t.reload()
+        assert t.submitted() == 2
+
+    def test_recent_applications_non_list_returns_empty(self, tmp_path):
+        p = tmp_path / "tracker.json"
+        p.write_text(json.dumps({"applications": "not-a-list"}))
+        t = Tracker(str(p))
+        assert t.recent_applications() == []

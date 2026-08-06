@@ -104,3 +104,43 @@ class TestSessionLifecycle:
         sm.add_message({"role": "user", "content": "hello"})
         assert len(sm.messages) == 1
         assert sm.messages[0]["content"] == "hello"
+
+
+class TestTickSummaryAndTokenEstimation:
+    def test_summary_without_reason_omits_outcome_line(self, tmp_path):
+        from campaign_agent.session import build_tick_summary
+
+        p = tmp_path / "t.json"
+        p.write_text(json.dumps({"applications": [], "stats": {"submitted": 0}}))
+        s = build_tick_summary(tracker=Tracker(str(p)), attempts=2, reason="")
+        assert "Attempts used this tick: 2" in s
+        assert "Tick outcome" not in s
+
+    def test_summary_with_reason_truncates_to_300(self, tmp_path):
+        from campaign_agent.session import build_tick_summary
+
+        p = tmp_path / "t.json"
+        p.write_text(json.dumps({"applications": [], "stats": {"submitted": 0}}))
+        s = build_tick_summary(
+            tracker=Tracker(str(p)), attempts=1, reason="x" * 500,
+        )
+        assert "Tick outcome:" in s
+        assert len(s) < 400
+
+    def test_estimate_tokens_handles_list_content(self):
+        sm = SessionManager("/tmp/s", "/tmp/t.json")
+        msgs = [
+            {"role": "user", "content": [
+                {"type": "text", "text": "abc"},
+                {"type": "text", "text": "def"},
+            ]},
+            {"role": "assistant", "content": "xyz"},
+        ]
+        # 6 chars (list parts) + 10 overhead + 3 chars + 10 overhead = 29
+        assert sm.estimate_tokens_from_messages(msgs) == 29 // 4
+
+    def test_estimate_tokens_uses_accumulated_messages(self):
+        sm = SessionManager("/tmp/s", "/tmp/t.json")
+        sm.messages = [{"role": "user", "content": "hello world"}]
+        # 11 chars + 10 overhead = 21 -> 5 tokens
+        assert sm.estimate_tokens() == 21 // 4

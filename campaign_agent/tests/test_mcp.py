@@ -68,6 +68,58 @@ class TestPlaywrightMCP:
         assert pw._session is None
         assert len(pw._ctx_stack) == 0
 
+    @pytest.mark.asyncio
+    async def test_connect_spawns_and_initializes(self):
+        pw = PlaywrightMCP("node", ["--cdp-endpoint", "http://127.0.0.1:9222"])
+        mock_read_write = MagicMock()
+        mock_read_write.__aenter__ = AsyncMock(return_value=("read_stream", "write_stream"))
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.initialize = AsyncMock()
+        with patch("campaign_agent.playwright_mcp.stdio_client", return_value=mock_read_write), \
+             patch("campaign_agent.playwright_mcp.ClientSession", return_value=mock_session):
+            await pw.connect()
+        assert pw._session is mock_session
+        mock_session.initialize.assert_awaited_once()
+        # ClientSession was constructed with the stdio streams
+        stream_args = mock_session.await_args  # not needed; assert session stored
+
+    @pytest.mark.asyncio
+    async def test_connect_failure_propagates(self):
+        pw = PlaywrightMCP("node", [])
+        mock_read_write = MagicMock()
+        mock_read_write.__aenter__ = AsyncMock(return_value=("r", "w"))
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(side_effect=RuntimeError("spawn failed"))
+        with patch("campaign_agent.playwright_mcp.stdio_client", return_value=mock_read_write), \
+             patch("campaign_agent.playwright_mcp.ClientSession", return_value=mock_session):
+            with pytest.raises(RuntimeError, match="spawn failed"):
+                await pw.connect()
+
+    @pytest.mark.asyncio
+    async def test_call_tool_times_out(self):
+        pw = PlaywrightMCP("node", [])
+        mock_session = AsyncMock()
+
+        async def never_completes(*_a, **_k):
+            await asyncio.sleep(30)
+
+        mock_session.call_tool = never_completes
+        pw._session = mock_session
+        result = await pw.call_tool("browser_snapshot", {}, timeout=0.05)
+        assert "timed out" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_close_swallows_exit_exceptions(self):
+        pw = PlaywrightMCP("node", [])
+        bad_ctx = MagicMock()
+        bad_ctx.__aexit__ = AsyncMock(side_effect=RuntimeError("exit failed"))
+        pw._session = MagicMock()
+        pw._ctx_stack = [bad_ctx]
+        await pw.close()  # must not raise
+        assert pw._session is None
+        assert pw._ctx_stack == []
+
 
 class TestRAGMCP:
     def test_init_stores_params(self):
@@ -118,6 +170,56 @@ class TestRAGMCP:
         assert len(rag._ctx_stack) == 0
 
     @pytest.mark.asyncio
+    async def test_connect_spawns_and_initializes(self):
+        rag = RAGMCP("/usr/bin/python", ["rag_server.py"])
+        mock_read_write = MagicMock()
+        mock_read_write.__aenter__ = AsyncMock(return_value=("read_stream", "write_stream"))
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.initialize = AsyncMock()
+        with patch("campaign_agent.rag_mcp.stdio_client", return_value=mock_read_write), \
+             patch("campaign_agent.rag_mcp.ClientSession", return_value=mock_session):
+            await rag.connect()
+        assert rag._session is mock_session
+        mock_session.initialize.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_connect_failure_propagates(self):
+        rag = RAGMCP("python", [])
+        mock_read_write = MagicMock()
+        mock_read_write.__aenter__ = AsyncMock(return_value=("r", "w"))
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(side_effect=RuntimeError("spawn failed"))
+        with patch("campaign_agent.rag_mcp.stdio_client", return_value=mock_read_write), \
+             patch("campaign_agent.rag_mcp.ClientSession", return_value=mock_session):
+            with pytest.raises(RuntimeError, match="spawn failed"):
+                await rag.connect()
+
+    @pytest.mark.asyncio
+    async def test_call_tool_times_out(self):
+        rag = RAGMCP("python", [])
+        mock_session = AsyncMock()
+
+        async def never_completes(*_a, **_k):
+            await asyncio.sleep(30)
+
+        mock_session.call_tool = never_completes
+        rag._session = mock_session
+        result = await rag.call_tool("rag_search_apps", {"query": "Java"}, timeout=0.05)
+        assert "timed out" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_close_swallows_exit_exceptions(self):
+        rag = RAGMCP("python", [])
+        bad_ctx = MagicMock()
+        bad_ctx.__aexit__ = AsyncMock(side_effect=RuntimeError("exit failed"))
+        rag._session = MagicMock()
+        rag._ctx_stack = [bad_ctx]
+        await rag.close()  # must not raise
+        assert rag._session is None
+        assert rag._ctx_stack == []
+
+    @pytest.mark.asyncio
     async def test_call_tool_multiple_results(self):
         rag = RAGMCP("python", [])
         mock_session = AsyncMock()
@@ -132,3 +234,15 @@ class TestRAGMCP:
         result = await rag.call_tool("rag_search_docs", {"query": "B2B"})
         assert "Result 1" in result
         assert "Result 2" in result
+
+    @pytest.mark.asyncio
+    async def test_call_tool_handles_dict_content(self):
+        rag = RAGMCP("python", [])
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.content = [{"text": "Dict content"}]
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+        rag._session = mock_session
+
+        result = await rag.call_tool("rag_search_apps", {"query": "Java"})
+        assert "Dict content" in result

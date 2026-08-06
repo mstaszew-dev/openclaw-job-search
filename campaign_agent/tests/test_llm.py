@@ -71,6 +71,22 @@ class TestLLMResponse:
         r = LLMResponse.from_openai(mock_resp)
         assert r.is_empty()
 
+    def test_from_openai_malformed_tool_arguments(self):
+        """Malformed JSON in function arguments must not crash - fall back to
+        the raw string so the caller can still see what the model sent."""
+        mock_resp = MagicMock()
+        mock_resp.choices = [MagicMock()]
+        mock_resp.choices[0].message.content = None
+        mock_tc = MagicMock()
+        mock_tc.id = "call_bad"
+        mock_tc.function.name = "exec"
+        mock_tc.function.arguments = "{not valid json"
+        mock_resp.choices[0].message.tool_calls = [mock_tc]
+        mock_resp.choices[0].finish_reason = "tool_calls"
+
+        r = LLMResponse.from_openai(mock_resp)
+        assert r.tool_calls[0].arguments == {"raw": "{not valid json"}
+
     def test_assistant_message_dict_without_tools(self):
         r = LLMResponse(content="Done", tool_calls=[], finish_reason="stop")
         d = r.assistant_message_dict()
@@ -167,3 +183,60 @@ class TestLLMClient:
 
         assert r.content == "ok"
         assert mock_openai_client.chat.completions.create.call_count == 2
+
+    def test_chat_retries_on_timeout_then_succeeds(self, mock_openai_client):
+        """APITimeoutError is retryable: after the timeout, the next attempt
+        succeeds (msrouter stalls but recovers)."""
+        mock_resp = MagicMock()
+        mock_resp.choices = [MagicMock()]
+        mock_resp.choices[0].message.content = "recovered"
+        mock_resp.choices[0].message.tool_calls = None
+        mock_resp.choices[0].finish_reason = "stop"
+
+        mock_err = MagicMock()
+        mock_err.response = MagicMock()
+        mock_err.request = MagicMock()
+        mock_openai_client.chat.completions.create.side_effect = [
+            APITimeoutError(request=mock_err.request),
+            mock_resp,
+        ]
+
+        client = LLMClient(model="mst/free", max_retries=2)
+        client._client = mock_openai_client
+        with patch("campaign_agent.llm.time.sleep"):
+            r = client.chat(messages=[{"role": "user", "content": "hi"}])
+
+        assert r.content == "recovered"
+        assert mock_openai_client.chat.completions.create.call_count == 2
+
+    def test_chat_timeout_exhausts_retries_and_raises(self, mock_openai_client):
+        """Persistent APITimeoutError raises the last error after retries."""
+        mock_err = MagicMock()
+        mock_err.response = MagicMock()
+        mock_err.request = MagicMock()
+        mock_openai_client.chat.completions.create.side_effect = [
+            APITimeoutError(request=mock_err.request),
+            APITimeoutError(request=mock_err.request),
+        ]
+
+        client = LLMClient(model="mst/free", max_retries=1)
+        client._client = mock_openai_client
+        with patch("campaign_agent.llm.time.sleep"):
+            with pytest.raises(APITimeoutError):
+                client.chat(messages=[{"role": "user", "content": "hi"}])
+
+    def test_chat_generic_api_error_does_not_retry(self, mock_openai_client):
+        """A generic APIError (auth, bad request) is NOT retried - it raises
+        immediately after one attempt (no point hammering a 4xx)."""
+        mock_err = MagicMock()
+        mock_err.response = MagicMock()
+        mock_err.request = MagicMock()
+        mock_openai_client.chat.completions.create.side_effect = [
+            APIError(message="401 unauthorized", request=mock_err.request, body=None),
+        ]
+
+        client = LLMClient(model="mst/free", max_retries=3)
+        client._client = mock_openai_client
+        with pytest.raises(APIError):
+            client.chat(messages=[{"role": "user", "content": "hi"}])
+        assert mock_openai_client.chat.completions.create.call_count == 1
