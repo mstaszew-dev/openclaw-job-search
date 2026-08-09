@@ -414,13 +414,14 @@ def test_main_cli_entry(tmp_path):
 
 @pytest.mark.asyncio
 async def test_llm_client_wired_with_timeout_seconds(tmp_path):
-    """LLMClient timeout must be short enough to fail fast on stalled providers.
+    """LLMClient timeout must allow local's slow prefills to complete.
 
-    Free-tier providers intermittently accept a connection but never respond.
-    A 600s timeout means 10 min wasted per stalled attempt. The client uses a
-    shorter timeout (120s) so stalled requests fail fast and retry, while
-    llm.py's own retry loop (max_retries=3) handles reattempts. The config's
-    timeout_seconds is the upper bound, but the client caps it.
+    msrouter gives local (llama-server) attempts up to 300s (LOCAL_TIMEOUT_MS)
+    so big 128K prompts can be served, so the client cap moves to 300s.
+    Stalled remote providers are still bounded by msrouter's own per-attempt
+    timeout (UPSTREAM_TIMEOUT_MS=120s), so the client ceiling only extends the
+    window local may use. The config's timeout_seconds is the upper bound, but
+    the client caps it.
     """
     h = _PatchHarness()
     try:
@@ -443,7 +444,7 @@ async def test_llm_client_wired_with_timeout_seconds(tmp_path):
             await run_campaign(cfg)
 
         call_kwargs = h.LLMClient.call_args.kwargs
-        assert call_kwargs["timeout"] <= 120
+        assert call_kwargs["timeout"] <= 300
     finally:
         h.stop()
 

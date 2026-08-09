@@ -148,11 +148,14 @@ async def run_campaign(config: Config) -> None:
         api_key=config.msrouter_api_key,
         model=config.msrouter_model,
         max_retries=3,
-        # Cap the client timeout at 120s even if config allows more. Free-tier
-        # providers intermittently stall (accept connection, never respond);
-        # a long timeout wastes 10 min per stall. 120s is enough for a healthy
-        # chain walk while failing fast on stalled providers so retries kick in.
-        timeout=min(config.timeout_seconds, 120),
+        # Cap the client timeout at 300s even if config allows more. Local
+        # (llama-server) prefills are slow, and msrouter gives local attempts
+        # up to 300s (LOCAL_TIMEOUT_MS) so big 128K prompts can be served; a
+        # shorter client timeout would abort local mid-prefill. Stalled remote
+        # providers are still bounded by msrouter's own per-attempt timeout
+        # (UPSTREAM_TIMEOUT_MS=120s), so this ceiling only extends the window
+        # that local may use.
+        timeout=min(config.timeout_seconds, 300),
     )
 
     # MCP clients will be initialized when tools are set up
