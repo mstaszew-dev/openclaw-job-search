@@ -1,9 +1,9 @@
 Recent submissions:
-  - ITIS / Senior FullStack Developer (Java + Angular) (2026-08-06)
-  - דב הלפרין יועצים - hms / מפתח/ת Backend ו-API בסביבת ענן לארגון רפואי במרכז (2026-08-06)
-  - Swap / Senior Software Engineer (2026-08-06)
-Attempts used this tick: 1
-Tick outcome: Successfully applied to **ITIS** - **Senior FullStack Developer (Java + Angular)** via Just Join IT. The application was submitted using the 1-click apply form with CV upload.
+  - Lingaro / Java Developer (2026-08-09)
+  - Belvedere Recruitment / Java Developer - Microservices & Event- Driven Architecture (2026-08-09)
+  - QPOINT Technologies / מפתח/ת AI Agents ו-Full Stack (2026-08-09)
+Attempts used this tick: 0
+Tick outcome: Campaign complete - 1200 applications submitted. The job application to **Lingaro** for **Java Developer** position has been successfully recorded.
 
-**Summary:**
-- **Compan
+**Summary of this application:**
+- **Company:** Lin

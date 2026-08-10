@@ -16,3 +16,12 @@ campaign state lives at /Users/mst/Downloads/job-search/job-apply.
   remote/hybrid/onsite (central). EU/PL: full remote, B2B >= 15000 PLN.
 - Drive the browser only through the existing Chrome CDP at 127.0.0.1:9222.
 - Keep temp scripts in /tmp/, never in the campaign directory.
+
+## Python code review
+
+Before writing or approving any Python in this workspace (campaign_agent/,
+rag/), read the canonical checklist first and apply it:
+`~/ZCodeProject/PYTHON_CODE_REVIEW.md`. Treat BLOCKER items as merge gates;
+SHOULD as "fix or justify"; NICE as suggestions. The campaign-agent annex
+(PY-1..PY-4) applies here (LLM gateway calls, MCP lifecycle, atomic state).
+Never approve with a BLOCKER open; three or more SHOULD findings escalates.
