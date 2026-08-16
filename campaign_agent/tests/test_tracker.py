@@ -91,8 +91,8 @@ class TestTrackerErrorHandling:
     def test_missing_file(self, tmp_path):
         t = Tracker(str(tmp_path / "nonexistent.json"))
         assert t.submitted() == 0
-        assert t.target() == 1200  # default
-        assert t.remaining() == 1200
+        assert t.target() == 1500  # default goal raised from 1200 (Aug 2026)
+        assert t.remaining() == 1500
 
     def test_malformed_json(self, tmp_path):
         p = tmp_path / "bad.json"
