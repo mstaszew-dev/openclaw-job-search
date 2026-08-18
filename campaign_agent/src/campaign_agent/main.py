@@ -10,6 +10,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.
 
 import asyncio
 import logging
+import os
 import re
 import sys
 import time
@@ -298,8 +299,27 @@ async def run_campaign(config: Config) -> None:
         await rag.close()
 
 
+def assert_in_iterm() -> None:
+    """Refuse to start unless running inside an iTerm2 session.
+
+    Checks the TERM_PROGRAM environment variable that iTerm2 sets to
+    'iTerm.app' on every session. Prevents stealth background runs where
+    the agent can't be supervised (no visible terminal tab).
+    """
+    if os.environ.get("TERM_PROGRAM") != "iTerm.app":
+        term = os.environ.get("TERM_PROGRAM", "(unset)")
+        print(
+            f"[campaign-agent] FATAL: must be launched from iTerm2 "
+            f"(detected TERM_PROGRAM={term}).\n"
+            f"Open iTerm2 and run: python -m campaign_agent.main",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def main() -> None:
     """CLI entry point."""
+    assert_in_iterm()
     import argparse
 
     parser = argparse.ArgumentParser(description="Campaign agent")

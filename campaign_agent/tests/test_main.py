@@ -1,11 +1,12 @@
 """Tests for main agent loop — tick flow, failure classification, agent turn."""
 import asyncio
 import json
+import os
 from unittest.mock import MagicMock, AsyncMock, patch
 
 import pytest
 
-from campaign_agent.main import classify_failure, run_agent_turn, TickResult
+from campaign_agent.main import classify_failure, run_agent_turn, TickResult, assert_in_iterm
 from campaign_agent.llm import LLMClient, LLMResponse, ToolCall
 from campaign_agent.tools import ToolRouter
 
@@ -241,3 +242,23 @@ class TestRunAgentTurn:
 
         assert result.success is True
         assert result.submitted == 1
+
+
+class TestAssertInIterm:
+    def test_raises_when_not_in_iterm(self):
+        """Agent must refuse to start outside iTerm2."""
+        with patch.dict(os.environ, {"TERM_PROGRAM": "Apple_Terminal"}, clear=False):
+            with pytest.raises(SystemExit):
+                assert_in_iterm()
+
+    def test_raises_when_term_program_unset(self):
+        """Agent must refuse to start when TERM_PROGRAM is not set."""
+        env = {k: v for k, v in os.environ.items() if k != "TERM_PROGRAM"}
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(SystemExit):
+                assert_in_iterm()
+
+    def test_passes_when_in_iterm(self):
+        """Agent should start normally when TERM_PROGRAM is iTerm.app."""
+        with patch.dict(os.environ, {"TERM_PROGRAM": "iTerm.app"}, clear=False):
+            assert_in_iterm()  # should not raise
