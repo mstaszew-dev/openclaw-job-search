@@ -393,3 +393,41 @@ class TestRunAgentTurnTruncation:
         assert "no_submission" in result.reason
         # Messages should have been truncated (not grown unbounded)
         assert len(messages) < 20  # would be ~8 without truncation
+
+    @pytest.mark.asyncio
+    async def test_big_picture_survives_truncation(self):
+        """System prompt and user prompt (containing tick summary) always survive."""
+        call_count = 0
+
+        def fake_chat(messages, tools=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 5:
+                return LLMResponse(
+                    content="",
+                    tool_calls=[ToolCall(id=f"c{call_count}", name="exec",
+                                         arguments={"command": "echo " + "x" * 3000})],
+                    finish_reason="tool_calls",
+                )
+            return LLMResponse(content="done", tool_calls=[], finish_reason="stop")
+
+        mock_llm = MagicMock()
+        mock_llm.chat = fake_chat
+        mock_llm.model = "test"
+        tools = ToolRouter(playwright_client=None, rag_client=None)
+
+        system_content = "You are a job agent. Target: Java/Kotlin/Spring."
+        user_content = "Recent: acme/Senior Java (2026-08-17). TASK: Apply one job."
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content},
+        ]
+        # Very low budget forces truncation after a few tool calls
+        await run_agent_turn(mock_llm, tools, messages, max_steps=10,
+                              context_token_budget=2000)
+
+        # System prompt and first user message must survive truncation
+        assert messages[0]["role"] == "system"
+        assert messages[0]["content"] == system_content
+        assert messages[1]["role"] == "user"
+        assert messages[1]["content"] == user_content
