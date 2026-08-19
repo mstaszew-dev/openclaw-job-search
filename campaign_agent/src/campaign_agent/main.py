@@ -71,7 +71,7 @@ def classify_failure(text: str) -> str:
 
 def _truncate_messages(
     messages: list[dict[str, Any]],
-    token_budget: int = 50000,
+    token_budget: int,
     keep_last: int = 20,
 ) -> list[dict[str, Any]]:
     """Truncate message history to stay within token budget.
@@ -113,7 +113,7 @@ async def run_agent_turn(
     tools: ToolRouter,
     messages: list[dict[str, Any]],
     max_steps: int = 200,
-    context_token_budget: int = 50000,
+    context_token_budget: int = 102400,
 ) -> TickResult:
     """
     Run one agent turn: LLM call → tool dispatch → repeat until done or max_steps.
