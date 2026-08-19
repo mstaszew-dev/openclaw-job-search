@@ -28,6 +28,14 @@ class TestReadFile:
         result = read_file("doc.md", base_dir=str(tmp_path))
         assert "hello" in result
 
+    def test_read_generic_exception(self, tmp_path):
+        p = tmp_path / "secret.txt"
+        p.write_text("data")
+        with patch.object(type(p), "read_text", side_effect=PermissionError("denied")):
+            result = read_file(str(p), base_dir=None)
+        assert "Error reading" in result
+        assert "denied" in result
+
 
 class TestToolSchemas:
     def test_exec_schema_exists(self):

@@ -606,3 +606,44 @@ async def test_tracker_reloaded_before_saving_summary(tmp_path):
         assert "LateCo" in saved
     finally:
         h.stop()
+
+
+@pytest.mark.asyncio
+async def test_tick_save_exception_continues_campaign(tmp_path, caplog):
+    """tick_context.save() raising an exception is caught, logged as a
+    warning, and the campaign continues to the next tick."""
+    import logging
+
+    h = _PatchHarness()
+    try:
+        cfg = _cfg(tmp_path)
+        h.TickContext.return_value.load.return_value = ""
+
+        tracker = h.Tracker.return_value
+        tracker.campaign_complete.side_effect = [False, False, True]
+        tracker.submitted.return_value = 5
+        tracker.target.return_value = 10
+
+        session = h.SessionManager.return_value
+        session.session_id = None
+        session.should_rotate.return_value = False
+
+        # Make save() raise on every call
+        h.TickContext.return_value.save.side_effect = OSError("disk full")
+
+        calls = {"n": 0}
+
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
+            calls["n"] += 1
+            return MagicMock(success=True, reason="recorded", submitted=1)
+
+        with patch("campaign_agent.main.run_agent_turn", side_effect=fake_turn):
+            with caplog.at_level(logging.WARNING, logger="campaign_agent.main"):
+                await run_campaign(cfg)
+
+        # Campaign continued past the first tick despite save() failing
+        assert calls["n"] == 2
+        assert "disk full" in caplog.text
+        assert "Could not save tick context" in caplog.text
+    finally:
+        h.stop()

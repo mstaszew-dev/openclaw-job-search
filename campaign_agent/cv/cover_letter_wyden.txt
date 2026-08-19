@@ -1,0 +1,21 @@
+Dear Wyden Hiring Team,
+
+I am writing to express my strong interest in the Senior Backend Developer position at Wyden. With 14+ years of experience as a Senior full-stack/backend engineer specializing in Java/Kotlin, Spring Boot, and cloud-native distributed systems, I believe I am an excellent match for your requirements.
+
+My background includes:
+- Extensive experience in fintech/trading systems with low-latency order management, execution algorithms, and smart order routing
+- Deep expertise in Java/Kotlin, Spring Boot, Docker, Kubernetes, and cloud environments (AWS, GCP)
+- Strong knowledge of CI/CD pipelines, monitoring/observability, and distributed systems architecture
+- 5+ years working with digital asset trading systems and blockchain technology
+- Experience with messaging systems, distributed caching, and integration testing in cloud environments
+
+I am particularly drawn to Wyden's mission as the leading provider of institutional digital asset trading technology. The opportunity to work on Wyden's core product and quantitative trading strategies for clients in a high-growth Fintech environment is exactly the challenge I'm seeking.
+
+I am based in Petah Tikva, Israel (with EU/Poland citizenship) and can work fully remotely for the Poland-based team. I am available to start immediately on a B2B contract basis with a salary expectation of 15,000 PLN net + VAT monthly.
+
+Strong references are available upon request.
+
+Best regards,
+Michael Staszewski
+mst.rocking@gmail.com
++972-55-934-4507 / +48-790-775-407
