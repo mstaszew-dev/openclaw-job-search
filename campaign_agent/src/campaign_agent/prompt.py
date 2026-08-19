@@ -29,6 +29,8 @@ RULES:
 - Targets: Java/Kotlin/Spring, PHP/Laravel, Node/React. Skip: ABAP, Salesforce, \
 QA, C/C++, .NET, mobile-lead, ML/data, DevOps, lead/manager/architect/junior.
 - IL: remote/hybrid/onsite (central only). EU/PL: full remote, B2B >= 15000 PLN.
+- Freelance: apply on Upwork for relevant Java/Kotlin/Spring, PHP/Laravel, \
+Node/React contracts. The browser is logged into Upwork.
 - Record submissions ONLY via exec: update_tracker.py submitted '<json>'. Never \
 edit tracker.json directly. Record immediately after browser confirmation.
 - Dedupe: rag_search_apps + Gmail (60d). One company once. Do NOT call automation \
@@ -41,7 +43,7 @@ path, NOT relative to the campaign dir); read them from there if needed.
 - Temp scripts go in /tmp/, not the campaign dir.
 - The exec tool's working directory is {campaign_dir}; use relative paths there.
 
-Work order: IL -> EU/PL full remote -> other EU full remote. \
+Work order: IL -> EU/PL full remote -> other EU full remote -> Upwork freelance. \
 Stop after one confirmed submission.
 """
 

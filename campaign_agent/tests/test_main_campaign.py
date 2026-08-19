@@ -414,19 +414,16 @@ def test_main_cli_entry(tmp_path):
 
 @pytest.mark.asyncio
 async def test_llm_client_wired_with_timeout_seconds(tmp_path):
-    """LLMClient timeout must allow local's slow prefills to complete.
+    """LLMClient timeout is set from config.timeout_seconds.
 
-    msrouter gives local (llama-server) attempts up to 300s (LOCAL_TIMEOUT_MS)
-    so big 128K prompts can be served, so the client cap moves to 300s.
-    Stalled remote providers are still bounded by msrouter's own per-attempt
-    timeout (UPSTREAM_TIMEOUT_MS=120s), so the client ceiling only extends the
-    window local may use. The config's timeout_seconds is the upper bound, but
-    the client caps it.
+    Timeout is managed entirely by msrouter per-provider (e.g.
+    LMSTUDIO_TIMEOUT_MS for local, UPSTREAM_TIMEOUT_MS for remote).
+    The client timeout is a safety ceiling only.
     """
     h = _PatchHarness()
     try:
         cfg = _cfg(tmp_path)
-        cfg.timeout_seconds = 600
+        cfg.timeout_seconds = 1200
 
         tracker = h.Tracker.return_value
         tracker.campaign_complete.side_effect = [False, True]
@@ -444,7 +441,7 @@ async def test_llm_client_wired_with_timeout_seconds(tmp_path):
             await run_campaign(cfg)
 
         call_kwargs = h.LLMClient.call_args.kwargs
-        assert call_kwargs["timeout"] <= 300
+        assert call_kwargs["timeout"] == 1200
     finally:
         h.stop()
 

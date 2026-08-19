@@ -62,7 +62,7 @@ class Config:
 
     # Agent loop
     max_steps: int = 200
-    timeout_seconds: int = 600
+    timeout_seconds: int = 1200
 
     # Session directory (OpenClaw sessions)
     session_dir: str = os.path.expanduser("~/.campaign-agent/sessions")
