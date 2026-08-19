@@ -9,6 +9,7 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.resource_tracker")
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -271,8 +272,12 @@ async def run_campaign(config: Config) -> None:
                 ]
 
                 t0 = time.time()
-                # Truncate at 80% of token budget to leave room for response
-                ctx_budget = int(config.token_budget * 0.80)
+                # Truncate at 80% of token budget to leave room for response.
+                # Include tool schemas in the budget (they add 2-5K tokens that
+                # the message-only estimator doesn't count).
+                tool_chars = sum(len(json.dumps(s)) for s in tools.schemas)
+                tool_tokens = tool_chars // 4
+                ctx_budget = max(1000, int(config.token_budget * 0.80) - tool_tokens)
                 result = await run_agent_turn(
                     llm, tools, messages, config.max_steps,
                     context_token_budget=ctx_budget,

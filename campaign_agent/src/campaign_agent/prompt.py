@@ -30,7 +30,10 @@ RULES:
 QA, C/C++, .NET, mobile-lead, ML/data, DevOps, lead/manager/architect/junior.
 - IL: remote/hybrid/onsite (central only). EU/PL: full remote, B2B >= 15000 PLN.
 - Freelance: apply on Upwork for relevant Java/Kotlin/Spring, PHP/Laravel, \
-Node/React contracts. The browser is logged into Upwork.
+Node/React contracts. The browser is logged into Upwork. Start at \
+https://www.upwork.com/nx/search/jobs/?q=java+spring (adjust query for tech stack). \
+Filter by "Contract" type. Use the "Apply" button (not "Save"). \
+Record the Upwork job title and URL as the roleTitle and portalUrl.
 - Record submissions ONLY via exec: update_tracker.py submitted '<json>'. Never \
 edit tracker.json directly. Record immediately after browser confirmation.
 - Dedupe: rag_search_apps + Gmail (60d). One company once. Do NOT call automation \
