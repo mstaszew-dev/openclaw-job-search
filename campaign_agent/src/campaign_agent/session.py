@@ -71,6 +71,22 @@ def build_tick_summary(
     return "\n".join(lines)
 
 
+def estimate_tokens_from_messages(messages: list[dict[str, Any]]) -> int:
+    """Estimate token count from message list (~4 chars per token)."""
+    total_chars = 0
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total_chars += len(content)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and "text" in part:
+                    total_chars += len(str(part["text"]))
+        # Add overhead per message (role, structure)
+        total_chars += 10
+    return max(0, total_chars // 4)
+
+
 class SessionManager:
     """Manages agent session: message history, token tracking, rotation."""
 
@@ -95,18 +111,7 @@ class SessionManager:
 
     def estimate_tokens_from_messages(self, messages: list[dict[str, Any]]) -> int:
         """Estimate token count from message list (~4 chars per token)."""
-        total_chars = 0
-        for msg in messages:
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                total_chars += len(content)
-            elif isinstance(content, list):
-                for part in content:
-                    if isinstance(part, dict) and "text" in part:
-                        total_chars += len(str(part["text"]))
-            # Add overhead per message (role, structure)
-            total_chars += 10
-        return max(0, total_chars // 4)
+        return estimate_tokens_from_messages(messages)
 
     def estimate_tokens(self) -> int:
         """Current token estimate from accumulated messages."""

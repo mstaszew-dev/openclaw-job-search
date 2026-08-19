@@ -6,7 +6,8 @@ from unittest.mock import MagicMock, AsyncMock, patch
 
 import pytest
 
-from campaign_agent.main import classify_failure, run_agent_turn, TickResult, assert_in_iterm
+from campaign_agent.main import classify_failure, run_agent_turn, TickResult, assert_in_iterm, _truncate_messages
+from campaign_agent.session import estimate_tokens_from_messages
 from campaign_agent.llm import LLMClient, LLMResponse, ToolCall
 from campaign_agent.tools import ToolRouter
 
@@ -262,3 +263,133 @@ class TestAssertInIterm:
         """Agent should start normally when TERM_PROGRAM is iTerm.app."""
         with patch.dict(os.environ, {"TERM_PROGRAM": "iTerm.app"}, clear=False):
             assert_in_iterm()  # should not raise
+
+
+class TestEstimateTokensFromMessages:
+    def test_empty_list(self):
+        assert estimate_tokens_from_messages([]) == 0
+
+    def test_string_content(self):
+        msgs = [{"role": "user", "content": "hello world"}]  # 11 chars
+        # 11 chars + 10 overhead = 21 // 4 = 5
+        assert estimate_tokens_from_messages(msgs) == 5
+
+    def test_list_content(self):
+        msgs = [{"role": "user", "content": [
+            {"type": "text", "text": "hello"},  # 5 chars
+        ]}]
+        # 5 chars + 10 overhead = 15 // 4 = 3
+        assert estimate_tokens_from_messages(msgs) == 3
+
+    def test_missing_content_key(self):
+        msgs = [{"role": "user"}]
+        # 0 chars + 10 overhead = 10 // 4 = 2
+        assert estimate_tokens_from_messages(msgs) == 2
+
+    def test_multiple_messages(self):
+        msgs = [
+            {"role": "system", "content": "ab"},  # 2 + 10 = 12
+            {"role": "user", "content": "cd"},    # 2 + 10 = 12
+        ]
+        # total 24 // 4 = 6
+        assert estimate_tokens_from_messages(msgs) == 6
+
+
+class TestTruncateMessages:
+    def _make_msgs(self, n: int, content_len: int = 500) -> list[dict]:
+        """Create n messages with ~content_len chars each."""
+        msgs = [{"role": "system", "content": "x" * 100}]
+        for i in range(n - 1):
+            msgs.append({"role": "user" if i % 2 == 0 else "assistant",
+                         "content": "y" * content_len})
+        return msgs
+
+    def test_under_budget_returns_copy(self):
+        msgs = self._make_msgs(5, content_len=100)
+        result = _truncate_messages(msgs, token_budget=50000)
+        assert len(result) == 5
+        assert result is not msgs  # copy, not mutate
+
+    def test_system_and_first_user_preserved(self):
+        msgs = self._make_msgs(50, content_len=1000)
+        result = _truncate_messages(msgs, token_budget=2000, keep_last=10)
+        assert result[0]["role"] == "system"
+        assert result[1]["role"] == "user"
+        # Middle messages are dropped
+        assert len(result) < 50
+
+    def test_keep_last_messages_preserved(self):
+        msgs = self._make_msgs(50, content_len=1000)
+        result = _truncate_messages(msgs, token_budget=2000, keep_last=10)
+        # Last 10 messages should be present
+        for msg in msgs[-10:]:
+            assert msg in result
+
+    def test_empty_list(self):
+        result = _truncate_messages([], token_budget=1000)
+        assert result == []
+
+    def test_two_messages_no_truncation(self):
+        msgs = [{"role": "system", "content": "x"}, {"role": "user", "content": "y"}]
+        result = _truncate_messages(msgs, token_budget=1000)
+        assert len(result) == 2
+
+    def test_drops_middle_not_head_or_tail(self):
+        """Truncation drops messages between prefix (system+user) and suffix (keep_last)."""
+        msgs = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "u0"},
+            {"role": "assistant", "content": "a1 " + "z" * 500},
+            {"role": "user", "content": "u2 " + "z" * 500},
+            {"role": "assistant", "content": "a3 " + "z" * 500},
+            {"role": "user", "content": "u4 " + "z" * 500},
+        ]
+        result = _truncate_messages(msgs, token_budget=500, keep_last=2)
+        assert result[0]["content"] == "sys"
+        assert result[1]["content"] == "u0"
+        assert result[-2]["content"].startswith("a3")
+        assert result[-1]["content"].startswith("u4")
+
+    def test_overlap_keeps_all_when_few_messages(self):
+        """When messages fit within keep_last, nothing is dropped."""
+        msgs = self._make_msgs(3, content_len=100)
+        result = _truncate_messages(msgs, token_budget=50, keep_last=50)
+        assert len(result) == 3
+
+
+class TestRunAgentTurnTruncation:
+    @pytest.mark.asyncio
+    async def test_context_truncation_kicks_in(self):
+        """Agent turn truncates messages when context_token_budget is small."""
+        call_count = 0
+
+        def fake_chat(messages, tools=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 3:
+                return LLMResponse(
+                    content="",
+                    tool_calls=[ToolCall(id=f"c{call_count}", name="exec",
+                                         arguments={"command": "echo " + "x" * 2000})],
+                    finish_reason="tool_calls",
+                )
+            return LLMResponse(content="done", tool_calls=[], finish_reason="stop")
+
+        mock_llm = MagicMock()
+        mock_llm.chat = fake_chat
+        mock_llm.model = "test"
+        tools = ToolRouter(playwright_client=None, rag_client=None)
+
+        messages = [
+            {"role": "system", "content": "You are a test agent."},
+            {"role": "user", "content": "Do something."},
+        ]
+        # Set very low budget so truncation triggers quickly
+        result = await run_agent_turn(mock_llm, tools, messages, max_steps=10,
+                                       context_token_budget=1000)
+
+        # No submission recorded (no update_tracker.py submitted call)
+        assert result.success is False
+        assert "no_submission" in result.reason
+        # Messages should have been truncated (not grown unbounded)
+        assert len(messages) < 20  # would be ~8 without truncation

@@ -94,7 +94,7 @@ async def test_no_submission_retries_with_fresh_messages(tmp_path):
 
         captured: list[list[dict]] = []
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             captured.append(list(messages))
             if len(captured) == 1:
                 return MagicMock(success=False, reason="no_submission: files missing")
@@ -133,7 +133,7 @@ async def test_no_submission_exhausts_retries_then_backs_off(tmp_path):
 
         calls = {"n": 0}
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             calls["n"] += 1
             return MagicMock(success=False, reason="no_submission: nothing to apply")
 
@@ -163,7 +163,7 @@ async def test_context_overflow_rotates_session(tmp_path):
         session.should_rotate.return_value = False
         session.build_rotation_context.return_value = "previous context"
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             return MagicMock(success=False, reason="context overflow")
 
         with patch("campaign_agent.main.run_agent_turn", side_effect=fake_turn):
@@ -196,7 +196,7 @@ async def test_max_steps_exceeded_does_not_stop_campaign(tmp_path):
 
         calls = {"n": 0}
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             calls["n"] += 1
             return MagicMock(success=False, reason="max_steps_exceeded")
 
@@ -229,7 +229,7 @@ async def test_fatal_error_stops_campaign(tmp_path):
 
         calls = {"n": 0}
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             calls["n"] += 1
             return MagicMock(success=False, reason="auth failure")
 
@@ -259,7 +259,7 @@ async def test_router_wired_with_campaign_dir(tmp_path):
 
         seen = {}
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             seen["router"] = tools
             return MagicMock(success=True, reason="recorded", submitted=1)
 
@@ -290,7 +290,7 @@ async def test_mcp_connect_failure_continues_exec_only(tmp_path):
 
         seen = {"turns": 0}
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             seen["turns"] += 1
             return MagicMock(success=True, reason="recorded", submitted=1)
 
@@ -319,7 +319,7 @@ async def test_proactive_rotation_when_near_budget(tmp_path):
         session.should_rotate.return_value = True
         session.build_rotation_context.return_value = "rotated context"
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             return MagicMock(success=True, reason="recorded", submitted=1)
 
         with patch("campaign_agent.main.run_agent_turn", side_effect=fake_turn):
@@ -348,7 +348,7 @@ async def test_rate_limit_backs_off_then_succeeds(tmp_path):
 
         calls = {"n": 0}
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             calls["n"] += 1
             if calls["n"] == 1:
                 return MagicMock(success=False, reason="Rate limit reached (429)")
@@ -379,7 +379,7 @@ async def test_transient_error_retries_then_succeeds(tmp_path):
 
         calls = {"n": 0}
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             calls["n"] += 1
             if calls["n"] == 1:
                 return MagicMock(success=False, reason="Streaming response failed")
@@ -437,7 +437,7 @@ async def test_llm_client_wired_with_timeout_seconds(tmp_path):
         session.session_id = None
         session.should_rotate.return_value = False
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             return MagicMock(success=True, reason="recorded", submitted=1)
 
         with patch("campaign_agent.main.run_agent_turn", side_effect=fake_turn):
@@ -469,7 +469,7 @@ async def test_previous_tick_summary_injected_into_user_prompt(tmp_path):
 
         seen = {}
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             seen["user_prompt"] = messages[1]["content"]
             return MagicMock(success=True, reason="recorded", submitted=1)
 
@@ -503,7 +503,7 @@ async def test_tick_summary_saved_after_tick(tmp_path):
         session.session_id = None
         session.should_rotate.return_value = False
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             return MagicMock(success=True, reason="recorded", submitted=1)
 
         with patch("campaign_agent.main.run_agent_turn", side_effect=fake_turn):
@@ -537,7 +537,7 @@ async def test_combines_tick_summary_and_rotation_context(tmp_path):
 
         seen = {}
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             seen["user_prompt"] = messages[1]["content"]
             return MagicMock(success=True, reason="recorded", submitted=1)
 
@@ -567,7 +567,7 @@ async def test_token_budget_zero_does_not_crash(tmp_path):
         session.session_id = None
         session.should_rotate.return_value = False
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             return MagicMock(success=True, reason="recorded", submitted=1)
 
         with patch("campaign_agent.main.run_agent_turn", side_effect=fake_turn):
@@ -597,7 +597,7 @@ async def test_tracker_reloaded_before_saving_summary(tmp_path):
         session.session_id = None
         session.should_rotate.return_value = False
 
-        async def fake_turn(llm, tools, messages, max_steps):
+        async def fake_turn(llm, tools, messages, max_steps, **kwargs):
             return MagicMock(success=True, reason="recorded", submitted=1)
 
         with patch("campaign_agent.main.run_agent_turn", side_effect=fake_turn):

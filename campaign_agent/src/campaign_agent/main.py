@@ -20,7 +20,7 @@ from typing import Any
 from campaign_agent.config import Config
 from campaign_agent.llm import LLMClient, LLMResponse
 from campaign_agent.prompt import build_system_prompt, build_user_prompt
-from campaign_agent.session import SessionManager, TickContext, build_tick_summary
+from campaign_agent.session import SessionManager, TickContext, build_tick_summary, estimate_tokens_from_messages
 from campaign_agent.tools import ToolRouter
 from campaign_agent.tracker import Tracker
 
@@ -69,15 +69,56 @@ def classify_failure(text: str) -> str:
     return "fatal"
 
 
+def _truncate_messages(
+    messages: list[dict[str, Any]],
+    token_budget: int = 50000,
+    keep_last: int = 20,
+) -> list[dict[str, Any]]:
+    """Truncate message history to stay within token budget.
+
+    Always preserves: system prompt (index 0), first user message (index 1),
+    and the last `keep_last` messages. Drops middle messages when over budget.
+    Returns a new list (does not mutate the original).
+    """
+    if len(messages) <= 2:
+        return list(messages)
+
+    current_tokens = estimate_tokens_from_messages(messages)
+    if current_tokens <= token_budget:
+        return list(messages)
+
+    # Always keep system + first user message
+    prefix = messages[:2]
+    # Keep the last keep_last messages (or fewer if not enough)
+    suffix = messages[-keep_last:] if len(messages) > keep_last else messages[2:]
+    # Drop everything in between
+    truncated = prefix + suffix
+
+    dropped = len(messages) - len(truncated)
+    new_tokens = estimate_tokens_from_messages(truncated)
+    drop_start = 2  # always after system + first user
+    drop_end = len(messages) - keep_last
+    drop_roles = [m.get("role", "?") for m in messages[drop_start:drop_end]]
+    log.info(
+        "Truncated messages: %d → %d (dropped %d [%s], ~%d → ~%d tokens)",
+        len(messages), len(truncated), dropped,
+        ",".join(drop_roles) if drop_roles else "none",
+        current_tokens, new_tokens,
+    )
+    return truncated
+
+
 async def run_agent_turn(
     llm: LLMClient,
     tools: ToolRouter,
     messages: list[dict[str, Any]],
     max_steps: int = 200,
+    context_token_budget: int = 50000,
 ) -> TickResult:
     """
     Run one agent turn: LLM call → tool dispatch → repeat until done or max_steps.
     The turn ends when the LLM responds with content and no tool calls.
+    Messages are truncated in-place when they exceed context_token_budget.
     """
     recorded_submission = False
     for step in range(max_steps):
@@ -120,6 +161,13 @@ async def run_agent_turn(
                 if "update_tracker.py submitted" in command and "exit=0" in str(result):
                     recorded_submission = True
                     log.info("Submission recorded: %s", command[:120])
+
+        # Truncate if context is growing too large (prevents malformed JSON
+        # from under-trained models choking on huge prompts)
+        if estimate_tokens_from_messages(messages) > context_token_budget:
+            truncated = _truncate_messages(messages, token_budget=context_token_budget)
+            messages.clear()
+            messages.extend(truncated)
 
     log.warning("Max steps (%d) exceeded", max_steps)
     if recorded_submission:
@@ -226,7 +274,12 @@ async def run_campaign(config: Config) -> None:
                 ]
 
                 t0 = time.time()
-                result = await run_agent_turn(llm, tools, messages, config.max_steps)
+                # Truncate at 80% of token budget to leave room for response
+                ctx_budget = int(config.token_budget * 0.80)
+                result = await run_agent_turn(
+                    llm, tools, messages, config.max_steps,
+                    context_token_budget=ctx_budget,
+                )
                 elapsed = time.time() - t0
 
                 log.info("Turn finished in %.0fs: success=%s reason=%s",
