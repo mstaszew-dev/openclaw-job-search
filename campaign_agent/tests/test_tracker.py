@@ -11,7 +11,7 @@ from campaign_agent.tracker import Tracker
 def sample_tracker_data():
     return {
         "schemaVersion": "1.0",
-        "targetApplications": 1200,
+        "target": 1200,
         "stats": {
             "submitted": 1130,
             "skippedDuplicate": 200,

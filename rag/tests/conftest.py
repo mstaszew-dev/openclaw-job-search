@@ -93,7 +93,7 @@ def mock_model() -> MockEmbeddingModel:
 def sample_tracker() -> dict:
     """A small tracker fixture spanning the stacks the tests discriminate on."""
     return {
-        "targetApplications": 100,
+        "target": 100,
         "stats": {"submitted": 4},
         "applications": [
             {

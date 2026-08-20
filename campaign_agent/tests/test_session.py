@@ -20,7 +20,7 @@ def session_dir(tmp_path):
 def tracker_file(tmp_path):
     p = tmp_path / "tracker.json"
     p.write_text(json.dumps({
-        "targetApplications": 1200,
+        "target": 1200,
         "stats": {"submitted": 1130},
         "applications": [
             {"company": "TestCo", "roleTitle": "Dev", "status": "submitted",
