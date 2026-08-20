@@ -198,11 +198,10 @@ async def run_campaign(config: Config) -> None:
         api_key=config.msrouter_api_key,
         model=config.msrouter_model,
         max_retries=3,
-        # Timeout is managed entirely by msrouter per-provider (e.g.
-        # LMSTUDIO_TIMEOUT_MS=1200s for local, UPSTREAM_TIMEOUT_MS=120s
-        # for remote). The client timeout is a safety ceiling only; msrouter
-        # will abort the attempt before the client does in normal operation.
         timeout=config.timeout_seconds,
+        local_provider=config.model_local_provider,
+        local_consecutive_limit=config.model_local_consecutive_limit,
+        models=config.msrouter_models,
     )
 
     # MCP clients will be initialized when tools are set up

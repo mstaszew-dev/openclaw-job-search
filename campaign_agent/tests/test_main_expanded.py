@@ -215,7 +215,7 @@ class TestLLMClientExpanded:
         mock_err.response.status_code = 429
         mock_err.body = MagicMock()
         mock_err.body.__str__ = lambda self: "rate limited"
-        mock_client.chat.completions.create.side_effect = RateLimitError(
+        mock_client.chat.completions.with_raw_response.create.side_effect = RateLimitError(
             message="rate limited", response=mock_err.response, body=mock_err.body
         )
 
@@ -232,8 +232,12 @@ class TestLLMClientExpanded:
         mock_resp.choices[0].message.content = "ok"
         mock_resp.choices[0].message.tool_calls = None
         mock_resp.choices[0].finish_reason = "stop"
+        
+        raw_response = MagicMock()
+        raw_response.http_response.headers = {"x-served-by-provider": "opencode"}
+        raw_response.parse.return_value = mock_resp
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_resp
+        mock_client.chat.completions.with_raw_response.create.return_value = raw_response
 
         client = LLMClient(model="mst/free")
         client._client = mock_client
@@ -241,7 +245,7 @@ class TestLLMClientExpanded:
         tools = [{"type": "function", "function": {"name": "exec", "parameters": {}}}]
         client.chat(messages=[{"role": "user", "content": "hi"}], tools=tools)
 
-        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        call_kwargs = mock_client.chat.completions.with_raw_response.create.call_args[1]
         assert "tools" in call_kwargs
 
     def test_chat_max_tokens_override(self):
@@ -251,14 +255,18 @@ class TestLLMClientExpanded:
         mock_resp.choices[0].message.content = "ok"
         mock_resp.choices[0].message.tool_calls = None
         mock_resp.choices[0].finish_reason = "stop"
+        
+        raw_response = MagicMock()
+        raw_response.http_response.headers = {"x-served-by-provider": "opencode"}
+        raw_response.parse.return_value = mock_resp
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_resp
+        mock_client.chat.completions.with_raw_response.create.return_value = raw_response
 
         client = LLMClient(model="mst/free", max_tokens=2048)
         client._client = mock_client
         client.chat(messages=[{"role": "user", "content": "hi"}], max_tokens=8192)
 
-        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        call_kwargs = mock_client.chat.completions.with_raw_response.create.call_args[1]
         assert call_kwargs["max_tokens"] == 8192
 
 
