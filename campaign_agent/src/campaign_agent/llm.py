@@ -102,22 +102,17 @@ class LLMClient:
         max_tokens: int = 4096,
         max_retries: int = 3,
         timeout: int = 120,
-        local_provider: str = "lmstudio",
-        local_consecutive_limit: int = 5,
-        models: list[str] | None = None,
     ) -> None:
         self.model = model
         self.max_tokens = max_tokens
         self.max_retries = max_retries
-        self.local_provider = local_provider
-        self.local_consecutive_limit = local_consecutive_limit
-        self.models = models or [model]
-        self._model_index = 0
-        self._consecutive_local = 0
         self._client = OpenAI(
             base_url=base_url,
             api_key=api_key,
             timeout=timeout,
+            # llm.py's chat() loop below is the single retry layer; disable the
+            # SDK's internal retries so they do not stack (double worst-case
+            # wait under msrouter 429 storms, confusing request accounting).
             max_retries=0,
         )
 
@@ -139,10 +134,8 @@ class LLMClient:
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
-                raw = self._client.chat.completions.with_raw_response.create(**kwargs)
-                provider = raw.http_response.headers.get("x-served-by-provider", "")
-                self._track_provider(provider)
-                return LLMResponse.from_openai(raw.parse())
+                response = self._client.chat.completions.create(**kwargs)
+                return LLMResponse.from_openai(response)
             except RateLimitError as e:
                 last_error = e
                 log.warning("Rate limit (attempt %d/%d): %s", attempt + 1, self.max_retries, e)
@@ -159,20 +152,3 @@ class LLMClient:
                 break  # don't retry on generic API errors
 
         raise last_error or RuntimeError("Unknown LLM error")
-
-    def _track_provider(self, provider: str) -> None:
-        """Track consecutive local uses and rotate model if limit reached."""
-        if provider == self.local_provider:
-            self._consecutive_local += 1
-            if self._consecutive_local >= self.local_consecutive_limit:
-                self._rotate_model()
-        else:
-            self._consecutive_local = 0
-
-    def _rotate_model(self) -> None:
-        """Rotate to next model in queue to force msrouter to try remote."""
-        self._model_index = (self._model_index + 1) % len(self.models)
-        self.model = self.models[self._model_index]
-        self._consecutive_local = 0
-        log.info("Rotated model to %s after %d consecutive local uses",
-                 self.model, self.local_consecutive_limit)

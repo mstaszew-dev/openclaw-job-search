@@ -36,13 +36,6 @@ class Config:
     msrouter_model: str = "mst/free"
     msrouter_api_key: str = "msrouter-local"
 
-    # Model rotation: after N consecutive local uses, force remote model
-    model_local_consecutive_limit: int = 5
-    model_local_provider: str = "lmstudio"
-    msrouter_models: list[str] = field(default_factory=lambda: [
-        "mst/free", "big-pickle", "qwen3.6-plus"
-    ])
-
     # Campaign state
     tracker_path: str = "/Users/mst/Downloads/job-search/job-apply/tracker.json"
     events_path: str = "/Users/mst/Downloads/job-search/job-apply/events.jsonl"
@@ -127,14 +120,12 @@ class Config:
             "OUTER_MAX_TICKS": "outer_max_ticks",
             "MAX_STEPS": "max_steps",
             "TIMEOUT_SECONDS": "timeout_seconds",
-            "MODEL_LOCAL_CONSECUTIVE_LIMIT": "model_local_consecutive_limit",
         }
         str_fields = {
             "MSROUTER_URL": "msrouter_url",
             "MSROUTER_MODEL": "msrouter_model",
             "MSROUTER_API_KEY": "msrouter_api_key",
             "CDP_URL": "cdp_url",
-            "MODEL_LOCAL_PROVIDER": "model_local_provider",
         }
         float_fields = {
             "INNER_SLEEP": "inner_sleep",
@@ -151,10 +142,6 @@ class Config:
         for key, attr in float_fields.items():
             if key in d and d[key]:
                 setattr(self, attr, float(d[key]))
-
-        # List fields (comma-separated)
-        if "MSROUTER_MODELS" in d and d["MSROUTER_MODELS"]:
-            self.msrouter_models = [m.strip() for m in d["MSROUTER_MODELS"].split(",") if m.strip()]
 
         # PORTAL_SKIP_<Company>=1 -> skip_companies (lowercased)
         for key, value in d.items():

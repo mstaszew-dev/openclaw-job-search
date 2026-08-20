@@ -134,11 +134,7 @@ class TestLLMClient:
         mock_resp.choices[0].message.content = "test response"
         mock_resp.choices[0].message.tool_calls = None
         mock_resp.choices[0].finish_reason = "stop"
-        
-        raw_response = MagicMock()
-        raw_response.http_response.headers = {"x-served-by-provider": "opencode"}
-        raw_response.parse.return_value = mock_resp
-        mock_openai_client.chat.completions.with_raw_response.create.return_value = raw_response
+        mock_openai_client.chat.completions.create.return_value = mock_resp
 
         client = LLMClient(model="mst/free")
         client._client = mock_openai_client
@@ -154,11 +150,7 @@ class TestLLMClient:
         mock_resp.choices[0].message.content = ""
         mock_resp.choices[0].message.tool_calls = None
         mock_resp.choices[0].finish_reason = "stop"
-        
-        raw_response = MagicMock()
-        raw_response.http_response.headers = {"x-served-by-provider": "opencode"}
-        raw_response.parse.return_value = mock_resp
-        mock_openai_client.chat.completions.with_raw_response.create.return_value = raw_response
+        mock_openai_client.chat.completions.create.return_value = mock_resp
 
         client = LLMClient(model="mst/free")
         client._client = mock_openai_client
@@ -175,18 +167,14 @@ class TestLLMClient:
         mock_resp.choices[0].message.tool_calls = None
         mock_resp.choices[0].finish_reason = "stop"
 
-        raw_response = MagicMock()
-        raw_response.http_response.headers = {"x-served-by-provider": "opencode"}
-        raw_response.parse.return_value = mock_resp
-
         mock_err = MagicMock()
         mock_err.response = MagicMock()
         mock_err.response.status_code = 429
         mock_err.body = MagicMock()
         mock_err.body.__str__ = lambda self: "rate limited"
-        mock_openai_client.chat.completions.with_raw_response.create.side_effect = [
+        mock_openai_client.chat.completions.create.side_effect = [
             RateLimitError(message="rate limited", response=mock_err.response, body=mock_err.body),
-            raw_response,
+            mock_resp,
         ]
 
         client = LLMClient(model="mst/free", max_retries=3)
@@ -194,7 +182,7 @@ class TestLLMClient:
         r = client.chat(messages=[{"role": "user", "content": "hi"}])
 
         assert r.content == "ok"
-        assert mock_openai_client.chat.completions.with_raw_response.create.call_count == 2
+        assert mock_openai_client.chat.completions.create.call_count == 2
 
     def test_chat_retries_on_timeout_then_succeeds(self, mock_openai_client):
         """APITimeoutError is retryable: after the timeout, the next attempt
@@ -205,16 +193,12 @@ class TestLLMClient:
         mock_resp.choices[0].message.tool_calls = None
         mock_resp.choices[0].finish_reason = "stop"
 
-        raw_response = MagicMock()
-        raw_response.http_response.headers = {"x-served-by-provider": "opencode"}
-        raw_response.parse.return_value = mock_resp
-
         mock_err = MagicMock()
         mock_err.response = MagicMock()
         mock_err.request = MagicMock()
-        mock_openai_client.chat.completions.with_raw_response.create.side_effect = [
+        mock_openai_client.chat.completions.create.side_effect = [
             APITimeoutError(request=mock_err.request),
-            raw_response,
+            mock_resp,
         ]
 
         client = LLMClient(model="mst/free", max_retries=2)
@@ -223,14 +207,14 @@ class TestLLMClient:
             r = client.chat(messages=[{"role": "user", "content": "hi"}])
 
         assert r.content == "recovered"
-        assert mock_openai_client.chat.completions.with_raw_response.create.call_count == 2
+        assert mock_openai_client.chat.completions.create.call_count == 2
 
     def test_chat_timeout_exhausts_retries_and_raises(self, mock_openai_client):
         """Persistent APITimeoutError raises the last error after retries."""
         mock_err = MagicMock()
         mock_err.response = MagicMock()
         mock_err.request = MagicMock()
-        mock_openai_client.chat.completions.with_raw_response.create.side_effect = [
+        mock_openai_client.chat.completions.create.side_effect = [
             APITimeoutError(request=mock_err.request),
             APITimeoutError(request=mock_err.request),
         ]
@@ -247,7 +231,7 @@ class TestLLMClient:
         mock_err = MagicMock()
         mock_err.response = MagicMock()
         mock_err.request = MagicMock()
-        mock_openai_client.chat.completions.with_raw_response.create.side_effect = [
+        mock_openai_client.chat.completions.create.side_effect = [
             APIError(message="401 unauthorized", request=mock_err.request, body=None),
         ]
 
@@ -255,59 +239,4 @@ class TestLLMClient:
         client._client = mock_openai_client
         with pytest.raises(APIError):
             client.chat(messages=[{"role": "user", "content": "hi"}])
-        assert mock_openai_client.chat.completions.with_raw_response.create.call_count == 1
-
-
-class TestModelRotation:
-    def test_consecutive_local_increments(self):
-        """Consecutive local use counter increments on local provider."""
-        client = LLMClient(
-            model="mst/free",
-            local_provider="lmstudio",
-            local_consecutive_limit=5,
-            models=["mst/free", "big-pickle"],
-        )
-        client._track_provider("lmstudio")
-        assert client._consecutive_local == 1
-        client._track_provider("lmstudio")
-        assert client._consecutive_local == 2
-
-    def test_consecutive_local_resets_on_remote(self):
-        """Counter resets when remote provider is used."""
-        client = LLMClient(
-            model="mst/free",
-            local_provider="lmstudio",
-            local_consecutive_limit=5,
-            models=["mst/free", "big-pickle"],
-        )
-        client._consecutive_local = 4
-        client._track_provider("opencode")
-        assert client._consecutive_local == 0
-
-    def test_rotate_model_after_limit(self):
-        """Model rotates after reaching consecutive local limit."""
-        client = LLMClient(
-            model="mst/free",
-            local_provider="lmstudio",
-            local_consecutive_limit=3,
-            models=["mst/free", "big-pickle", "qwen3.6-plus"],
-        )
-        for _ in range(3):
-            client._track_provider("lmstudio")
-        assert client.model == "big-pickle"
-        assert client._consecutive_local == 0
-
-    def test_rotate_wraps_around(self):
-        """Rotation wraps around to first model after reaching end."""
-        client = LLMClient(
-            model="mst/free",
-            local_provider="lmstudio",
-            local_consecutive_limit=2,
-            models=["mst/free", "big-pickle"],
-        )
-        client._track_provider("lmstudio")
-        client._track_provider("lmstudio")
-        assert client.model == "big-pickle"
-        client._track_provider("lmstudio")
-        client._track_provider("lmstudio")
-        assert client.model == "mst/free"
+        assert mock_openai_client.chat.completions.create.call_count == 1
