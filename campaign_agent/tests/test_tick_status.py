@@ -22,7 +22,7 @@ def tracker_file(tmp_path):
             "applications": [],
         }
         if target_applications is not None:
-            data["targetApplications"] = target_applications
+            data["target"] = target_applications
         p = tmp_path / "tracker.json"
         p.write_text(json.dumps(data))
         return str(p)
@@ -89,7 +89,7 @@ class TestTickStatusTargetFallback:
         """CAMPAIGN COMPLETE should only appear when submitted >= actual target."""
         data = {
             "schemaVersion": "1.0",
-            "targetApplications": 1500,
+            "target": 1500,
             "stats": {"submitted": 1200},
             "applications": [],
         }
@@ -119,7 +119,7 @@ class TestTickStatusTargetFallback:
         """CAMPAIGN COMPLETE appears when submitted >= target."""
         data = {
             "schemaVersion": "1.0",
-            "targetApplications": 1500,
+            "target": 1500,
             "stats": {"submitted": 1500},
             "applications": [],
         }

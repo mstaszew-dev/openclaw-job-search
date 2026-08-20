@@ -24,7 +24,7 @@ def campaign_dir(tmp_path):
             "applyQueue": [],
         }
         if target_applications is not None:
-            data["targetApplications"] = target_applications
+            data["target"] = target_applications
         tracker = tmp_path / "tracker.json"
         tracker.write_text(json.dumps(data))
         # Create events.jsonl

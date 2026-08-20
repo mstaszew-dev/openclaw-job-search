@@ -46,7 +46,7 @@ class Tracker:
 
     def target(self) -> int:
         """Target application count."""
-        return self._data.get("targetApplications", DEFAULT_TARGET)
+        return self._data.get("target", self._data.get("targetApplications", DEFAULT_TARGET))
 
     def remaining(self) -> int:
         """Applications remaining to reach target."""
