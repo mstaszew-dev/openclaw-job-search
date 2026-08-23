@@ -8,6 +8,7 @@ package is never imported - tests run without the 30MB download.
 from __future__ import annotations
 
 import asyncio
+import json
 import runpy
 import sys
 from pathlib import Path
@@ -453,7 +454,183 @@ class TestMain:
             coro.close()
 
         monkeypatch.setattr(asyncio, "run", fake_run)
+        monkeypatch.setattr(sys, "argv", ["rag_server.py"])
         runpy.run_path(str(MODULE_PATH), run_name="__main__")
 
         assert len(launched) == 1
         assert launched[0].__name__ == "main"
+
+
+class TestOneShotCli:
+    """--query one-shot mode (the Director's RagClient contract): process one
+    query against --db, print a single JSON result line, exit."""
+
+    @pytest.fixture()
+    def built_db(self, tmp_campaign, mock_model, tmp_path):
+        db = tmp_path / "cli-index.db"
+        ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+        return db
+
+    def _run_cli(self, monkeypatch, mock_model, argv):
+        fake_m2v = ModuleType("model2vec")
+
+        class _StaticModel:
+            @staticmethod
+            def from_pretrained(name):
+                return mock_model
+
+        fake_m2v.StaticModel = _StaticModel
+        monkeypatch.setitem(sys.modules, "model2vec", fake_m2v)
+        monkeypatch.setattr(sys, "argv", ["rag_server.py", *argv])
+        runpy.run_path(str(MODULE_PATH), run_name="__main__")
+
+    def test_one_shot_query_prints_json_result_line(
+        self, monkeypatch, capsys, mock_model, built_db
+    ):
+        self._run_cli(
+            monkeypatch,
+            mock_model,
+            [
+                "--query", "java spring backend",
+                "--tool", "rag_search_apps",
+                "--k", "1",
+                "--db", str(built_db),
+            ],
+        )
+        last_line = capsys.readouterr().out.strip().splitlines()[-1]
+        payload = json.loads(last_line)
+        assert payload["result"], "expected at least one hit"
+        top = payload["result"][0]
+        assert 0.0 <= top["score"] <= 1.0
+        assert top["text"].startswith("score ")
+
+        # Docs collection renders through the other _hit_to_text branch.
+        self._run_cli(
+            monkeypatch,
+            mock_model,
+            [
+                "--query", "java spring backend",
+                "--tool", "rag_search_docs",
+                "--k", "2",
+                "--db", str(built_db),
+            ],
+        )
+        last_line = capsys.readouterr().out.strip().splitlines()[-1]
+        docs_payload = json.loads(last_line)
+        assert all("[" in r["text"] for r in docs_payload["result"])
+
+    def test_one_shot_query_requires_tool(
+        self, monkeypatch, capsys, mock_model, built_db
+    ):
+        with pytest.raises(SystemExit) as excinfo:
+            self._run_cli(monkeypatch, mock_model, ["--query", "x", "--db", str(built_db)])
+        assert excinfo.value.code == 1
+        # Builder prints from the built_db fixture share the capture buffer;
+        # the CLI contract is that the LAST stdout line is the JSON payload.
+        last_line = capsys.readouterr().out.strip().splitlines()[-1]
+        payload = json.loads(last_line)
+        assert payload["error"] == "--tool is required when using --query"
+
+    def test_one_shot_query_honors_db_override(
+        self, monkeypatch, mock_model, tmp_path
+    ):
+        """--db must be honored in one-shot mode: a missing index raises
+        naming the GIVEN path, not the module default."""
+        bogus = tmp_path / "override.db"
+        assert not bogus.exists()
+        with pytest.raises(RuntimeError, match="override\\.db"):
+            self._run_cli(
+                monkeypatch,
+                mock_model,
+                ["--query", "x", "--tool", "rag_search_apps", "--db", str(bogus)],
+            )
+
+
+class TestStalenessGuard:
+    """The server warns (never blocks) when the index predates the tracker:
+    duplicates submitted after the last rebuild are invisible to dedupe."""
+
+    def _load_with(self, monkeypatch, mock_model, db):
+        requested = []
+
+        class FakeStaticModel:
+            @classmethod
+            def from_pretrained(cls, name):
+                requested.append(name)
+                return mock_model
+
+        fake_m2v = ModuleType("model2vec")
+        fake_m2v.StaticModel = FakeStaticModel
+        monkeypatch.setitem(sys.modules, "model2vec", fake_m2v)
+        monkeypatch.setattr(rag_server, "_model", None)
+        monkeypatch.setattr(rag_server, "_matrix", None)
+        monkeypatch.setattr(rag_server, "_rows", None)
+
+        logs: list[str] = []
+        monkeypatch.setattr(rag_server, "_log", logs.append)
+        rag_server._ensure_loaded()
+        return logs
+
+    def test_no_warning_when_fresh(
+        self, monkeypatch, tmp_campaign, mock_model, tmp_path
+    ):
+        db = tmp_path / "fresh.db"
+        ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+        monkeypatch.setattr(rag_server, "DB", db)
+        monkeypatch.setattr(rag_server, "CAMPAIGN", tmp_campaign)
+        joined = "\n".join(self._load_with(monkeypatch, mock_model, db))
+        assert "STALE" not in joined
+
+    def test_warns_when_tracker_has_many_new_apps(
+        self, monkeypatch, tmp_campaign, mock_model, tmp_path
+    ):
+        import json as _json
+
+        db = tmp_path / "old.db"
+        ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+
+        # 25 new applications submitted after the build.
+        tracker = tmp_campaign / "tracker.json"
+        data = _json.loads(tracker.read_text())
+        apps = data.get("applications", [])
+        data["applications"] = apps + [
+            {"company": f"NewCo{i}", "roleTitle": "dev"} for i in range(25)
+        ]
+        tracker.write_text(_json.dumps(data))
+
+        monkeypatch.setattr(rag_server, "DB", db)
+        monkeypatch.setattr(rag_server, "CAMPAIGN", tmp_campaign)
+        joined = "\n".join(self._load_with(monkeypatch, mock_model, db))
+        assert "STALE" in joined and "25" in joined
+
+    def test_old_index_without_meta_stamp_loads_quietly(
+        self, monkeypatch, tmp_campaign, mock_model, tmp_path
+    ):
+        """An index built before the _meta stamp existed must still load - the
+        staleness check degrades to a no-op instead of failing the server."""
+        import sqlite3
+
+        db = tmp_path / "legacy.db"
+        ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+        conn = sqlite3.connect(db)
+        conn.execute("DROP TABLE _meta")
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setattr(rag_server, "DB", db)
+        monkeypatch.setattr(rag_server, "CAMPAIGN", tmp_campaign)
+        joined = "\n".join(self._load_with(monkeypatch, mock_model, db))
+        assert "STALE" not in joined
+        assert "loaded" in joined
+
+    def test_unreadable_tracker_never_blocks_loading(
+        self, monkeypatch, tmp_campaign, mock_model, tmp_path
+    ):
+        db = tmp_path / "x.db"
+        ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+        empty_dir = tmp_path / "no-tracker"
+        empty_dir.mkdir()
+        monkeypatch.setattr(rag_server, "DB", db)
+        monkeypatch.setattr(rag_server, "CAMPAIGN", empty_dir)
+        joined = "\n".join(self._load_with(monkeypatch, mock_model, db))
+        assert "loaded" in joined and "STALE" not in joined

@@ -26,7 +26,7 @@ import os
 import sqlite3
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +35,13 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 ROOT = Path(__file__).resolve().parent
+# Campaign root, overridable for tests (RAG_CAMPAIGN); the tracker's app count
+# is compared against the index's stamp to warn on staleness.
+CAMPAIGN = Path(
+    os.environ.get("RAG_CAMPAIGN", "/Users/mst/Downloads/job-search/job-apply")
+)
+STALE_APP_GAP = 20  # warn when the tracker gained this many apps since build
+STALE_DAYS = 7  # ...or when the index is this many days old
 DB = ROOT / "index.db"
 MODEL = "minishlab/potion-base-8M"
 
@@ -166,6 +173,38 @@ def _ensure_loaded() -> None:
     _matrix, _rows = load_index(DB)
     # Log load (the sink label is reported implicitly by where the line lands).
     _log(f"loaded {len(_rows)} chunks, dim {_matrix.shape[1]}")
+    _warn_if_stale()
+
+
+def _warn_if_stale() -> None:
+    """Warn (never block) when the index predates the tracker: applications
+    submitted after the last rebuild are invisible to dedupe search."""
+    try:
+        conn = sqlite3.connect(DB)
+        try:
+            meta = dict(
+                conn.execute("SELECT key, value FROM _meta").fetchall()
+            )
+        finally:
+            conn.close()
+        built_at = datetime.fromisoformat(meta["built_at"])
+        indexed_apps = int(meta["n_apps"])
+    except (FileNotFoundError, sqlite3.OperationalError, KeyError, ValueError):
+        return  # old index without a stamp; nothing to compare
+    try:
+        tracker = json.loads((CAMPAIGN / "tracker.json").read_text())
+        live_apps = len(tracker.get("applications", []))
+    except (OSError, json.JSONDecodeError):
+        return
+
+    age_days = (datetime.now(timezone.utc) - built_at).total_seconds() / 86400
+    gap = live_apps - indexed_apps
+    if gap >= STALE_APP_GAP or age_days >= STALE_DAYS:
+        _log(
+            f"STALE index: built {built_at:%Y-%m-%d} with {indexed_apps} apps, "
+            f"tracker now has {live_apps} (+{gap}); rebuild soon: "
+            f".venv/bin/python {ROOT}/index_builder.py"
+        )
 
 
 def _search(query: str, collection: str, k: int) -> list[dict]:
@@ -303,7 +342,66 @@ async def main() -> None:
         await server.run(read, write, server.create_initialization_options())
 
 
+def _hit_to_text(h: dict, collection: str) -> str:
+    """One-line human-readable rendering of a single hit, shared by the MCP
+    formatters and the one-shot CLI so rendering stays in one place."""
+    m = h.get("meta", {})
+    if collection == "apps":
+        return (
+            f"score {h.get('score')}: {m.get('roleTitle')} @ {m.get('company')} "
+            f"({m.get('source')}, {str(m.get('appliedAt', '?'))[:10]}, {m.get('status')})"
+        )
+    return f"score {h.get('score')} [{m.get('file')} > {m.get('header')}]: {h.get('chunk', '')[:500]}"
+
+
 if __name__ == "__main__":
+    import argparse
     import asyncio
 
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(
+        description="Campaign RAG server (MCP stdio, or one-shot CLI)."
+    )
+    parser.add_argument(
+        "--query",
+        type=str,
+        help="One-shot query mode: process this query and exit. "
+        "Requires --tool to specify the tool to call.",
+    )
+    parser.add_argument(
+        "--tool",
+        type=str,
+        choices=["rag_search_apps", "rag_search_docs"],
+        help="Tool to call in one-shot mode.",
+    )
+    parser.add_argument("--k", type=int, default=5, help="Number of results (default: 5).")
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=DB,
+        help=f"SQLite index db path (default: {DB}).",
+    )
+    parser.add_argument(
+        "--campaign",
+        type=Path,
+        default=Path("/Users/mst/Downloads/job-search/job-apply"),
+        help="Campaign directory (informational; the db is already built).",
+    )
+    args = parser.parse_args()
+    if args.query:
+        # One-shot CLI mode (Director RagClient contract): load --db (module-
+        # level assignment rebinds the global the loader reads), search, print
+        # one JSON line, exit.
+        DB = args.db
+        _ensure_loaded()
+        if not args.tool:
+            print(json.dumps({"error": "--tool is required when using --query"}))
+            sys.exit(1)
+        collection = "apps" if args.tool == "rag_search_apps" else "docs"
+        hits = _search(args.query, collection, args.k)
+        result = [
+            {"score": float(h["score"]), "text": _hit_to_text(h, collection)}
+            for h in hits
+        ]
+        print(json.dumps({"result": result}))
+    else:
+        asyncio.run(main())

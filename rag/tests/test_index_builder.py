@@ -247,3 +247,20 @@ class TestMainGuard:
         assert "Loading embedding model:" in out
         assert "Corpus:" in out
         assert requested == [ib.MODEL]
+
+
+def test_build_stamps_meta_with_built_at_and_app_count(tmp_campaign, mock_model, tmp_path):
+    """Every build records built_at (UTC ISO) + n_apps in a _meta table so the
+    server can detect staleness against the live tracker."""
+    import sqlite3
+
+    db = tmp_path / "stamped.db"
+    ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+
+    conn = sqlite3.connect(db)
+    try:
+        rows = dict(conn.execute("SELECT key, value FROM _meta").fetchall())
+    finally:
+        conn.close()
+    assert "built_at" in rows and "T" in rows["built_at"]  # ISO timestamp
+    assert int(rows["n_apps"]) == 4  # tmp_campaign fixture has 4 applications

@@ -25,6 +25,7 @@ import json
 import re
 import sqlite3
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from model2vec import StaticModel
@@ -206,6 +207,19 @@ def write_index(
                     json.dumps(vec.tolist()),
                 ),
             )
+        conn.commit()
+        # Freshness stamp: lets the server warn when the tracker outgrows the
+        # index (duplicates submitted after this build are invisible to dedupe).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        conn.executemany(
+            "INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)",
+            [
+                ("built_at", datetime.now(timezone.utc).isoformat()),
+                ("n_apps", str(sum(1 for r in rows if r["collection"] == "apps"))),
+            ],
+        )
         conn.commit()
     finally:
         conn.close()
