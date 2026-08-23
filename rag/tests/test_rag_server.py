@@ -7,11 +7,19 @@ package is never imported - tests run without the 30MB download.
 """
 from __future__ import annotations
 
+import asyncio
+import runpy
+import sys
+from pathlib import Path
+from types import ModuleType
+
 import numpy as np
 import pytest
 
 import index_builder as ib
 import rag_server
+
+MODULE_PATH = Path(rag_server.__file__).resolve()
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +95,105 @@ class TestEnsureLoaded:
         monkeypatch.setattr(rag_server, "_model", object())
         # Should not raise / not try to load the (nonexistent) index.
         rag_server._ensure_loaded()
+
+    def test_loads_model_and_index_from_disk(
+        self, monkeypatch, tmp_campaign, mock_model, tmp_path
+    ):
+        """First load: downloads the model (faked seam), reads index.db into
+        module state, and logs the chunk count + dim."""
+        db = tmp_path / "index.db"
+        ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+        monkeypatch.setattr(rag_server, "DB", db)
+
+        requested = []
+
+        class FakeStaticModel:
+            @classmethod
+            def from_pretrained(cls, name):
+                requested.append(name)
+                return mock_model
+
+        fake_m2v = ModuleType("model2vec")
+        fake_m2v.StaticModel = FakeStaticModel
+        monkeypatch.setitem(sys.modules, "model2vec", fake_m2v)
+
+        monkeypatch.setattr(rag_server, "_model", None)
+        monkeypatch.setattr(rag_server, "_matrix", None)
+        monkeypatch.setattr(rag_server, "_rows", None)
+
+        rag_server._ensure_loaded()
+
+        assert requested == [rag_server.MODEL]
+        assert rag_server._model is mock_model
+        assert len(rag_server._rows) >= 6
+        assert rag_server._matrix.shape[0] == len(rag_server._rows)
+
+
+class TestSearchWrapper:
+    def test_search_encodes_query_and_ranks_loaded_state(
+        self, monkeypatch, tmp_campaign, mock_model, tmp_path
+    ):
+        """_search embeds the query with the loaded model and ranks the loaded
+        index - the real module-level path the MCP handlers use."""
+        db = tmp_path / "index.db"
+        ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+        matrix, rows = rag_server.load_index(db)
+        monkeypatch.setattr(rag_server, "_model", mock_model)
+        monkeypatch.setattr(rag_server, "_matrix", matrix)
+        monkeypatch.setattr(rag_server, "_rows", rows)
+
+        hits = rag_server._search("Senior Java Backend Engineer", "apps", 3)
+
+        assert 0 < len(hits) <= 3
+        top = hits[0]["meta"]
+        top_text = (top.get("roleTitle", "") + " " + str(top.get("stack", ""))).lower()
+        assert any(w in top_text for w in ("java", "backend"))
+
+
+class TestLogSink:
+    def test_log_writes_to_file_when_rag_log_env_set(self, monkeypatch, tmp_path):
+        """RAG_LOG points logging at an append-mode file; lines carry the
+        [rag] <iso-ts> prefix."""
+        log_file = tmp_path / "rag.log"
+        monkeypatch.setenv("RAG_LOG", str(log_file))
+        monkeypatch.setattr(rag_server, "_SINK_FH", None)
+        monkeypatch.setattr(rag_server, "_SINK_LABEL", None)
+
+        rag_server._log("hello log")
+
+        text = log_file.read_text(encoding="utf-8")
+        assert text.startswith("[rag] ")
+        assert text.endswith(" hello log\n")
+        # One line: "[rag] <date>T<hh:mm:ss> msg".
+        body = text[len("[rag] "):]
+        ts = body.split(" ")[0]
+        assert len(ts) == 19 and ts[10] == "T"
+        assert rag_server._SINK_LABEL == f"file:{log_file}"
+        rag_server._SINK_FH.close()
+
+    def test_log_falls_back_to_stderr_on_unwritable_path(self, monkeypatch, tmp_path, capsys):
+        """A RAG_LOG path that cannot be opened degrades to stderr instead of
+        crashing the server."""
+        monkeypatch.setenv("RAG_LOG", str(tmp_path / "no_such_dir" / "rag.log"))
+        monkeypatch.setattr(rag_server, "_SINK_FH", None)
+        monkeypatch.setattr(rag_server, "_SINK_LABEL", None)
+
+        rag_server._log("fallback msg")
+
+        assert rag_server._SINK_LABEL == "stderr"
+        assert rag_server._SINK_FH is sys.stderr
+        assert "fallback msg" in capsys.readouterr().err
+
+    def test_log_never_raises_when_sink_is_broken(self, monkeypatch, tmp_path):
+        """A dead sink (e.g. closed file handle) must be swallowed - logging
+        is best-effort and must never break the MCP loop."""
+        dead = open(tmp_path / "dead.log", "w", encoding="utf-8")
+        dead.close()
+        monkeypatch.setattr(rag_server, "_SINK_FH", dead)
+
+        result = rag_server._log("must not raise")
+
+        assert result is None
 
 
 class TestCosineSearch:
@@ -308,3 +415,45 @@ class TestListTools:
             assert t.inputSchema is not None
             assert "query" in t.inputSchema.get("properties", {})
             assert t.inputSchema.get("required") == ["query"]
+
+
+class TestMain:
+    @pytest.mark.asyncio
+    async def test_main_wires_stdio_streams_into_server_run(self, monkeypatch):
+        """main() serves the MCP app over the stdio transport: the streams from
+        stdio_server() and the initialization options go into server.run()."""
+        class FakeStdioCtx:
+            async def __aenter__(self):
+                return ("read_stream", "write_stream")
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        seen = {}
+
+        async def fake_run(read, write, init_options):
+            seen["args"] = (read, write, init_options)
+
+        monkeypatch.setattr(rag_server, "stdio_server", lambda: FakeStdioCtx())
+        monkeypatch.setattr(rag_server.server, "run", fake_run)
+
+        await rag_server.main()
+
+        read, write, opts = seen["args"]
+        assert (read, write) == ("read_stream", "write_stream")
+        assert opts is not None
+
+    def test_script_entrypoint_runs_main_once(self, monkeypatch):
+        """Executing the file as a script starts the asyncio event loop on
+        main(). asyncio.run is intercepted so no server actually starts."""
+        launched = []
+
+        def fake_run(coro, **kwargs):
+            launched.append(coro)
+            coro.close()
+
+        monkeypatch.setattr(asyncio, "run", fake_run)
+        runpy.run_path(str(MODULE_PATH), run_name="__main__")
+
+        assert len(launched) == 1
+        assert launched[0].__name__ == "main"

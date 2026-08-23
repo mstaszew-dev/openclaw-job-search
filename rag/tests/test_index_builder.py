@@ -6,8 +6,11 @@ the tests are deterministic and isolated from the real tracker.json.
 from __future__ import annotations
 
 import json
+import runpy
 import sqlite3
+import sys
 from pathlib import Path
+from types import ModuleType
 
 import index_builder as ib
 import pytest
@@ -47,6 +50,12 @@ class TestAppText:
         text = ib.app_text({"roleTitle": "Dev"})
         assert "Dev" in text
 
+    def test_scalar_stack_appended_once(self):
+        """A non-list stack (legacy tracker rows) is included but NOT upweighted."""
+        a = {"company": "X", "roleTitle": "Dev", "stack": "java"}
+        text = ib.app_text(a)
+        assert text.count("java") == 1
+
 
 class TestChunkDoc:
     def test_splits_by_h2_headers(self):
@@ -80,6 +89,15 @@ class TestChunkDoc:
         assert len(chunks) == 1
         assert chunks[0][0] == "(intro)"
 
+    def test_drops_blank_intro_chunk(self):
+        """Whitespace-only preamble yields an intro chunk with an empty body;
+        it must be dropped, not indexed as a junk chunk."""
+        md = "\n\n\n## Real\nContent.\n"
+        chunks = ib.chunk_doc(md)
+        titles = [t for t, _ in chunks]
+        assert "(intro)" not in titles
+        assert "Real" in titles
+
 
 class TestCollectCorpus:
     def test_reads_applications_and_docs(self, tmp_campaign: Path):
@@ -102,6 +120,22 @@ class TestCollectCorpus:
         rows = ib.collect_corpus(tmp_campaign)
         doc_sources = {r["source"] for r in rows if r["collection"] == "docs"}
         assert doc_sources == {"PORTALS.md"}  # no crash, just the one present
+
+    def test_apps_with_no_text_are_skipped(self, tmp_path: Path):
+        """An application with no company/roleTitle produces no retrievable
+        text and is dropped instead of indexing an empty chunk."""
+        tracker = {
+            "applications": [
+                {"id": "ghost"},  # nothing indexable
+                {"id": "real", "company": "Acme", "roleTitle": "Dev"},
+            ]
+        }
+        (tmp_path / "tracker.json").write_text(json.dumps(tracker))
+        (tmp_path / "PORTALS.md").write_text("## S\nBody.\n")
+        rows = ib.collect_corpus(tmp_path)
+        apps = [r for r in rows if r["collection"] == "apps"]
+        assert len(apps) == 1
+        assert apps[0]["meta"]["id"] == "real"
 
 
 class TestWriteIndex:
@@ -167,3 +201,49 @@ class TestBuild:
         assert matrix.shape[0] == len(rows)
         assert matrix.shape[0] >= 6
         assert matrix.shape[1] > 0  # non-zero dim
+
+    def test_build_loads_default_model_when_none_given(
+        self, monkeypatch, tmp_campaign: Path, mock_model, tmp_path: Path
+    ):
+        """model=None triggers StaticModel.from_pretrained(MODEL) - the
+        production entry path. The model download seam is faked."""
+        requested = []
+
+        class FakeStaticModel:
+            @classmethod
+            def from_pretrained(cls, name):
+                requested.append(name)
+                return mock_model
+
+        monkeypatch.setattr(ib, "StaticModel", FakeStaticModel)
+        db = tmp_path / "index.db"
+        ib.build(model=None, campaign=tmp_campaign, db_path=db)
+        assert requested == [ib.MODEL]
+        assert db.exists()
+
+
+class TestMainGuard:
+    def test_dash_check_reports_counts_without_writing(self, monkeypatch, capsys, mock_model):
+        """Running the file as a script with --check prints corpus counts and
+        exits without building. The model2vec import seam is faked so no
+        download happens; --check is read-only over the real campaign corpus."""
+        requested = []
+
+        class FakeStaticModel:
+            @classmethod
+            def from_pretrained(cls, name):
+                requested.append(name)
+                return mock_model
+
+        fake_m2v = ModuleType("model2vec")
+        fake_m2v.StaticModel = FakeStaticModel
+        monkeypatch.setitem(sys.modules, "model2vec", fake_m2v)
+        monkeypatch.setattr(sys, "argv", ["index_builder.py", "--check"])
+        module_path = Path(ib.__file__).resolve()
+
+        runpy.run_path(str(module_path), run_name="__main__")
+
+        out = capsys.readouterr().out
+        assert "Loading embedding model:" in out
+        assert "Corpus:" in out
+        assert requested == [ib.MODEL]
