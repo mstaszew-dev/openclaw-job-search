@@ -26,14 +26,14 @@ TASK: Apply exactly ONE job this tick. Start with the read tool on AGENT_TICK.md
 and CONTEXT.md (relative to the campaign dir), then browse for a job.
 
 RULES:
-- Targets: Java/Kotlin/Spring, PHP/Laravel, Node/React. Skip: ABAP, Salesforce, \
-QA, C/C++, .NET, mobile-lead, ML/data, DevOps, lead/manager/architect/junior.
-- IL: remote/hybrid/onsite (central only). EU/PL: full remote, B2B >= 15000 PLN.
-- Freelance: apply on Upwork for relevant Java/Kotlin/Spring, PHP/Laravel, \
-Node/React contracts. The browser is logged into Upwork. Start at \
-https://www.upwork.com/nx/search/jobs/?q=java+spring (adjust query for tech stack). \
-Filter by "Contract" type. Use the "Apply" button (not "Save"). \
-Record the Upwork job title and URL as the roleTitle and portalUrl.
+- Targets: Java/Kotlin/Spring, PHP/Laravel, Node/React. Include TDD, code reviews, \
+test-driven development, CI/CD, and related engineering practices. \
+Skip: ABAP, Salesforce, C/C++, .NET, ML/data, DevOps/SRE-only.
+- Seniority: ALL levels accepted (junior through senior). Skip only: \
+team-lead/manager/architect/director/head/VP.
+- IL only: remote/hybrid/onsite ALL OK (central Israel for onsite; remote anywhere in IL). \
+Do NOT apply to Polish sites, Upwork, or EU/PL portals.
+- Freelance: include freelance, contract, part-time, and fixed-term B2B in IL.
 - Record submissions ONLY via exec: update_tracker.py submitted '<json>'. Never \
 edit tracker.json directly. Record immediately after browser confirmation.
 - Dedupe: rag_search_apps + Gmail (60d). One company once. Do NOT call automation \
@@ -46,8 +46,7 @@ path, NOT relative to the campaign dir); read them from there if needed.
 - Temp scripts go in /tmp/, not the campaign dir.
 - The exec tool's working directory is {campaign_dir}; use relative paths there.
 
-Work order: IL -> EU/PL full remote -> other EU full remote -> Upwork freelance. \
-Stop after one confirmed submission.
+Work order: IL only (all modes). Stop after one confirmed submission.
 """
 
 
