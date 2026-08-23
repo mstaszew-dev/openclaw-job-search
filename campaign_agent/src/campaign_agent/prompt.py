@@ -26,8 +26,8 @@ TASK: Apply exactly ONE job this tick. Start with the read tool on AGENT_TICK.md
 and CONTEXT.md (relative to the campaign dir), then browse for a job.
 
 RULES:
-- Targets: Java/Kotlin/Spring, PHP/Laravel, Node/React. Include TDD, code reviews, \
-test-driven development, CI/CD, and related engineering practices. \
+- Targets: Java/Kotlin/Spring, PHP/Laravel, Node/React. Roles involving TDD, code \
+reviews, CI/CD (Jenkins, GitHub Actions) are in scope - deep hands-on experience. \
 Skip: ABAP, Salesforce, C/C++, .NET, ML/data, DevOps/SRE-only.
 - Seniority: ALL levels accepted (junior through senior). Skip only: \
 team-lead/manager/architect/director/head/VP.
