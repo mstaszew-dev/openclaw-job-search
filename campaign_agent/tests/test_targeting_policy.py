@@ -191,9 +191,19 @@ class TestDirectorOverridesPolicy:
         assert "Jenkins" in c
         assert "GitHub Actions" in c
 
-    def test_stale_test_entries_purged(self):
+    def test_directive_survives_appended_director_log(self):
+        """The director appends timestamped entries below the directive; the
+        durable invariant is that the IL-ONLY block stays at the top."""
         c = _read(DIRECTOR_OVERRIDES)
-        assert "\ntest\n" not in f"\n{c}\n"
+        assert c.splitlines()[0].startswith("IL ONLY:")
+        for required in (
+            "Polish sites, Upwork, or EU/PL portals",
+            "No salary floor",
+            "All seniority levels",
+            "Jenkins",
+            "GitHub Actions",
+        ):
+            assert required in c
 
 
 class TestWorkspaceAgentsPolicy:

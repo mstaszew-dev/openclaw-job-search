@@ -2,10 +2,13 @@
 import asyncio
 import json
 import os
+import runpy
+import sys
 from unittest.mock import MagicMock, AsyncMock, patch
 
 import pytest
 
+from campaign_agent.config import Config
 from campaign_agent.main import classify_failure, run_agent_turn, TickResult, assert_in_iterm, _truncate_messages
 from campaign_agent.session import estimate_tokens_from_messages
 from campaign_agent.llm import LLMClient, LLMResponse, ToolCall
@@ -263,6 +266,56 @@ class TestAssertInIterm:
         """Agent should start normally when TERM_PROGRAM is iTerm.app."""
         with patch.dict(os.environ, {"TERM_PROGRAM": "iTerm.app"}, clear=False):
             assert_in_iterm()  # should not raise
+
+
+class TestMainEntryPoint:
+    def test_dunder_main_wires_config_and_starts_campaign(self, monkeypatch, tmp_path):
+        """Executing the module as a script (python -m campaign_agent.main) must
+        wire the overrides file + --model override into a Config and hand
+        control to the campaign loop. Everything runs real (iTerm guard, argv
+        parsing, Config.from_overrides); only the event-loop runner is stubbed
+        - the genuine seam that would start the full Playwright/RAG runtime."""
+        overrides = tmp_path / "overrides.env"
+        overrides.write_text("OUTER_MAX_TICKS=3\n")
+
+        seen = {}
+        real_from_overrides = Config.from_overrides
+
+        def spy_from_overrides(path):
+            cfg = real_from_overrides(path)
+            seen["path"] = path
+            seen["config"] = cfg
+            return cfg
+
+        monkeypatch.setattr(Config, "from_overrides", staticmethod(spy_from_overrides))
+
+        started = []
+
+        def fake_asyncio_run(coro):
+            started.append(True)
+            coro.close()
+
+        monkeypatch.setattr(asyncio, "run", fake_asyncio_run)
+
+        monkeypatch.setenv("TERM_PROGRAM", "iTerm.app")
+        monkeypatch.setattr(
+            sys, "argv",
+            ["campaign_agent.main", "--config", str(overrides), "--model", "test-model"],
+        )
+
+        import warnings
+
+        with warnings.catch_warnings():
+            # runpy warns that the module is already imported; re-execution
+            # under __main__ is exactly the entry-point behavior under test.
+            warnings.simplefilter("ignore", RuntimeWarning)
+            runpy.run_module("campaign_agent.main", run_name="__main__")
+
+        assert started == [True]
+        assert seen["path"] == str(overrides)
+        # Overrides file was really parsed and --model really applied.
+        assert seen["config"].outer_max_ticks == 3
+        assert seen["config"].msrouter_model == "test-model"
 
 
 class TestEstimateTokensFromMessages:

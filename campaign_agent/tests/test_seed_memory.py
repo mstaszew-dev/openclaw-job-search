@@ -1,6 +1,11 @@
 """Tests for seed_memory — chunking, embedding, and Pinecone upsert payload."""
 import json
+import os
+import runpy
+import sys
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from campaign_agent.seed_memory import (
     chunk_markdown,
@@ -205,3 +210,69 @@ class TestMain:
             mock_up.return_value = MagicMock(returncode=1, stderr="pc: boom")
             rc = main(["idx", str(tmp_path)])
         assert rc == 1
+
+
+class TestScriptEntryPoint:
+    def test_dunder_main_seeds_and_upserts_end_to_end(self, monkeypatch, tmp_path):
+        """Executing the module as a script (python -m campaign_agent.seed_memory)
+        must parse argv, bootstrap logging, seed the context files, and exit 0
+        after the upsert. Real file collection + chunking + payload write run
+        end-to-end; only the two genuine external seams are faked: the
+        model2vec embedder (not installed in this venv) and the pc CLI binary
+        (resolved on PATH)."""
+        from types import ModuleType
+
+        context = tmp_path / "context"
+        (context / "memories").mkdir(parents=True)
+        (context / "KEYWORDS.md").write_text("## K\nkeyword content")
+        (context / "memories" / "MEMORY.md").write_text("## M\nmemory content")
+
+        # Genuine seam 1: lazy model2vec import resolves to an injected fake.
+        fake_mod = ModuleType("model2vec")
+        fake_static = MagicMock()
+        fake_static.from_pretrained.return_value.encode.return_value = [0.25] * 256
+        fake_mod.StaticModel = fake_static
+        monkeypatch.setitem(sys.modules, "model2vec", fake_mod)
+
+        # Genuine seam 2: a fake `pc` on PATH captures the --file payload.
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        captured = tmp_path / "captured-vectors.json"
+        pc = bin_dir / "pc"
+        pc.write_text(
+            "#!/bin/sh\n"
+            'prev=""\n'
+            'for arg in "$@"; do\n'
+            '  if [ "$prev" = "--file" ]; then cp "$arg" "$PC_CAPTURE"; fi\n'
+            '  prev="$arg"\n'
+            "done\n"
+            "exit 0\n"
+        )
+        pc.chmod(0o755)
+        monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
+        monkeypatch.setenv("PC_CAPTURE", str(captured))
+
+        monkeypatch.setattr(
+            sys, "argv", ["seed_memory.py", "agent-memory", str(context)]
+        )
+
+        import warnings
+
+        with pytest.raises(SystemExit) as excinfo, warnings.catch_warnings():
+            # runpy warns that the module is already imported; re-execution
+            # under __main__ is exactly the entry-point behavior under test.
+            warnings.simplefilter("ignore", RuntimeWarning)
+            runpy.run_module("campaign_agent.seed_memory", run_name="__main__")
+        assert excinfo.value.code == 0
+
+        data = json.loads(captured.read_text())
+        assert {v["id"] for v in data} == {
+            f"{context / 'KEYWORDS.md'}::0",
+            f"{context / 'memories' / 'MEMORY.md'}::0",
+        }
+        kinds = {v["metadata"]["kind"] for v in data}
+        assert kinds == {"keyword", "memory"}
+        for v in data:
+            assert len(v["values"]) == 256
+            assert all(isinstance(x, float) for x in v["values"])
+        fake_static.from_pretrained.assert_called_once()
