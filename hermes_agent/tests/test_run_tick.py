@@ -21,6 +21,7 @@ def make_config(
     return Config(
         campaign_dir=str(campaign),
         tick_context_path=str(tmp_path / "state" / "tick-context.md"),
+        legacy_tick_context_path=str(tmp_path / "legacy" / "tick-context.md"),
         inner_max_fails=inner_max_fails,
         inner_sleep=inner_sleep,
     )
@@ -240,6 +241,28 @@ def test_hermes_state_wins_over_legacy(tmp_path: Path, tracker_factory) -> None:
     assert "legacy summary" not in prompts[0]
 
 
+def test_tracker_unreadable_at_start_never_launches_hermes(
+    tmp_path: Path, tracker_factory
+) -> None:
+    """A corrupt ledger means no anti-gaming oracle: refuse to apply at all."""
+    tracker_path = tracker_factory(submitted=5, target=1500)
+    tracker_path.write_text("{corrupt json", encoding="utf-8")
+    config = make_config(tmp_path, inner_max_fails=3, inner_sleep=0.0)
+    config.campaign_dir = str(tracker_path.parent)
+    calls: list[int] = []
+    logs: list[str] = []
+
+    def attempt(config: Config, prompt: str):
+        calls.append(1)
+        return 0, "", ""
+
+    outcome = run_tick(
+        config, run_attempt_fn=attempt, sleep_fn=lambda s: None, log=logs.append
+    )
+    assert outcome == "tracker_unreadable"
+    assert calls == []  # no hermes attempt while the oracle is down
+
+
 def test_nonretryable_exit_codes_break_retry_loop(
     tmp_path: Path, tracker_factory
 ) -> None:
@@ -280,6 +303,7 @@ def test_tick_context_save_failure_is_logged_not_fatal(
     config = Config(
         campaign_dir=str(tracker_path.parent),
         tick_context_path=str(state_dir / "tick-context.md"),
+        legacy_tick_context_path=str(tmp_path / "legacy-none.md"),
         inner_max_fails=1,
         inner_sleep=0.0,
     )

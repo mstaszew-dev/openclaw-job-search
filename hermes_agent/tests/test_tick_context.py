@@ -19,11 +19,12 @@ def test_save_creates_parents_and_round_trips(tmp_path: Path) -> None:
 
 
 def test_save_truncates_long_summaries(tmp_path: Path) -> None:
-    ctx = TickContext(tmp_path / "tick.md", max_chars=10)
-    ctx.save("x" * 50)
+    ctx = TickContext(tmp_path / "tick.md", max_chars=100)
+    ctx.save("x" * 300)
     loaded = ctx.load()
-    assert loaded.startswith("x" * 10)
-    assert "...[truncated]" in loaded
+    assert loaded.endswith("\n...[truncated]")
+    assert len(loaded) <= 100  # cap includes the suffix
+    assert loaded.startswith("x" * 85)
 
 
 def test_save_is_atomic_no_temp_left_behind(tmp_path: Path) -> None:
@@ -81,6 +82,11 @@ def test_falls_back_to_legacy_when_hermes_state_missing(tmp_path: Path) -> None:
 
 def test_empty_when_both_missing(tmp_path: Path) -> None:
     assert load_previous_summary(tmp_path / "a.md", tmp_path / "b.md") == ""
+
+
+def test_no_fallback_configured_returns_empty(tmp_path: Path) -> None:
+    """fallback=None with a missing primary must return empty, not crash."""
+    assert load_previous_summary(tmp_path / "missing.md", None) == ""
 
 
 def test_empty_legacy_file_is_treated_as_missing(tmp_path: Path) -> None:

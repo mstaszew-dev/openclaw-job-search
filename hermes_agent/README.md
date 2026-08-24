@@ -12,7 +12,7 @@ package adds the campaign domain.
 - `skills/job-search-tick/` - tick procedure + targeting policy skill.
 - `install/` - jobhunter profile installer (plugin + skill + provider
   config); cron registration is opt-in via `--enable-cron`.
-- `tests/` - offline pytest suite; coverage gate 90% enforced on every run
+- `tests/` - offline pytest suite; coverage gate 98% (line+branch) enforced on every run
   (currently 100%).
 
 ## Install (no cron, no live side effects)
@@ -34,9 +34,13 @@ PYTHONPATH=src python3 -m jobhermes --loop      # keep ticking with backoff
 ```
 
 `--once` is the default mode (flag optional). Exit codes: 0 success or
-campaign complete, 1 attempts exhausted (or loop failure bound reached),
-2 campaign dir missing. `--loop` stops after `OUTER_MAX_FAILS` consecutive
-failed ticks.
+campaign complete, 1 attempts exhausted / loop failure bound / hermes exit
+126-127 / tracker unreadable, 2 campaign dir missing, 3 another jobhermes
+instance holds the tick lock. A corrupt tracker at tick start refuses to
+launch hermes at all (no oracle, no applications). `--loop` stops after
+`OUTER_MAX_FAILS` consecutive failed ticks, and a lockfile
+(`state/jobhermes.lock`) prevents cron and the supervised launcher from
+ticking simultaneously.
 
 ## Enable the 30-minute scheduler (starts REAL applications)
 
@@ -84,14 +88,19 @@ The jobapps plugin honors `JOBSEARCH_CAMPAIGN_DIR` and
 `JOBSEARCH_ALLOW_OVERRIDES=1` is set (prompt-injection guard; tests set it).
 
 CI (GitHub Actions, `.github/workflows/hermes-agent-ci.yml`): ruff + mypy
-strict + pytest with the 90% coverage gate on every push/PR touching
+strict + pytest with the 98% line+branch coverage gate on every push/PR touching
 `hermes_agent/`.
 
 ## Tests
 
 ```zsh
-.venv/bin/python -m pytest
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/ruff check src tests && .venv/bin/mypy && .venv/bin/python -m pytest
 ```
+
+The `-m jobhermes` subprocess test requires the package installed (the pip
+install above), since pytest's `pythonpath=src` does not reach subprocesses.
 
 ## Old-to-new mapping
 
@@ -105,7 +114,7 @@ strict + pytest with the 90% coverage gate on every push/PR touching
 | `session.py` TickContext | `jobhermes.tick_context` (atomic writes) |
 | `tracker.py` | `jobapps.tracker` |
 | exec `update_tracker.py submitted` | `jobapps` tool `record_submission` |
-| Director supervision | Hermes cron (`--enable-cron`, script mode) |
+| Director supervision | unchanged (pgrep on the launcher) or Hermes cron (`--enable-cron`); the tick lock keeps them exclusive |
 
 Spec: `docs/superpowers/specs/2026-08-24-hermes-agent-port-design.md`.
 Plan: `docs/superpowers/plans/2026-08-24-hermes-agent-port.md`.

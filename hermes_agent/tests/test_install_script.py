@@ -115,7 +115,9 @@ def test_install_enable_cron_passes_script_path(tmp_path: Path) -> None:
     script_path = Path(script_value)
     assert script_path.is_file()
     body = script_path.read_text(encoding="utf-8")
-    assert "python3 -m jobhermes --once" in body
+    assert "-m jobhermes --once" in body
+    # prefers the project venv over ambient PATH python (cron PATH is minimal)
+    assert ".venv/bin/python" in body or "python3" in body
     assert script_path.stat().st_mode & stat.S_IXUSR
 
 

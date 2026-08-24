@@ -90,7 +90,8 @@ def format_session_context(previous: str) -> str:
     """Fence untrusted tracker-derived text so it cannot steer the prompt."""
     if not previous:
         return ""
-    return "Previous tick context:\n<tracker_data>\n{}\n</tracker_data>".format(previous)
+    safe = previous.replace("</tracker_data>", "<\\/tracker_data>")
+    return "Previous tick context:\n<tracker_data>\n{}\n</tracker_data>".format(safe)
 
 
 def run_tick(
@@ -110,6 +111,11 @@ def run_tick(
     log = log or (lambda message: print(message, flush=True))
 
     tracker = Tracker(config.tracker_path)
+    if not tracker.reload():
+        # No ledger means no anti-gaming oracle: launching hermes would risk
+        # real applications that can never be recorded or deduped.
+        log("tracker.json unreadable at tick start; not launching hermes")
+        return REASON_TRACKER_UNREADABLE
     if tracker.campaign_complete():
         log("Campaign complete: {}/{}".format(tracker.submitted(), tracker.target()))
         return REASON_CAMPAIGN_COMPLETE
@@ -181,6 +187,7 @@ def build_session_context(config: Config) -> str:
 
 def main(argv: Optional[list[str]] = None) -> int:
     import argparse
+    import fcntl
     import sys
     from pathlib import Path
 
@@ -201,6 +208,25 @@ def main(argv: Optional[list[str]] = None) -> int:
     config = (
         Config.from_env(overrides_path=args.config) if args.config else Config.from_env()
     )
+    lock_dir = Path(config.tick_context_path).parent
+    lock_file = None
+    try:
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = (lock_dir / "jobhermes.lock").open("w")
+    except OSError as exc:
+        # Degraded mode: no lock, but do not crash before reporting config errors.
+        logger.warning("could not create tick lock (%s); continuing without it", exc)
+    if lock_file is not None:
+        try:
+            # Single instance across cron and supervised-launcher activation
+            # paths: concurrent ticks share Chrome CDP and race the tracker.
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(
+                "another jobhermes instance holds the tick lock; exiting",
+                file=sys.stderr,
+            )
+            return 3
     if not Path(config.campaign_dir).is_dir():
         print("campaign dir does not exist: {}".format(config.campaign_dir), file=sys.stderr)
         return 2

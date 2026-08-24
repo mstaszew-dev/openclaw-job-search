@@ -18,11 +18,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = "--cov=jobapps --cov=jobhermes --cov-report=term-missing --cov-fail-under=90"
+addopts = "--cov=jobapps --cov=jobhermes --cov-report=term-missing --cov-fail-under=98"
 
 [tool.coverage.run]
 source = ["src/jobapps", "src/jobhermes"]
-branch = false
+branch = true
 omit = ["src/jobhermes/__main__.py"]  # thin shim; verified by the -m jobhermes e2e test
 
 [tool.coverage.report]

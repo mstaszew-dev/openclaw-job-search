@@ -45,12 +45,16 @@ if (( ENABLE_CRON )); then
   SCRIPTS_DIR="$HOME/.hermes/scripts"
   mkdir -p "$SCRIPTS_DIR"
   TICK_SCRIPT="$SCRIPTS_DIR/job-search-tick.sh"
+  PYTHON_BIN="python3"
+  if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
+    PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
+  fi
   cat > "$TICK_SCRIPT" <<EOF
 #!/usr/bin/env bash
 # jobhermes-managed wrapper for the scheduled campaign tick
 set -euo pipefail
 cd "$REPO_ROOT"
-exec env PYTHONPATH=src python3 -m jobhermes --once
+exec env PYTHONPATH=src "$PYTHON_BIN" -m jobhermes --once
 EOF
   chmod +x "$TICK_SCRIPT"
   "$HERMES_BIN" cron create "every 30m" "job-search tick" \

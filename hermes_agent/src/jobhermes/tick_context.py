@@ -17,8 +17,10 @@ class TickContext:
 
     def save(self, summary: str) -> None:
         """Atomically persist the summary (temp file + rename)."""
+        suffix = "\n...[truncated]"
         if len(summary) > self.max_chars:
-            summary = summary[: self.max_chars] + "\n...[truncated]"
+            cut = max(self.max_chars - len(suffix), 0)
+            summary = summary[:cut] + suffix
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = self.path.with_name(self.path.name + ".tmp")
         with tmp_path.open("w", encoding="utf-8") as fh:

@@ -13,10 +13,6 @@ agent:
 plugins:
   enabled:
     - jobapps
-  disabled: []
-  entries:
-    jobapps:
-      allow_tool_override: false
 mcp_servers:
   playwright:
     command: /opt/homebrew/opt/node@24/bin/node

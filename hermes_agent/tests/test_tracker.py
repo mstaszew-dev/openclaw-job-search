@@ -73,6 +73,14 @@ def test_recent_applications_most_recent_first(tmp_path: Path) -> None:
     assert [r["company"] for r in recent] == ["c5", "c4", "c3"]
 
 
+def test_recent_applications_skips_non_dict_entries(tmp_path: Path) -> None:
+    records: list = [17, {"company": "A", "roleTitle": "ra"}, None, {"company": "B", "roleTitle": "rb"}]
+    path = tmp_path / "tracker.json"
+    path.write_text(json.dumps({"applications": records}), encoding="utf-8")
+    recent = Tracker(path).recent_applications(5)
+    assert [r["company"] for r in recent] == ["B", "A"]
+
+
 def test_reload_picks_up_external_change(tmp_path: Path) -> None:
     path = tmp_path / "tracker.json"
     path.write_text(json.dumps({"stats": {"submitted": 1}, "target": 2}), encoding="utf-8")

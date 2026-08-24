@@ -98,6 +98,12 @@ def test_campaign_dir_rederives_paths() -> None:
     assert config.cv_path == "/tmp/campaign-x/cv/michael-staszewski-cv.pdf"
 
 
+def test_explicit_cv_and_tick_context_paths_are_kept() -> None:
+    config = Config(campaign_dir="/tmp/x", cv_path="/explicit/cv.pdf", tick_context_path="/explicit/tick.md")
+    assert config.cv_path == "/explicit/cv.pdf"
+    assert config.tick_context_path == "/explicit/tick.md"
+
+
 def test_director_note_missing_is_empty(tmp_path: Path) -> None:
     config = Config(director_note_path=str(tmp_path / "none.md"))
     assert config.director_note == ""

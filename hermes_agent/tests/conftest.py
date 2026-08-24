@@ -16,6 +16,14 @@ def _allow_overrides(monkeypatch) -> None:
     monkeypatch.setenv("JOBSEARCH_ALLOW_OVERRIDES", "1")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_director_note(monkeypatch, tmp_path: Path) -> None:
+    """Keep Config's director-note default away from the live machine file."""
+    monkeypatch.setattr(
+        "jobhermes.config.DEFAULT_NOTE_PATH", str(tmp_path / "director-note-none.md")
+    )
+
+
 @pytest.fixture()
 def tracker_factory(tmp_path: Path) -> Callable[..., Path]:
     """Return a factory writing tracker.json under tmp_path."""

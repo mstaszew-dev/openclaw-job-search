@@ -7,10 +7,52 @@ from jobhermes import runner as runner_module
 from jobhermes.runner import main
 
 
-def _hermetic_env(monkeypatch, tmp_path: Path) -> None:
+def _hermetic_env(monkeypatch, tmp_path: Path) -> Path:
     campaign = tmp_path / "campaign"
     campaign.mkdir(exist_ok=True)
     monkeypatch.setenv("CAMPAIGN_DIR", str(campaign))
+    monkeypatch.setenv(
+        "LEGACY_TICK_CONTEXT_PATH", str(tmp_path / "legacy-none.md")
+    )
+    monkeypatch.setenv(
+        "TICK_CONTEXT_PATH", str(tmp_path / "state" / "tick-context.md")
+    )
+    return tmp_path
+
+
+def test_lock_held_by_other_instance_exits_3(tmp_path: Path, monkeypatch) -> None:
+    """Two activation paths (cron + launcher) must not tick simultaneously."""
+    import fcntl
+
+    tmp_path = _hermetic_env(monkeypatch, tmp_path)
+    lock_path = tmp_path / "state" / "jobhermes.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        code = main(["--config", str(tmp_path / "none.env")])
+    assert code == 3
+
+
+def test_lock_free_run_succeeds(tmp_path: Path, monkeypatch) -> None:
+    tmp_path = _hermetic_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner_module, "run_tick", lambda config: runner_module.REASON_SUCCESS)
+    code = main(["--config", str(tmp_path / "none.env")])
+    assert code == 0
+
+
+def test_unusable_state_dir_degrades_without_lock(tmp_path: Path, monkeypatch, caplog) -> None:
+    """An uncreatable lock location logs a warning and still runs the tick."""
+    import logging as logging_mod
+
+    tmp_path = _hermetic_env(monkeypatch, tmp_path)
+    blocked = tmp_path / "blocked"
+    blocked.write_text("i am a file, not a dir", encoding="utf-8")
+    monkeypatch.setenv("TICK_CONTEXT_PATH", str(blocked / "state" / "tick-context.md"))
+    monkeypatch.setattr(runner_module, "run_tick", lambda config: runner_module.REASON_SUCCESS)
+    with caplog.at_level(logging_mod.WARNING, logger="jobhermes.runner"):
+        code = main(["--config", str(tmp_path / "none.env")])
+    assert code == 0
+    assert any("could not create tick lock" in r.message for r in caplog.records)
 
 
 def test_dry_run_prints_prompt_and_exits_zero(

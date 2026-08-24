@@ -198,6 +198,23 @@ def test_path_overrides_ignored_without_env_gate(
     assert "error" in result or result["exit"] != 0
 
 
+def test_override_gate_requires_exact_one(monkeypatch, tracker_factory) -> None:
+    """Only the literal value '1' opens the gate; truthy strings do not."""
+    real = tracker_factory(submitted=9, target=9, name="real.json")
+    decoy = tracker_factory(submitted=1, target=1, name="decoy.json")
+    monkeypatch.delenv("JOBSEARCH_CAMPAIGN_DIR", raising=False)
+    monkeypatch.delenv("JOBSEARCH_TRACKER_PATH", raising=False)
+    monkeypatch.setattr(tools, "DEFAULT_CAMPAIGN_DIR", str(real.parent))
+    expected_default = str(real.parent / "tracker.json")
+    for value in ("true", "yes", "on", "01"):
+        monkeypatch.setenv("JOBSEARCH_ALLOW_OVERRIDES", value)
+        result = json.loads(tools.campaign_status({"tracker_path": str(decoy)}))
+        assert result["tracker_path"] == expected_default, value
+    monkeypatch.setenv("JOBSEARCH_ALLOW_OVERRIDES", "1")
+    result = json.loads(tools.campaign_status({"tracker_path": str(decoy)}))
+    assert result["tracker_path"] == str(decoy)
+
+
 def test_record_submission_timeout_returns_error(monkeypatch, tmp_path: Path) -> None:
     campaign = tmp_path / "campaign"
     campaign.mkdir()
