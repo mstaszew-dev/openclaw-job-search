@@ -1,0 +1,28 @@
+[project]
+name = "jobhermes"
+version = "0.1.0"
+description = "Hermes-native job-search campaign agent (jobapps plugin + jobhermes tick runner)"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5", "pyyaml>=6"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "--cov=jobapps --cov=jobhermes --cov-report=term-missing --cov-fail-under=90"
+
+[tool.coverage.run]
+source = ["src/jobapps", "src/jobhermes"]
+branch = false
+
+[tool.coverage.report]
+exclude_lines = ["if __name__ == .__main__.:", "pragma: no cover"]
