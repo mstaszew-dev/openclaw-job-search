@@ -24,6 +24,11 @@ REASON_SUCCESS = "success"
 REASON_CAMPAIGN_COMPLETE = "campaign_complete"
 REASON_EXHAUSTED = "attempts_exhausted"
 REASON_TRACKER_UNREADABLE = "tracker_unreadable"
+REASON_PYTHON_AGENT_ACTIVE = "python_agent_active"
+
+# The standalone Python agent (campaign_agent + its supervised launcher).
+# Both agents share Chrome CDP and the tracker; never tick while it runs.
+LEGACY_AGENT_PGREP_PATTERN = "campaign_agent\\.main|bin/job-search-agent"
 
 AttemptFn = Callable[[Config, str], "tuple[int, str, str]"]
 SleepFn = Callable[[float], None]
@@ -94,6 +99,21 @@ def format_session_context(previous: str) -> str:
     return "Previous tick context:\n<tracker_data>\n{}\n</tracker_data>".format(safe)
 
 
+def python_agent_active() -> bool:
+    """True when the standalone campaign_agent process is running."""
+    try:
+        proc = subprocess.run(
+            ["pgrep", "-f", LEGACY_AGENT_PGREP_PATTERN],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        logger.warning("could not check for standalone agent (%s); assuming absent", exc)
+        return False
+    return proc.returncode == 0
+
+
 def run_tick(
     config: Config,
     run_attempt_fn: Optional[AttemptFn] = None,
@@ -119,6 +139,13 @@ def run_tick(
     if tracker.campaign_complete():
         log("Campaign complete: {}/{}".format(tracker.submitted(), tracker.target()))
         return REASON_CAMPAIGN_COMPLETE
+    if python_agent_active():
+        # Cutover guard: the standalone Python agent owns ticking while it runs.
+        log(
+            "standalone campaign_agent is running; skipping this tick "
+            "(no double agents on shared Chrome/tracker)"
+        )
+        return REASON_PYTHON_AGENT_ACTIVE
 
     context = TickContext(config.tick_context_path)
     prompt = build_tick_prompt(
@@ -236,11 +263,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     consecutive_failures = 0
     while True:
         outcome = run_tick(config)
+        benign = (REASON_SUCCESS, REASON_CAMPAIGN_COMPLETE, REASON_PYTHON_AGENT_ACTIVE)
         if not args.loop:
-            return 0 if outcome in (REASON_SUCCESS, REASON_CAMPAIGN_COMPLETE) else 1
+            return 0 if outcome in benign else 1
         if outcome == REASON_CAMPAIGN_COMPLETE:
             return 0
-        if outcome == REASON_SUCCESS:
+        if outcome in (REASON_SUCCESS, REASON_PYTHON_AGENT_ACTIVE):
+            # a guarded skip is not a failure; do not burn the failure budget
             consecutive_failures = 0
         else:
             consecutive_failures += 1

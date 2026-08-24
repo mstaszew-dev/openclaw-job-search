@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from jobhermes import runner as runner_module
 from jobhermes.config import Config
 from jobhermes.runner import (
     REASON_CAMPAIGN_COMPLETE,
@@ -11,6 +12,9 @@ from jobhermes.runner import (
     REASON_SUCCESS,
     run_tick,
 )
+
+# captured before the autouse fixture replaces the module attribute
+_REAL_PYTHON_AGENT_ACTIVE = runner_module.python_agent_active
 
 
 def make_config(
@@ -261,6 +265,56 @@ def test_tracker_unreadable_at_start_never_launches_hermes(
     )
     assert outcome == "tracker_unreadable"
     assert calls == []  # no hermes attempt while the oracle is down
+
+
+def test_run_tick_skips_while_standalone_agent_runs(
+    tmp_path: Path, tracker_factory, monkeypatch
+) -> None:
+    """While the standalone campaign_agent runs, Hermes must not tick."""
+    tracker_path = tracker_factory(submitted=5, target=1500)
+    config = make_config(tmp_path, inner_max_fails=1, inner_sleep=0.0)
+    config.campaign_dir = str(tracker_path.parent)
+    calls: list[int] = []
+    logs: list[str] = []
+    monkeypatch.setattr("jobhermes.runner.python_agent_active", lambda: True)
+
+    def attempt(config: Config, prompt: str):
+        calls.append(1)
+        return 0, "", ""
+
+    outcome = run_tick(
+        config, run_attempt_fn=attempt, sleep_fn=lambda s: None, log=logs.append
+    )
+    assert outcome == "python_agent_active"
+    assert calls == []  # hermes never launched
+    assert any("standalone" in line for line in logs)
+
+
+def test_python_agent_active_unit(monkeypatch) -> None:
+    """Unit coverage for the pgrep wrapper: found / miss / failure."""
+    import subprocess as sp
+
+    monkeypatch.setattr(
+        runner_module, "python_agent_active", _REAL_PYTHON_AGENT_ACTIVE
+    )
+
+    def found(command, **kwargs):
+        return sp.CompletedProcess(command, 0, "123\n", "")
+
+    monkeypatch.setattr("subprocess.run", found)
+    assert runner_module.python_agent_active() is True
+
+    def missed(command, **kwargs):
+        return sp.CompletedProcess(command, 1, "", "")
+
+    monkeypatch.setattr("subprocess.run", missed)
+    assert runner_module.python_agent_active() is False
+
+    def missing(command, **kwargs):
+        raise FileNotFoundError("pgrep")
+
+    monkeypatch.setattr("subprocess.run", missing)
+    assert runner_module.python_agent_active() is False  # fails open, logged
 
 
 def test_nonretryable_exit_codes_break_retry_loop(

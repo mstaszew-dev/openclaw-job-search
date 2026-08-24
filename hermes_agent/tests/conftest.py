@@ -24,6 +24,17 @@ def _isolate_director_note(monkeypatch, tmp_path: Path) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_legacy_agent_running(monkeypatch) -> None:
+    """Default the cross-agent guard to 'standalone agent absent'.
+
+    Tests exercise the guard explicitly by patching
+    ``jobhermes.runner.python_agent_active``; without this fixture every
+    run_tick test would depend on whether campaign_agent runs on this machine.
+    """
+    monkeypatch.setattr("jobhermes.runner.python_agent_active", lambda: False)
+
+
 @pytest.fixture()
 def tracker_factory(tmp_path: Path) -> Callable[..., Path]:
     """Return a factory writing tracker.json under tmp_path."""

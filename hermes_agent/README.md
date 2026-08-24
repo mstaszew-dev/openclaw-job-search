@@ -91,7 +91,10 @@ to cut over. Starting it begins REAL applications.
   the template.
 - `campaign_agent/` remains untouched as fallback during the soak period;
   only one of the two agents may run at a time (they share Chrome CDP and
-  tracker).
+  tracker). This is enforced: every Hermes tick first checks for the
+  standalone agent (`pgrep` for `campaign_agent.main` / `bin/job-search-agent`)
+  and skips with a logged `python_agent_active` outcome (exit 0) while it
+  runs. Stop the Python agent before expecting Hermes ticks to apply.
 
 ## Configuration
 
