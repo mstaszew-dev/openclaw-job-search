@@ -1,8 +1,6 @@
 """run_attempt: hermes one-shot subprocess wrapper."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from jobhermes.config import Config
 from jobhermes.runner import build_hermes_command, run_attempt
 
@@ -26,7 +24,7 @@ def test_run_attempt_invokes_fake_hermes(fake_hermes, monkeypatch) -> None:
     monkeypatch.setenv("FAKE_HERMES_EXIT", "3")
     monkeypatch.setenv("FAKE_HERMES_STDOUT", "final text")
     config = Config(hermes_bin=str(bin_dir / "hermes"), campaign_dir="/tmp/camp")
-    exit_code, out, err = run_attempt(config, "do the tick")
+    exit_code, out, _err = run_attempt(config, "do the tick")
     assert exit_code == 3
     assert out == "final text"
     logged = log_path.read_text(encoding="utf-8")
@@ -39,7 +37,7 @@ def test_run_attempt_invokes_fake_hermes(fake_hermes, monkeypatch) -> None:
 
 def test_run_attempt_missing_binary(fake_hermes) -> None:
     config = Config(hermes_bin=str(fake_hermes[0] / "nothing"), campaign_dir="/tmp/camp")
-    exit_code, out, err = run_attempt(config, "prompt")
+    exit_code, _out, err = run_attempt(config, "prompt")
     assert exit_code == 127
     assert "not found" in err
 
@@ -55,7 +53,7 @@ def test_run_attempt_timeout(monkeypatch, fake_hermes) -> None:
 
     monkeypatch.setattr("subprocess.run", hang)
     config = Config(hermes_bin=str(bin_dir / "hermes"), campaign_dir="/tmp/camp")
-    exit_code, out, err = run_attempt(config, "prompt")
+    exit_code, _out, err = run_attempt(config, "prompt")
     assert exit_code == 124
     assert "timed out" in err
 

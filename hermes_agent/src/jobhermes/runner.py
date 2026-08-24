@@ -97,7 +97,7 @@ def run_tick(
     while attempts < config.inner_max_fails:
         attempts += 1
         before = tracker.submitted()
-        exit_code, stdout_tail, stderr_tail = run_attempt_fn(config, prompt)
+        exit_code, _stdout_tail, stderr_tail = run_attempt_fn(config, prompt)
         tracker.reload()
         if tracker.submitted() > before:
             log(
