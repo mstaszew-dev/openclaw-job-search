@@ -131,3 +131,42 @@ def _finish_tick(
     except OSError as exc:
         log("Could not save tick context: {}".format(exc))
     return outcome
+
+
+def build_session_context(config: Config) -> str:
+    context = TickContext(config.tick_context_path)
+    previous = context.load()
+    return "Previous tick context:\n{}".format(previous) if previous else ""
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    import argparse
+    import sys
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(
+        prog="jobhermes", description="Hermes job-search campaign tick runner"
+    )
+    parser.add_argument(
+        "--loop", action="store_true", help="keep ticking with outer backoff (default: one tick)"
+    )
+    parser.add_argument("--dry-run", action="store_true", help="print the tick prompt and exit")
+    parser.add_argument("--config", default=None, help="director overrides .env path")
+    args = parser.parse_args(argv)
+
+    config = (
+        Config.from_env(overrides_path=args.config) if args.config else Config.from_env()
+    )
+    if not Path(config.campaign_dir).is_dir():
+        print("campaign dir does not exist: {}".format(config.campaign_dir), file=sys.stderr)
+        return 2
+    if args.dry_run:
+        print(build_tick_prompt(config, session_context=build_session_context(config)), end="")
+        return 0
+    while True:
+        outcome = run_tick(config)
+        if not args.loop:
+            return 0 if outcome in (REASON_SUCCESS, REASON_CAMPAIGN_COMPLETE) else 1
+        if outcome == REASON_CAMPAIGN_COMPLETE:
+            return 0
+        time.sleep(config.outer_backoff)
