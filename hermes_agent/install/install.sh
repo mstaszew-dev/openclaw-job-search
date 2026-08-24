@@ -26,16 +26,29 @@ ln -sfn "$REPO_ROOT/src/jobapps" "$PROFILE_HOME/plugins/jobapps"
 ln -sfn "$REPO_ROOT/skills/job-search-tick" "$PROFILE_HOME/skills/job-search-tick"
 
 CONFIG_PATH="$PROFILE_HOME/config.yaml"
-if [[ ! -f "$CONFIG_PATH" ]] || ! grep -q "jobhermes-managed" "$CONFIG_PATH"; then
+if [[ ! -f "$CONFIG_PATH" ]]; then
   cp "$SCRIPT_DIR/config.template.yaml" "$CONFIG_PATH"
+elif grep -q "jobhermes-managed" "$CONFIG_PATH"; then
+  # managed file: refresh from template, keeping the previous version as .bak
+  if ! diff -q "$SCRIPT_DIR/config.template.yaml" "$CONFIG_PATH" >/dev/null 2>&1; then
+    cp "$CONFIG_PATH" "$CONFIG_PATH.bak.$(date +%Y%m%d-%H%M%S)"
+    cp "$SCRIPT_DIR/config.template.yaml" "$CONFIG_PATH"
+    print "config.yaml refreshed from template (previous saved as .bak)"
+  fi
 else
-  print "config.yaml already jobhermes-managed; leaving untouched"
+  print "config.yaml is user-owned (no jobhermes-managed marker); leaving untouched"
 fi
 SOUL_PATH="$PROFILE_HOME/SOUL.md"
 if [[ ! -f "$SOUL_PATH" ]] || ! grep -q "jobhermes-managed" "$SOUL_PATH"; then
   cp "$SCRIPT_DIR/profile-soul.md" "$SOUL_PATH"
 else
   print "SOUL.md already jobhermes-managed (user-edited); leaving untouched"
+fi
+# Seed profile memory once; Hermes owns the files afterwards.
+MEM_DIR="$PROFILE_HOME/memories"
+mkdir -p "$MEM_DIR"
+if [[ ! -s "$MEM_DIR/MEMORY.md" ]]; then
+  cp "$SCRIPT_DIR/profile-memory-seed.md" "$MEM_DIR/MEMORY.md"
 fi
 
 "$HERMES_BIN" plugins doctor "$REPO_ROOT/src/jobapps" || print -u2 "plugins doctor reported issues (review before ticking)"

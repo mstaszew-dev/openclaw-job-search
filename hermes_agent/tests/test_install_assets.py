@@ -35,6 +35,23 @@ def test_config_template_enables_jobapps_plugin() -> None:
     assert config["plugins"]["enabled"] == ["jobapps"]
 
 
+def test_config_template_defines_bot_quick_commands() -> None:
+    """Zero-token chat shortcuts for the dashboard/UI bot experience."""
+    config = yaml.safe_load((INSTALL_DIR / "config.template.yaml").read_text(encoding="utf-8"))
+    qc = config["quick_commands"]
+    assert set(qc) == {"campaign-status", "last-tick", "prompt-preview"}
+    assert all(entry["type"] == "exec" for entry in qc.values())
+    assert "-m jobhermes --once --dry-run" in qc["prompt-preview"]["command"]
+
+
+def test_profile_memory_seed_exists() -> None:
+    seed = INSTALL_DIR / "profile-memory-seed.md"
+    text = seed.read_text(encoding="utf-8")
+    assert len(text.strip()) > 100
+    assert "record_submission" in text
+    assert "/Users/mst/Downloads/job-search/job-apply" in text
+
+
 def test_profile_soul_is_nonempty_persona() -> None:
     soul = (INSTALL_DIR / "profile-soul.md").read_text(encoding="utf-8")
     assert len(soul.strip()) > 100

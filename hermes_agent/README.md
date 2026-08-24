@@ -42,6 +42,26 @@ launch hermes at all (no oracle, no applications). `--loop` stops after
 (`state/jobhermes.lock`) prevents cron and the supervised launcher from
 ticking simultaneously.
 
+## Talk to it in the Hermes UI (bot)
+
+```zsh
+hermes dashboard        # opens http://127.0.0.1:9119
+```
+
+Pick `jobhunter` in the sidebar profile switcher (or open
+`http://127.0.0.1:9119/chat?profile=jobhunter`). The Chat tab runs a live
+session with this profile's persona (SOUL.md), plugin tools, skills, memory,
+and msrouter model. Zero-token slash shortcuts are wired:
+
+- `/campaign-status` - progress straight from tracker.json
+- `/last-tick` - the previous tick's summary
+- `/prompt-preview` - the exact prompt the next scheduled tick would send
+
+Asking the bot to "run a tick" applies to exactly ONE job with full dedupe
+and confirmed-evidence recording, then stops. Install seeds the profile's
+`memories/MEMORY.md` once (never overwrites Hermes-managed notes). Screenshot:
+`docs/jobhunter-bot-dashboard.png`.
+
 ## Enable the 30-minute scheduler (starts REAL applications)
 
 ```zsh

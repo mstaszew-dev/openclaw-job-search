@@ -71,7 +71,41 @@ def test_install_creates_profile_symlinks_and_config(tmp_path: Path) -> None:
     assert "plugins doctor" in logged
 
 
-def test_install_is_idempotent(tmp_path: Path) -> None:
+def test_install_is_idempotent_and_refreshes_managed_config(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _make_profile_stub(bin_dir)
+    log_path = tmp_path / "hermes.log"
+    assert _run_install(tmp_path, bin_dir, log_path).returncode == 0
+    profile_home = tmp_path / "home" / ".hermes" / "profiles" / "jobhunter"
+
+    # a user tweak to the MANAGED config is preserved via .bak, then refreshed
+    config_path = profile_home / "config.yaml"
+    config_path.write_text(
+        "# jobhermes-managed\nmodel:\n  default: user-edit\n", encoding="utf-8"
+    )
+    soul_path = profile_home / "SOUL.md"
+    soul_path.write_text("<!-- jobhermes-managed -->\nuser-tweaked persona\n", encoding="utf-8")
+    result = _run_install(tmp_path, bin_dir, log_path)
+    assert result.returncode == 0, result.stderr
+    assert "msrouter" in config_path.read_text(encoding="utf-8")  # refreshed
+    backups = list(profile_home.glob("config.yaml.bak.*"))
+    assert len(backups) == 1 and "user-edit" in backups[0].read_text(encoding="utf-8")
+    assert "user-tweaked persona" in soul_path.read_text(encoding="utf-8")  # guarded
+
+    # memories seeded exactly once; second run must not clobber agent notes
+    memory = profile_home / "memories" / "MEMORY.md"
+    assert memory.is_file()
+    memory.write_text("agent's own note", encoding="utf-8")
+    assert _run_install(tmp_path, bin_dir, log_path).returncode == 0
+    assert memory.read_text(encoding="utf-8") == "agent's own note"
+
+    creates = log_path.read_text(encoding="utf-8").count("profile create jobhunter")
+    assert creates == 1
+
+
+def test_install_leaves_user_owned_config_alone(tmp_path: Path) -> None:
+    """A config without our marker belongs to the user; never touch it."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _make_profile_stub(bin_dir)
@@ -79,17 +113,11 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
     assert _run_install(tmp_path, bin_dir, log_path).returncode == 0
     profile_home = tmp_path / "home" / ".hermes" / "profiles" / "jobhunter"
     config_path = profile_home / "config.yaml"
-    config_path.write_text(
-        "# jobhermes-managed\nmodel:\n  default: edited\n", encoding="utf-8"
-    )
-    soul_path = profile_home / "SOUL.md"
-    soul_path.write_text("<!-- jobhermes-managed -->\nuser-tweaked persona\n", encoding="utf-8")
+    config_path.write_text("model:\n  default: mine\n", encoding="utf-8")
     result = _run_install(tmp_path, bin_dir, log_path)
     assert result.returncode == 0, result.stderr
-    assert "edited" in config_path.read_text(encoding="utf-8")
-    assert "user-tweaked persona" in soul_path.read_text(encoding="utf-8")
-    creates = log_path.read_text(encoding="utf-8").count("profile create jobhunter")
-    assert creates == 1
+    assert "mine" in config_path.read_text(encoding="utf-8")
+    assert not list(profile_home.glob("config.yaml.bak.*"))
 
 
 def test_install_enable_cron_passes_script_path(tmp_path: Path) -> None:
