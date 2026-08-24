@@ -1,0 +1,8 @@
+name: jobapps
+version: 1.0.0
+description: Job-search campaign tools - tracker status and submission recording
+author: mst
+kind: backend
+provides_tools:
+  - campaign_status
+  - record_submission
