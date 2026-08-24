@@ -1,10 +1,13 @@
 """Cross-tick summary persistence (port of campaign_agent TickContext)."""
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
 from jobapps.tracker import Tracker
+
+logger = logging.getLogger(__name__)
 
 
 class TickContext:
@@ -29,6 +32,24 @@ class TickContext:
             return self.path.read_text(encoding="utf-8")
         except OSError:
             return ""
+
+
+def load_previous_summary(primary: str | Path, fallback: str | Path | None = None) -> str:
+    """Read the previous tick summary, falling back to the legacy file.
+
+    Cutover continuity: when the Hermes state file does not exist yet (first
+    tick after replacing campaign_agent), inherit the Python agent's last
+    summary so the new runtime starts with the same context.
+    """
+    text = TickContext(primary).load()
+    if text.strip():
+        return text
+    if fallback is not None:
+        legacy = TickContext(fallback).load()
+        if legacy.strip():
+            logger.info("using legacy campaign_agent tick context from %s", fallback)
+            return legacy
+    return ""
 
 
 def build_tick_summary(tracker: Tracker, attempts: int, reason: str) -> str:

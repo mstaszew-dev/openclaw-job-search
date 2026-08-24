@@ -29,6 +29,7 @@ _STR_FIELDS = {
     "HERMES_BIN": "hermes_bin",
     "HERMES_PROFILE": "hermes_profile",
     "CAMPAIGN_DIR": "campaign_dir",
+    "LEGACY_TICK_CONTEXT_PATH": "legacy_tick_context_path",
 }
 _RECOGNIZED_KEYS = frozenset(_INT_FIELDS) | frozenset(_FLOAT_FIELDS) | frozenset(_STR_FIELDS)
 
@@ -65,6 +66,9 @@ class Config:
     outer_max_fails: int = 12
     subprocess_timeout: int = 2400
     director_note_path: str = DEFAULT_NOTE_PATH
+    legacy_tick_context_path: str = (
+        "/Users/mst/ZCodeProject/openclaw-job-search/campaign_agent/state/tick-context.md"
+    )
     skip_companies: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:

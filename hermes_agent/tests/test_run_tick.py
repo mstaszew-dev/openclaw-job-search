@@ -196,6 +196,50 @@ def test_tracker_unreadable_after_attempt_ends_tick_without_retry(
     assert len(calls) == 1
 
 
+def test_legacy_tick_context_reaches_prompt_on_cutover(
+    tmp_path: Path, tracker_factory
+) -> None:
+    """First Hermes tick after replacing campaign_agent inherits its summary."""
+    tracker_path = tracker_factory(submitted=5, target=1500)
+    config = make_config(tmp_path, inner_max_fails=1, inner_sleep=0.0)
+    config.campaign_dir = str(tracker_path.parent)
+    legacy = tmp_path / "legacy" / "tick-context.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("applied to LegacyCorp", encoding="utf-8")
+    config.legacy_tick_context_path = str(legacy)
+    prompts: list[str] = []
+
+    def attempt(config: Config, prompt: str):
+        prompts.append(prompt)
+        return 0, "", ""
+
+    run_tick(config, run_attempt_fn=attempt, sleep_fn=lambda s: None)
+    assert "applied to LegacyCorp" in prompts[0]
+    assert "<tracker_data>" in prompts[0]
+
+
+def test_hermes_state_wins_over_legacy(tmp_path: Path, tracker_factory) -> None:
+    tracker_path = tracker_factory(submitted=5, target=1500)
+    config = make_config(tmp_path, inner_max_fails=1, inner_sleep=0.0)
+    config.campaign_dir = str(tracker_path.parent)
+    context_path = tmp_path / "state" / "tick-context.md"
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.write_text("hermes tick summary", encoding="utf-8")
+    legacy = tmp_path / "legacy" / "tick-context.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("legacy summary", encoding="utf-8")
+    config.legacy_tick_context_path = str(legacy)
+    prompts: list[str] = []
+
+    def attempt(config: Config, prompt: str):
+        prompts.append(prompt)
+        return 0, "", ""
+
+    run_tick(config, run_attempt_fn=attempt, sleep_fn=lambda s: None)
+    assert "hermes tick summary" in prompts[0]
+    assert "legacy summary" not in prompts[0]
+
+
 def test_nonretryable_exit_codes_break_retry_loop(
     tmp_path: Path, tracker_factory
 ) -> None:

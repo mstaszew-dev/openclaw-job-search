@@ -12,7 +12,7 @@ from jobapps.tracker import Tracker
 
 from .config import Config
 from .prompt import build_tick_prompt
-from .tick_context import TickContext, build_tick_summary
+from .tick_context import TickContext, build_tick_summary, load_previous_summary
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,10 @@ def run_tick(
 
     context = TickContext(config.tick_context_path)
     prompt = build_tick_prompt(
-        config, session_context=format_session_context(context.load())
+        config,
+        session_context=format_session_context(
+            load_previous_summary(context.path, config.legacy_tick_context_path)
+        ),
     )
 
     attempts = 0
@@ -169,7 +172,11 @@ def _finish_tick(
 
 
 def build_session_context(config: Config) -> str:
-    return format_session_context(TickContext(config.tick_context_path).load())
+    return format_session_context(
+        load_previous_summary(
+            TickContext(config.tick_context_path).path, config.legacy_tick_context_path
+        )
+    )
 
 
 def main(argv: Optional[list[str]] = None) -> int:

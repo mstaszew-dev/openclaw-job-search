@@ -10,6 +10,13 @@ providers:
     default_model: mst/free
 agent:
   max_turns: 200
+plugins:
+  enabled:
+    - jobapps
+  disabled: []
+  entries:
+    jobapps:
+      allow_tool_override: false
 mcp_servers:
   playwright:
     command: /opt/homebrew/opt/node@24/bin/node

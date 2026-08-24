@@ -1,11 +1,11 @@
-"""TickContext: cross-tick summary persistence."""
+"""TickContext: cross-tick summary persistence and legacy cutover fallback."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 from jobapps.tracker import Tracker
-from jobhermes.tick_context import TickContext, build_tick_summary
+from jobhermes.tick_context import TickContext, build_tick_summary, load_previous_summary
 
 
 def test_load_missing_returns_empty(tmp_path: Path) -> None:
@@ -59,3 +59,33 @@ def test_reason_is_clamped(tmp_path: Path) -> None:
         line for line in summary.splitlines() if line.startswith("Tick outcome:")
     )
     assert len(outcome_line) <= len("Tick outcome: ") + 300
+
+
+def test_prefers_hermes_state_when_present(tmp_path: Path) -> None:
+    hermes_state = tmp_path / "state" / "tick-context.md"
+    hermes_state.parent.mkdir(parents=True)
+    hermes_state.write_text("hermes summary", encoding="utf-8")
+    legacy = tmp_path / "legacy" / "tick-context.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("legacy summary", encoding="utf-8")
+    assert load_previous_summary(hermes_state, legacy) == "hermes summary"
+
+
+def test_falls_back_to_legacy_when_hermes_state_missing(tmp_path: Path) -> None:
+    hermes_state = tmp_path / "state" / "tick-context.md"
+    legacy = tmp_path / "legacy" / "tick-context.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("legacy summary", encoding="utf-8")
+    assert load_previous_summary(hermes_state, legacy) == "legacy summary"
+
+
+def test_empty_when_both_missing(tmp_path: Path) -> None:
+    assert load_previous_summary(tmp_path / "a.md", tmp_path / "b.md") == ""
+
+
+def test_empty_legacy_file_is_treated_as_missing(tmp_path: Path) -> None:
+    hermes_state = tmp_path / "state" / "tick-context.md"
+    legacy = tmp_path / "legacy" / "tick-context.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("", encoding="utf-8")
+    assert load_previous_summary(hermes_state, legacy) == ""

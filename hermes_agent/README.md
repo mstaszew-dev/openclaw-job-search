@@ -48,6 +48,27 @@ The installer writes a wrapper to `~/.hermes/scripts/job-search-tick.sh`
 (hermes cron `--script` takes a script path) and registers the job with
 `--no-agent` so the tick runner owns validation and retries.
 
+## Continuous mode + supervision (Director-style)
+
+`install/job-search-agent-hermes` mirrors the Python agent's supervised
+launcher contract: it stays alive as a zsh parent running
+`python -m jobhermes --loop`, so a pgrep-based supervisor can watch it.
+Point the Director at this script instead of `/Users/mst/bin/job-search-agent`
+to cut over. Starting it begins REAL applications.
+
+## Cutover from campaign_agent
+
+- The runner inherits the Python agent's last tick summary on the first run
+  (falls back to `campaign_agent/state/tick-context.md`; override with
+  `LEGACY_TICK_CONTEXT_PATH`). Hermes-owned state then takes over at
+  `hermes_agent/state/tick-context.md`.
+- The managed profile config ships `plugins.enabled: [jobapps]`. Without that
+  block the plugin loads but its tools never register - keep it if you edit
+  the template.
+- `campaign_agent/` remains untouched as fallback during the soak period;
+  only one of the two agents may run at a time (they share Chrome CDP and
+  tracker).
+
 ## Configuration
 
 Defaults < `~/.campaign-agent/director-overrides.env` < environment.

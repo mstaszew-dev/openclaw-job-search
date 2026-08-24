@@ -29,6 +29,12 @@ def test_config_template_carries_managed_marker() -> None:
     assert "jobhermes-managed" in text
 
 
+def test_config_template_enables_jobapps_plugin() -> None:
+    """Without this block the plugin loads but its tools never register."""
+    config = yaml.safe_load((INSTALL_DIR / "config.template.yaml").read_text(encoding="utf-8"))
+    assert config["plugins"]["enabled"] == ["jobapps"]
+
+
 def test_profile_soul_is_nonempty_persona() -> None:
     soul = (INSTALL_DIR / "profile-soul.md").read_text(encoding="utf-8")
     assert len(soul.strip()) > 100
@@ -46,3 +52,16 @@ def test_install_script_exists_executable_and_cron_is_opt_in() -> None:
     assert "ENABLE_CRON" in text
     assert '== "--enable-cron"' in text
     assert "set -euo pipefail" in text
+
+
+def test_supervised_launcher_contract() -> None:
+    """Launcher mirrors the Python agent's supervised-launcher contract."""
+    launcher = INSTALL_DIR / "job-search-agent-hermes"
+    assert launcher.is_file()
+    assert os.access(launcher, os.X_OK)
+    text = launcher.read_text(encoding="utf-8")
+    assert "-m jobhermes --loop" in text  # continuous ticking like campaign_agent
+    assert "PYTHONPATH=src" in text
+    assert "exec" in text  # stays as supervisable parent process
+    assert "campaign dir missing" in text  # refuses without the campaign dir
+    assert "REAL job applications" in text  # loud warning before start

@@ -5,8 +5,9 @@
 Read and apply **~/.zcode/AGENTS.md** - the single canonical source for global
 rules, skills (`~/.agents/skills/`), commands (`~/.zcode/commands/`), MCP
 wiring, and conventions across all AI tools. This workspace hosts the Python
-campaign agent (campaign_agent/) and the RAG server (rag/); the job-search
-campaign state lives at /Users/mst/Downloads/job-search/job-apply.
+campaign agent (`campaign_agent/`), its Hermes port (`hermes_agent/`, branch
+`hermes-agent-port`), and the RAG server (`rag/`); the job-search campaign
+state lives at /Users/mst/Downloads/job-search/job-apply.
 
 ## Job-search specifics
 
