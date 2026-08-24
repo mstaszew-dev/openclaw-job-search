@@ -115,6 +115,17 @@ def test_record_submission_missing_cwd_returns_error_not_exception(
     assert "error" in result
 
 
+def test_record_submission_default_campaign_dir_from_constant(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("JOBSEARCH_CAMPAIGN_DIR", raising=False)
+    monkeypatch.setattr(tools, "DEFAULT_CAMPAIGN_DIR", str(tmp_path))
+    result = json.loads(tools.record_submission({"record": {"company": "Acme"}}))
+    assert result["ok"] is False
+    assert result["exit"] != 0  # no update_tracker.py in the empty tmp campaign dir
+    assert "No such file" in result["stderr"]
+
+
 def test_record_submission_timeout_returns_error(monkeypatch, tmp_path: Path) -> None:
     campaign = tmp_path / "campaign"
     campaign.mkdir()

@@ -23,6 +23,7 @@ addopts = "--cov=jobapps --cov=jobhermes --cov-report=term-missing --cov-fail-un
 [tool.coverage.run]
 source = ["src/jobapps", "src/jobhermes"]
 branch = false
+omit = ["src/jobhermes/__main__.py"]  # thin shim; verified by the -m jobhermes e2e test
 
 [tool.coverage.report]
 exclude_lines = ["if __name__ == .__main__.:", "pragma: no cover"]

@@ -155,3 +155,33 @@ def test_skip_list_reaches_prompt(tmp_path: Path, tracker_factory) -> None:
     run_tick(config, run_attempt_fn=attempt, sleep_fn=lambda s: None)
     assert "DIRECTOR SKIP LIST" in prompts[0]
     assert "antal" in prompts[0]
+
+
+def test_run_tick_uses_default_attempt_and_sleep_fns(
+    tmp_path: Path, tracker_factory
+) -> None:
+    """Defaults resolve to run_attempt/time.sleep even when hermes never runs."""
+    tracker_path = tracker_factory(submitted=1500, target=1500)
+    config = make_config(tmp_path)
+    config.campaign_dir = str(tracker_path.parent)
+    assert run_tick(config) == REASON_CAMPAIGN_COMPLETE
+
+
+def test_tick_context_save_failure_is_logged_not_fatal(
+    tmp_path: Path, tracker_factory
+) -> None:
+    tracker_path = tracker_factory(submitted=5, target=1500)
+    state_dir = tmp_path / "state"
+    state_dir.write_text("i am a file, not a dir", encoding="utf-8")  # blocks save()
+    config = Config(
+        campaign_dir=str(tracker_path.parent),
+        tick_context_path=str(state_dir / "tick-context.md"),
+        inner_max_fails=1,
+        inner_sleep=0.0,
+    )
+    logs: list[str] = []
+    outcome = run_tick(
+        config, run_attempt_fn=_tracker_bumper(tracker_path), sleep_fn=lambda s: None, log=logs.append
+    )
+    assert outcome == REASON_SUCCESS
+    assert any("Could not save tick context" in line for line in logs)

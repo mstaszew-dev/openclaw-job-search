@@ -67,3 +67,17 @@ def test_run_attempt_truncates_long_output(fake_hermes, monkeypatch) -> None:
     config = Config(hermes_bin=str(bin_dir / "hermes"), campaign_dir="/tmp/camp")
     _, out, _ = run_attempt(config, "prompt")
     assert len(out) == 2000
+
+
+def test_run_attempt_oserror_maps_to_126(monkeypatch, fake_hermes) -> None:
+    bin_dir, log_path = fake_hermes
+    monkeypatch.setenv("FAKE_HERMES_LOG", str(log_path))
+
+    def boom(command, **kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("subprocess.run", boom)
+    config = Config(hermes_bin=str(bin_dir / "hermes"), campaign_dir="/tmp/camp")
+    exit_code, _, err = run_attempt(config, "prompt")
+    assert exit_code == 126
+    assert "permission denied" in err

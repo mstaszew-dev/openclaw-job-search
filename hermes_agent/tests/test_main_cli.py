@@ -71,3 +71,17 @@ def test_loop_stops_on_campaign_complete(tmp_path: Path, monkeypatch) -> None:
     code = main(["--loop", "--config", str(tmp_path / "none.env")])
     assert code == 0
     assert sleeps  # backoff slept between ticks
+
+
+def test_module_entry_point_help_works() -> None:
+    import subprocess
+    import sys
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "jobhermes", "--help"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 0
+    assert "jobhermes" in proc.stdout
