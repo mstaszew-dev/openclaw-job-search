@@ -1,0 +1,32 @@
+# jobhermes-managed - overwritten by hermes_agent/install/install.sh unless edited
+model:
+  default: mst/free
+  provider: msrouter
+providers:
+  msrouter:
+    api: http://127.0.0.1:8787/v1
+    api_key: msrouter-local
+    transport: chat_completions
+    default_model: mst/free
+agent:
+  max_turns: 200
+mcp_servers:
+  playwright:
+    command: /opt/homebrew/opt/node@24/bin/node
+    args:
+      - /Users/mst/.local/share/openclaw-tools/node_modules/@playwright/mcp/cli.js
+      - --cdp-endpoint
+      - http://127.0.0.1:9222
+      - --cdp-timeout
+      - "120000"
+      - --output-dir
+      - /Users/mst/ZCodeProject/openclaw-job-search/playwright-output
+      - --output-mode
+      - file
+      - --save-session
+      - --codegen
+      - none
+  rag:
+    command: /Users/mst/ZCodeProject/openclaw-job-search/rag/.venv/bin/python
+    args:
+      - /Users/mst/ZCodeProject/openclaw-job-search/rag/rag_server.py
