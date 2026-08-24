@@ -33,8 +33,10 @@ PYTHONPATH=src python3 -m jobhermes --dry-run   # print the tick prompt only
 PYTHONPATH=src python3 -m jobhermes --loop      # keep ticking with backoff
 ```
 
-Exit codes: 0 success or campaign complete, 1 attempts exhausted,
-2 campaign dir missing.
+`--once` is the default mode (flag optional). Exit codes: 0 success or
+campaign complete, 1 attempts exhausted (or loop failure bound reached),
+2 campaign dir missing. `--loop` stops after `OUTER_MAX_FAILS` consecutive
+failed ticks.
 
 ## Enable the 30-minute scheduler (starts REAL applications)
 
@@ -42,14 +44,27 @@ Exit codes: 0 success or campaign complete, 1 attempts exhausted,
 zsh install/install.sh --enable-cron
 ```
 
+The installer writes a wrapper to `~/.hermes/scripts/job-search-tick.sh`
+(hermes cron `--script` takes a script path) and registers the job with
+`--no-agent` so the tick runner owns validation and retries.
+
 ## Configuration
 
 Defaults < `~/.campaign-agent/director-overrides.env` < environment.
 Env keys: `CAMPAIGN_DIR`, `HERMES_BIN`, `HERMES_PROFILE`,
 `INNER_MAX_FAILS` (5), `INNER_SLEEP` (10), `OUTER_BACKOFF` (60),
-`RUN_BUDGET_SECONDS` (1800), `MAX_TURNS` (200), `SUBPROCESS_TIMEOUT` (2400),
-`PORTAL_SKIP_<Company>=1` (skip list). The director note is read from
-`~/.campaign-agent/director-prompt-overrides.md`.
+`OUTER_MAX_FAILS` (12), `RUN_BUDGET_SECONDS` (1800), `MAX_TURNS` (200),
+`SUBPROCESS_TIMEOUT` (2400), `PORTAL_SKIP_<Company>=1` (skip list). The
+director note is read from `~/.campaign-agent/director-prompt-overrides.md`.
+
+The jobapps plugin honors `JOBSEARCH_CAMPAIGN_DIR` and
+`JOBSEARCH_TRACKER_PATH` (separate from the runner's `CAMPAIGN_DIR`). Its
+`tracker_path`/`campaign_dir` tool arguments are ignored unless
+`JOBSEARCH_ALLOW_OVERRIDES=1` is set (prompt-injection guard; tests set it).
+
+CI (GitHub Actions, `.github/workflows/hermes-agent-ci.yml`): ruff + mypy
+strict + pytest with the 90% coverage gate on every push/PR touching
+`hermes_agent/`.
 
 ## Tests
 

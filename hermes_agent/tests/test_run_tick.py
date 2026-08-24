@@ -157,6 +157,66 @@ def test_skip_list_reaches_prompt(tmp_path: Path, tracker_factory) -> None:
     assert "antal" in prompts[0]
 
 
+def test_previous_tick_context_is_fenced(tmp_path: Path, tracker_factory) -> None:
+    tracker_path = tracker_factory(submitted=5, target=1500)
+    config = make_config(tmp_path, inner_max_fails=1, inner_sleep=0.0)
+    config.campaign_dir = str(tracker_path.parent)
+    context_path = tmp_path / "state" / "tick-context.md"
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.write_text("applied to Acme", encoding="utf-8")
+    prompts: list[str] = []
+
+    def attempt(config: Config, prompt: str):
+        prompts.append(prompt)
+        return 0, "", ""
+
+    run_tick(config, run_attempt_fn=attempt, sleep_fn=lambda s: None)
+    assert "<tracker_data>" in prompts[0]
+    assert "</tracker_data>" in prompts[0]
+    assert "applied to Acme" in prompts[0]
+
+
+def test_tracker_unreadable_after_attempt_ends_tick_without_retry(
+    tmp_path: Path, tracker_factory
+) -> None:
+    """A recorded submission with an unreadable tracker must not trigger a
+    second application attempt (anti-gaming delta cannot be verified)."""
+    tracker_path = tracker_factory(submitted=5, target=1500)
+    config = make_config(tmp_path, inner_max_fails=5, inner_sleep=0.0)
+    config.campaign_dir = str(tracker_path.parent)
+    calls: list[int] = []
+
+    def attempt(config: Config, prompt: str):
+        calls.append(1)
+        tracker_path.unlink()  # simulate tracker becoming unreadable
+        return 0, "", ""
+
+    outcome = run_tick(config, run_attempt_fn=attempt, sleep_fn=lambda s: None)
+    assert outcome == "tracker_unreadable"
+    assert len(calls) == 1
+
+
+def test_nonretryable_exit_codes_break_retry_loop(
+    tmp_path: Path, tracker_factory
+) -> None:
+    tracker_path = tracker_factory(submitted=5, target=1500)
+    config = make_config(tmp_path, inner_max_fails=5, inner_sleep=0.0)
+    config.campaign_dir = str(tracker_path.parent)
+    calls: list[int] = []
+    logs: list[str] = []
+
+    def attempt(config: Config, prompt: str):
+        calls.append(1)
+        return 127, "", "hermes binary not found"
+
+    outcome = run_tick(
+        config, run_attempt_fn=attempt, sleep_fn=lambda s: None, log=logs.append
+    )
+    assert outcome == "hermes_exit_127"
+    assert len(calls) == 1  # deterministic start failure: no retry
+    assert any("not retryable" in line for line in logs)
+
+
 def test_run_tick_uses_default_attempt_and_sleep_fns(
     tmp_path: Path, tracker_factory
 ) -> None:

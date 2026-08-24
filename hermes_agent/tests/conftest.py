@@ -8,6 +8,13 @@ from typing import Callable, Optional
 
 import pytest
 
+# Tests exercise the path-override knobs (tracker_path/campaign_dir args);
+# production only honors them when JOBSEARCH_ALLOW_OVERRIDES=1 is set
+# (prompt-injection guard).
+@pytest.fixture(autouse=True)
+def _allow_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("JOBSEARCH_ALLOW_OVERRIDES", "1")
+
 
 @pytest.fixture()
 def tracker_factory(tmp_path: Path) -> Callable[..., Path]:

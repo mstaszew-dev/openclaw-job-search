@@ -33,6 +33,7 @@ def test_profile_soul_is_nonempty_persona() -> None:
     soul = (INSTALL_DIR / "profile-soul.md").read_text(encoding="utf-8")
     assert len(soul.strip()) > 100
     assert "one" in soul.lower() and "submission" in soul.lower()
+    assert "jobhermes-managed" in soul  # reinstall clobber guard marker
 
 
 def test_install_script_exists_executable_and_cron_is_opt_in() -> None:

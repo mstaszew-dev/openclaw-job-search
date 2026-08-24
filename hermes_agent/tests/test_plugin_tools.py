@@ -48,7 +48,9 @@ def test_campaign_status_hardcoded_default_when_env_unset(
 
 
 def _make_update_tracker_stub(
-    campaign_dir: Path, exit_code: int = 0, stdout: str = "submitted 5/1500"
+    campaign_dir: Path,
+    exit_code: int = 0,
+    stdout: str = "submitted: acme-1\nsubmitted 5/1500",
 ) -> Path:
     stub = campaign_dir / "update_tracker.py"
     stub.write_text(
@@ -84,10 +86,57 @@ def test_record_submission_runs_update_tracker(tmp_path: Path) -> None:
     result = json.loads(tools.record_submission(args))
     assert result["ok"] is True
     assert result["exit"] == 0
-    assert "submitted" in result["stdout"]
+    assert result["counted"] is True
+    assert result["effective_action"] == "submitted"
     written = json.loads((campaign / "last_record.json").read_text(encoding="utf-8"))
     assert written["company"] == "Acme"
     assert written["source"] == "drushim"
+
+
+def test_record_submission_downgrade_to_attempted_is_not_ok(tmp_path: Path) -> None:
+    """Evidence-less submissions print 'attempted:' and do not count."""
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    _make_update_tracker_stub(
+        campaign,
+        stdout=(
+            "WARNING: Submission for acme-1 lacks valid portal confirmation "
+            "evidence. Not counting as submitted.\n"
+            "attempted: acme-1\n"
+        ),
+    )
+    result = json.loads(
+        tools.record_submission({"record": {"company": "Acme"}, "campaign_dir": str(campaign)})
+    )
+    assert result["exit"] == 0
+    assert result["ok"] is False
+    assert result["counted"] is False
+    assert result["effective_action"] == "attempted"
+
+
+def test_record_submission_duplicate_is_reported(tmp_path: Path) -> None:
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    _make_update_tracker_stub(campaign, stdout="already recorded: acme-1 (no change)\n")
+    result = json.loads(
+        tools.record_submission({"record": {"company": "Acme"}, "campaign_dir": str(campaign)})
+    )
+    assert result["exit"] == 0
+    assert result["ok"] is False
+    assert result["counted"] is False
+    assert result["effective_action"] == "duplicate"
+
+
+def test_record_submission_unknown_output_is_not_counted(tmp_path: Path) -> None:
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    _make_update_tracker_stub(campaign, stdout="something unexpected\n")
+    result = json.loads(
+        tools.record_submission({"record": {"company": "Acme"}, "campaign_dir": str(campaign)})
+    )
+    assert result["ok"] is False
+    assert result["counted"] is False
+    assert result["effective_action"] == "unknown"
 
 
 def test_record_submission_nonzero_exit_is_not_ok(tmp_path: Path) -> None:
@@ -124,6 +173,29 @@ def test_record_submission_default_campaign_dir_from_constant(
     assert result["ok"] is False
     assert result["exit"] != 0  # no update_tracker.py in the empty tmp campaign dir
     assert "No such file" in result["stderr"]
+
+
+def test_path_overrides_ignored_without_env_gate(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """LLM-supplied path args must not redirect the tools in production."""
+    monkeypatch.delenv("JOBSEARCH_ALLOW_OVERRIDES", raising=False)
+    monkeypatch.setattr(tools, "DEFAULT_CAMPAIGN_DIR", str(tmp_path / "default-campaign"))
+    result = json.loads(
+        tools.campaign_status({"tracker_path": "/etc/passwd-lookalike.json"})
+    )
+    assert result["tracker_path"] == str(tmp_path / "default-campaign" / "tracker.json")
+    # record_submission likewise ignores campaign_dir without the gate
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    _make_update_tracker_stub(campaign)
+    result = json.loads(
+        tools.record_submission({"record": {"company": "X"}, "campaign_dir": str(campaign)})
+    )
+    assert result["ok"] is False
+    # either a startup error (default dir absent) or a non-zero recorder exit;
+    # the stubbed campaign dir was NOT used either way
+    assert "error" in result or result["exit"] != 0
 
 
 def test_record_submission_timeout_returns_error(monkeypatch, tmp_path: Path) -> None:

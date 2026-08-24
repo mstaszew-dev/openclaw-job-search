@@ -31,16 +31,33 @@ if [[ ! -f "$CONFIG_PATH" ]] || ! grep -q "jobhermes-managed" "$CONFIG_PATH"; th
 else
   print "config.yaml already jobhermes-managed; leaving untouched"
 fi
-cp "$SCRIPT_DIR/profile-soul.md" "$PROFILE_HOME/SOUL.md"
+SOUL_PATH="$PROFILE_HOME/SOUL.md"
+if [[ ! -f "$SOUL_PATH" ]] || ! grep -q "jobhermes-managed" "$SOUL_PATH"; then
+  cp "$SCRIPT_DIR/profile-soul.md" "$SOUL_PATH"
+else
+  print "SOUL.md already jobhermes-managed (user-edited); leaving untouched"
+fi
 
 "$HERMES_BIN" plugins doctor "$REPO_ROOT/src/jobapps" || print -u2 "plugins doctor reported issues (review before ticking)"
 
 if (( ENABLE_CRON )); then
+  # hermes cron --script expects a path to a script, not a shell command
+  SCRIPTS_DIR="$HOME/.hermes/scripts"
+  mkdir -p "$SCRIPTS_DIR"
+  TICK_SCRIPT="$SCRIPTS_DIR/job-search-tick.sh"
+  cat > "$TICK_SCRIPT" <<EOF
+#!/usr/bin/env bash
+# jobhermes-managed wrapper for the scheduled campaign tick
+set -euo pipefail
+cd "$REPO_ROOT"
+exec env PYTHONPATH=src python3 -m jobhermes --once
+EOF
+  chmod +x "$TICK_SCRIPT"
   "$HERMES_BIN" cron create "every 30m" "job-search tick" \
     --name "job-search-tick" --no-agent \
-    --script "cd '$REPO_ROOT' && PYTHONPATH=src python3 -m jobhermes --once" \
+    --script "$TICK_SCRIPT" \
     --workdir "$REPO_ROOT"
-  print "Cron registered (every 30m)."
+  print "Cron registered (every 30m), script: $TICK_SCRIPT"
 else
   print "Install complete. Cron NOT registered (opt-in)."
   print "Manual tick: cd '$REPO_ROOT' && PYTHONPATH=src python3 -m jobhermes --once"

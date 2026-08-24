@@ -77,20 +77,24 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
     _make_profile_stub(bin_dir)
     log_path = tmp_path / "hermes.log"
     assert _run_install(tmp_path, bin_dir, log_path).returncode == 0
-    config_path = (
-        tmp_path / "home" / ".hermes" / "profiles" / "jobhunter" / "config.yaml"
-    )
+    profile_home = tmp_path / "home" / ".hermes" / "profiles" / "jobhunter"
+    config_path = profile_home / "config.yaml"
     config_path.write_text(
         "# jobhermes-managed\nmodel:\n  default: edited\n", encoding="utf-8"
     )
+    soul_path = profile_home / "SOUL.md"
+    soul_path.write_text("<!-- jobhermes-managed -->\nuser-tweaked persona\n", encoding="utf-8")
     result = _run_install(tmp_path, bin_dir, log_path)
     assert result.returncode == 0, result.stderr
     assert "edited" in config_path.read_text(encoding="utf-8")
+    assert "user-tweaked persona" in soul_path.read_text(encoding="utf-8")
     creates = log_path.read_text(encoding="utf-8").count("profile create jobhunter")
     assert creates == 1
 
 
-def test_install_enable_cron_passes_cron_create(tmp_path: Path) -> None:
+def test_install_enable_cron_passes_script_path(tmp_path: Path) -> None:
+    """--script must receive an existing script path (hermes contract), not a
+    shell command string."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _make_profile_stub(bin_dir)
@@ -101,6 +105,18 @@ def test_install_enable_cron_passes_cron_create(tmp_path: Path) -> None:
     assert "cron create" in logged
     assert "--no-agent" in logged
     assert "--script" in logged
+    # extract the value passed after --script and verify it is a real file
+    # under the (fake) hermes home that invokes the runner
+    cron_line = next(ln for ln in logged.splitlines() if "cron create" in ln)
+    idx = cron_line.index("--script") + len("--script ")
+    script_value = cron_line[idx:].split()[0]
+    assert script_value.startswith(str(tmp_path / "home"))
+    assert script_value.endswith("job-search-tick.sh")
+    script_path = Path(script_value)
+    assert script_path.is_file()
+    body = script_path.read_text(encoding="utf-8")
+    assert "python3 -m jobhermes --once" in body
+    assert script_path.stat().st_mode & stat.S_IXUSR
 
 
 def test_install_fails_without_hermes(tmp_path: Path) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,22 @@ logger = logging.getLogger(__name__)
 UPDATE_TRACKER_TIMEOUT = 60
 OUTPUT_TAIL_CHARS = 2000
 DEFAULT_CAMPAIGN_DIR = "/Users/mst/Downloads/job-search/job-apply"
+# Path override args exist for tests/admin; without this gate they are ignored
+# so prompt-injected portal content cannot steer file access or exec cwd.
+OVERRIDE_GATE_ENV = "JOBSEARCH_ALLOW_OVERRIDES"
+
+# Effective-action markers parsed from update_tracker.py stdout. Order matters:
+# duplicate is detected before submitted because a duplicate run prints only
+# the "already recorded" line.
+_EFFECTIVE_ACTION_MARKERS: tuple[tuple[str, str], ...] = (
+    ("duplicate", "already recorded"),
+    ("submitted", "submitted: "),
+    ("attempted", "attempted: "),
+)
+
+
+def _overrides_allowed() -> bool:
+    return os.environ.get(OVERRIDE_GATE_ENV) == "1"
 
 
 def _default_tracker_path() -> str:
@@ -27,9 +44,17 @@ def _default_campaign_dir() -> str:
     return os.environ.get("JOBSEARCH_CAMPAIGN_DIR") or DEFAULT_CAMPAIGN_DIR
 
 
+def _parse_effective_action(stdout: str) -> str:
+    for action, marker in _EFFECTIVE_ACTION_MARKERS:
+        if re.search(r"^" + re.escape(marker), stdout, re.MULTILINE):
+            return action
+    return "unknown"
+
+
 def campaign_status(args: dict[str, Any], **kwargs: Any) -> str:
     """Read tracker.json and return campaign progress as JSON."""
-    tracker = Tracker(args.get("tracker_path") or _default_tracker_path())
+    override = args.get("tracker_path") if _overrides_allowed() else None
+    tracker = Tracker(override or _default_tracker_path())
     payload = {
         "tracker_path": str(tracker.path),
         "submitted": tracker.submitted(),
@@ -43,11 +68,17 @@ def campaign_status(args: dict[str, Any], **kwargs: Any) -> str:
 
 
 def record_submission(args: dict[str, Any], **kwargs: Any) -> str:
-    """Run update_tracker.py submitted with the given record; JSON result."""
+    """Run update_tracker.py submitted with the given record; JSON result.
+
+    ``ok`` is true only when the recorder actually counted the submission;
+    evidence-less downgrades (``attempted``) and duplicates report ok=false
+    with ``effective_action`` explaining why.
+    """
     record = args.get("record")
     if not isinstance(record, dict):
         return json.dumps({"ok": False, "error": "record must be an object"})
-    campaign_dir = args.get("campaign_dir") or _default_campaign_dir()
+    campaign_dir = args.get("campaign_dir") if _overrides_allowed() else None
+    campaign_dir = campaign_dir or _default_campaign_dir()
     command = [
         "python3",
         "update_tracker.py",
@@ -76,10 +107,14 @@ def record_submission(args: dict[str, Any], **kwargs: Any) -> str:
         return json.dumps(
             {"ok": False, "error": "could not run update_tracker.py: {}".format(exc)}
         )
+    effective_action = _parse_effective_action(proc.stdout)
+    counted = effective_action == "submitted"
     return json.dumps(
         {
-            "ok": proc.returncode == 0,
+            "ok": proc.returncode == 0 and counted,
             "exit": proc.returncode,
+            "counted": counted,
+            "effective_action": effective_action,
             "stdout": proc.stdout[-OUTPUT_TAIL_CHARS:],
             "stderr": proc.stderr[-OUTPUT_TAIL_CHARS:],
         }

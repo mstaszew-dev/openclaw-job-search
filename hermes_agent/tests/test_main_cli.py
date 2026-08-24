@@ -31,6 +31,22 @@ def test_once_success_exit_zero(tmp_path: Path, monkeypatch) -> None:
     assert code == 0
 
 
+def test_explicit_once_flag_accepted(tmp_path: Path, monkeypatch) -> None:
+    _hermetic_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner_module, "run_tick", lambda config: runner_module.REASON_SUCCESS)
+    code = main(["--once", "--config", str(tmp_path / "none.env")])
+    assert code == 0
+
+
+def test_once_and_loop_are_mutually_exclusive(tmp_path: Path, monkeypatch) -> None:
+    import pytest
+
+    _hermetic_env(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--once", "--loop", "--config", str(tmp_path / "none.env")])
+    assert excinfo.value.code == 2  # argparse error
+
+
 def test_once_exhausted_exit_one(tmp_path: Path, monkeypatch) -> None:
     _hermetic_env(monkeypatch, tmp_path)
     monkeypatch.setattr(
@@ -71,6 +87,21 @@ def test_loop_stops_on_campaign_complete(tmp_path: Path, monkeypatch) -> None:
     code = main(["--loop", "--config", str(tmp_path / "none.env")])
     assert code == 0
     assert sleeps  # backoff slept between ticks
+
+
+def test_loop_is_bounded_by_outer_max_fails(tmp_path: Path, monkeypatch) -> None:
+    _hermetic_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("OUTER_MAX_FAILS", "3")
+    ticks: list[str] = []
+    monkeypatch.setattr(
+        runner_module, "run_tick", lambda config: ticks.append("t") or runner_module.REASON_EXHAUSTED
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(runner_module.time, "sleep", sleeps.append)
+    code = main(["--loop", "--config", str(tmp_path / "none.env")])
+    assert code == 1
+    assert len(ticks) == 3  # stopped after 3 consecutive exhausted ticks
+    assert len(sleeps) == 2
 
 
 def test_module_entry_point_help_works() -> None:

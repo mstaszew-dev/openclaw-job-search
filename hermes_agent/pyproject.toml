@@ -2,11 +2,11 @@
 name = "jobhermes"
 version = "0.1.0"
 description = "Hermes-native job-search campaign agent (jobapps plugin + jobhermes tick runner)"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-cov>=5", "pyyaml>=6"]
+dev = ["pytest>=8", "pytest-cov>=5", "pyyaml>=6", "mypy>=1.10", "ruff>=0.6"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -27,3 +27,19 @@ omit = ["src/jobhermes/__main__.py"]  # thin shim; verified by the -m jobhermes 
 
 [tool.coverage.report]
 exclude_lines = ["if __name__ == .__main__.:", "pragma: no cover"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# verbatim campaign policy text; wrapped lines would change the prompt
+"src/jobhermes/prompt.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src"]

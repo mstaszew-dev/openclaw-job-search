@@ -55,5 +55,7 @@ def test_build_tick_summary_lists_three_recent(tmp_path: Path) -> None:
 
 def test_reason_is_clamped(tmp_path: Path) -> None:
     summary = build_tick_summary(Tracker(tmp_path / "none.json"), attempts=1, reason="r" * 500)
-    outcome_line = [line for line in summary.splitlines() if line.startswith("Tick outcome:")][0]
+    outcome_line = next(
+        line for line in summary.splitlines() if line.startswith("Tick outcome:")
+    )
     assert len(outcome_line) <= len("Tick outcome: ") + 300

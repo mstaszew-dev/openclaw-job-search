@@ -1,10 +1,13 @@
 """Runner configuration: defaults < overrides file < environment."""
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional
+
+logger = logging.getLogger(__name__)
 
 CAMPAIGN_DIR_DEFAULT = "/Users/mst/Downloads/job-search/job-apply"
 PLAYWRIGHT_OUTPUT_DIR_DEFAULT = (
@@ -16,6 +19,7 @@ DEFAULT_NOTE_PATH = "~/.campaign-agent/director-prompt-overrides.md"
 _INT_FIELDS = {
     "INNER_MAX_FAILS": "inner_max_fails",
     "OUTER_BACKOFF": "outer_backoff",
+    "OUTER_MAX_FAILS": "outer_max_fails",
     "RUN_BUDGET_SECONDS": "run_budget_seconds",
     "MAX_TURNS": "max_turns",
     "SUBPROCESS_TIMEOUT": "subprocess_timeout",
@@ -58,6 +62,7 @@ class Config:
     inner_max_fails: int = 5
     inner_sleep: float = 10.0
     outer_backoff: int = 60
+    outer_max_fails: int = 12
     subprocess_timeout: int = 2400
     director_note_path: str = DEFAULT_NOTE_PATH
     skip_companies: set[str] = field(default_factory=set)
@@ -105,6 +110,9 @@ class Config:
                 try:
                     kwargs[attr] = cast(merged[key])
                 except ValueError:
+                    logger.warning(
+                        "ignoring invalid value for %s: %r", key, merged[key]
+                    )
                     continue
         for key, attr in _STR_FIELDS.items():
             if key in merged:
