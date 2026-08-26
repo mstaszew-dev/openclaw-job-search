@@ -58,7 +58,10 @@ def test_queue_length_is_gone(tmp_path: Path) -> None:
     """applyQueue reporting was removed; the field is simply ignored."""
     path = tmp_path / "tracker.json"
     path.write_text(json.dumps({"applyQueue": [{"company": "X"}]}), encoding="utf-8")
-    assert not hasattr(Tracker(path), "queue_length")
+    tracker = Tracker(path)
+    assert not hasattr(tracker, "queue_length")
+    assert tracker.submitted() == 0
+    assert tracker.target() == DEFAULT_TARGET
 
 
 def test_recent_applications_most_recent_first(tmp_path: Path) -> None:

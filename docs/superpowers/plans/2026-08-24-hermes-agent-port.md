@@ -1,3 +1,7 @@
+
+> **Post-port update (2026-08-26):** `Tracker.queue_length()` and the
+> `queue_length` field in the campaign_status tool payload were removed;
+> applyQueue is intentionally ignored by both agents now.
 # Hermes Agent Port Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
