@@ -4,6 +4,19 @@ Hermes-native replacement for `campaign_agent/`: the agent loop, inference
 (msrouter), and MCP (playwright CDP + rag) are provided by Hermes; this
 package adds the campaign domain.
 
+## Operating policy (user preference, 2026-08-26)
+
+NO Hermes background processes on this machine: no gateway, no dashboard
+server, no cron, no supervised launcher. The bot runs ONLY inside the Hermes
+desktop app, started manually by the user:
+
+    open ~/.hermes/hermes-agent/apps/desktop/release/mac-arm64/Hermes.app
+
+(then pick the `jobhunter` profile and chat). Do not run `hermes gateway`,
+`hermes dashboard`, `install.sh --enable-cron`, or `job-search-agent-hermes`
+unless the user explicitly asks. The standalone Python agent keeps campaign
+ownership; the Hermes runner's cross-agent guard enforces this regardless.
+
 ## Layout
 
 - `src/jobapps/` - Hermes plugin: `campaign_status`, `record_submission`.
