@@ -61,7 +61,6 @@ def campaign_status(args: dict[str, Any], **kwargs: Any) -> str:
         "target": tracker.target(),
         "remaining": tracker.remaining(),
         "campaign_complete": tracker.campaign_complete(),
-        "queue_length": tracker.queue_length(),
         "recent_applications": tracker.recent_applications(5),
     }
     return json.dumps(payload)

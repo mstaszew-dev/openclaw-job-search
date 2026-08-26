@@ -16,9 +16,9 @@ def test_campaign_status_reads_tracker(tracker_factory) -> None:
     assert result["target"] == 10
     assert result["remaining"] == 6
     assert result["campaign_complete"] is False
-    assert result["queue_length"] == 0
     assert result["recent_applications"] == []
     assert result["tracker_path"] == str(path)
+    assert "queue_length" not in result  # queue reporting removed
 
 
 def test_campaign_status_missing_file_is_zeroed(tmp_path: Path) -> None:

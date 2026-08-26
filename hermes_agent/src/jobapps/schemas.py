@@ -7,7 +7,7 @@ CAMPAIGN_STATUS: dict[str, Any] = {
     "name": "campaign_status",
     "description": (
         "Read job-search campaign progress from tracker.json: submitted/target, "
-        "remaining, queue length, and recent applications."
+        "remaining, and recent applications."
     ),
     "parameters": {
         "type": "object",

@@ -11,7 +11,6 @@ def test_missing_file_degrades_to_empty_state(tmp_path: Path) -> None:
     assert tracker.target() == DEFAULT_TARGET
     assert tracker.remaining() == DEFAULT_TARGET
     assert tracker.campaign_complete() is False
-    assert tracker.queue_length() == 0
     assert tracker.recent_applications() == []
 
 
@@ -55,10 +54,11 @@ def test_target_fallback_chain(tmp_path: Path) -> None:
     assert Tracker(path).target() == DEFAULT_TARGET
 
 
-def test_queue_length_ignores_non_list(tmp_path: Path) -> None:
+def test_queue_length_is_gone(tmp_path: Path) -> None:
+    """applyQueue reporting was removed; the field is simply ignored."""
     path = tmp_path / "tracker.json"
-    path.write_text(json.dumps({"applyQueue": "nope"}), encoding="utf-8")
-    assert Tracker(path).queue_length() == 0
+    path.write_text(json.dumps({"applyQueue": [{"company": "X"}]}), encoding="utf-8")
+    assert not hasattr(Tracker(path), "queue_length")
 
 
 def test_recent_applications_most_recent_first(tmp_path: Path) -> None:

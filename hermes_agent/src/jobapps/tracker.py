@@ -53,10 +53,6 @@ class Tracker:
     def campaign_complete(self) -> bool:
         return self.submitted() >= self.target()
 
-    def queue_length(self) -> int:
-        queue = self._data.get("applyQueue")
-        return len(queue) if isinstance(queue, list) else 0
-
     def recent_applications(self, n: int = 5) -> list[dict[str, Any]]:
         applications = self._data.get("applications")
         if not isinstance(applications, list):
