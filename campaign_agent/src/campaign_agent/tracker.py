@@ -56,11 +56,6 @@ class Tracker:
         """True when submitted >= target."""
         return self.submitted() >= self.target()
 
-    def queue_length(self) -> int:
-        """Number of items in applyQueue."""
-        queue = self._data.get("applyQueue", [])
-        return len(queue) if isinstance(queue, list) else 0
-
     def recent_applications(self, n: int = 5) -> list[dict[str, Any]]:
         """Return last n applications, most recent first."""
         apps = self._data.get("applications", [])

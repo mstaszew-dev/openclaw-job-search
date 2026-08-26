@@ -1,6 +1,6 @@
 Recent submissions:
-  - Rhino Sp. z o.o. / Senior Java Developer (2026-08-19)
-  - RYB Technologies / Backend PHP Developer (2026-08-19)
-  - ? / מפתח/ת Java Senior (2026-08-19)
-Attempts used this tick: 0
-Tick outcome: I have successfully applied to the Senior Java Developer position at Rhino Sp. z o.o. via No Fluff Jobs portal and recorded the submission. The application shows "W trakcie analizy" (Under analysis) s
+  - ERGO NEXT Insurance / Backend Engineer (2026-08-26)
+  - קבוצת Aman (Aman Group) / מפתח/ת JAVA (2026-08-26)
+  - Confidential (חסוי) / מפתח/ת JAVA & REACT & AI (2026-08-26)
+Attempts used this tick: 15
+Tick outcome: Applied successfully.

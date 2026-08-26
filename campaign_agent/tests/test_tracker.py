@@ -61,9 +61,10 @@ class TestTrackerReading:
         t._data["stats"]["submitted"] = 1200
         assert t.campaign_complete()
 
-    def test_queue_length(self, tracker_file):
+    def test_queue_length_removed(self, tracker_file):
+        """applyQueue reporting was removed; the field is simply ignored."""
         t = Tracker(tracker_file)
-        assert t.queue_length() == 2
+        assert not hasattr(t, "queue_length")
 
 
 class TestTrackerRecentApplications:
