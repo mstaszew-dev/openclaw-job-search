@@ -69,8 +69,8 @@ class TestUpdateTrackerTargetFallback:
         assert result.returncode == 0
         assert "submitted 1201/1500" in result.stdout
 
-    def test_fallback_is_1500_not_1000(self, campaign_dir):
-        """When tracker.json has NO targetApplications, fallback should be 1500."""
+    def test_fallback_is_2000_not_1000(self, campaign_dir):
+        """When tracker.json has NO target, fallback should be 2000 (2026-08-31 raise)."""
         campaign = campaign_dir(submitted=100)
         update_tracker = Path(campaign) / "update_tracker.py"
         record = json.dumps({
@@ -88,8 +88,8 @@ class TestUpdateTrackerTargetFallback:
             cwd=campaign,
         )
         assert result.returncode == 0
-        # Should show 1500 as target, NOT 1000
-        assert "submitted 101/1500" in result.stdout
+        # Should show 2000 as target, NOT 1000 (2026-08-31 raise)
+        assert "submitted 101/2000" in result.stdout
         assert "submitted 101/1000" not in result.stdout
 
     def test_campaign_complete_message_uses_correct_target(self, campaign_dir):

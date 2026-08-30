@@ -146,7 +146,7 @@ install above), since pytest's `pythonpath=src` does not reach subprocesses.
 | `run_agent_turn` inner loop | Hermes agent (`hermes -z` one-shot) |
 | `playwright_mcp.py` / `rag_mcp.py` | profile `mcp_servers` (playwright, rag) |
 | `main.py` outer loop + anti-gaming | `jobhermes.runner.run_tick` (tracker-delta rule) |
-| `prompt.py` | `jobhermes.prompt` (IL-only policy pinned by tests) |
+| `prompt.py` | `jobhermes.prompt` (IL+PL policy pinned by tests) |
 | `session.py` TickContext | `jobhermes.tick_context` (atomic writes) |
 | `tracker.py` | `jobapps.tracker` |
 | exec `update_tracker.py submitted` | `jobapps` tool `record_submission` |
