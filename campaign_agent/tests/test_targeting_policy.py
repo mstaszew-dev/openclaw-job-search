@@ -81,7 +81,7 @@ class TestPromptPolicy:
         assert "Biała Parcela" in p
         assert "coverNotePl" in p
         assert "plB2bNotePl" in p
-        assert "relocation" in p.lower()  # the rule: never mention it
+        assert "NEVER mention relocation" in p  # the rule, stated imperatively
 
     def test_upwork_application_flow_removed(self):
         p = _prompt()
