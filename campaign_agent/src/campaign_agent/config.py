@@ -45,6 +45,7 @@ class Config:
     # Absolute paths the agent must know for file operations (CV uploads and
     # Playwright page snapshots live outside the campaign dir).
     cv_path: str = "/Users/mst/Downloads/job-search/job-apply/cv/michael-staszewski-cv.pdf"
+    cv_path_pl: str = "/Users/mst/Downloads/job-search/job-apply/cv/michael-staszewski-cv-pl.pdf"
     playwright_output_dir: str = "/Users/mst/ZCodeProject/openclaw-job-search/playwright-output"
 
     # Chrome CDP

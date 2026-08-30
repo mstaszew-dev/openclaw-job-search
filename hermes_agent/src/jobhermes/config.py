@@ -55,6 +55,7 @@ def load_env_file(path: str | Path) -> dict[str, str]:
 class Config:
     campaign_dir: str = CAMPAIGN_DIR_DEFAULT
     cv_path: str = ""
+    cv_path_pl: str = ""
     playwright_output_dir: str = PLAYWRIGHT_OUTPUT_DIR_DEFAULT
     tick_context_path: str = ""
     hermes_bin: str = "hermes"
@@ -75,6 +76,10 @@ class Config:
     def __post_init__(self) -> None:
         if not self.cv_path:
             self.cv_path = str(Path(self.campaign_dir) / "cv" / "michael-staszewski-cv.pdf")
+        if not self.cv_path_pl:
+            self.cv_path_pl = str(
+                Path(self.campaign_dir) / "cv" / "michael-staszewski-cv-pl.pdf"
+            )
         if not self.tick_context_path:
             self.tick_context_path = str(
                 Path(__file__).resolve().parents[2] / "state" / "tick-context.md"

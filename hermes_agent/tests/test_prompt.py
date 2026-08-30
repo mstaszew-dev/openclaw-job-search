@@ -1,4 +1,4 @@
-"""Tick prompt: IL-only policy, interpolation, director extras."""
+"""Tick prompt: IL+PL policy, interpolation, director extras."""
 from __future__ import annotations
 
 from jobhermes.config import Config
@@ -10,15 +10,24 @@ def test_prompt_carries_campaign_paths() -> None:
     prompt = build_tick_prompt(config)
     assert "/tmp/camp" in prompt
     assert config.cv_path in prompt
+    assert config.cv_path_pl in prompt
     assert config.playwright_output_dir in prompt
 
 
-def test_prompt_pins_il_only_policy() -> None:
+def test_prompt_pins_il_pl_policy() -> None:
     prompt = build_tick_prompt(Config(campaign_dir="/tmp/camp"))
     for marker in (
-        "IL only",
+        "IL + PL",
+        "alternating 50/50",
         "remote/hybrid/onsite ALL OK",
-        "Do NOT apply to Polish sites, Upwork, or EU/PL portals",
+        "fully remote ONLY",
+        "15 000 PLN",
+        "michael-staszewski-cv-pl.pdf",
+        "+48790775407",
+        "Biała Parcela",
+        "coverNotePl",
+        "plB2bNotePl",
+        "NEVER mention relocation",
         "ALL levels accepted (junior through senior)",
         "Skip only: team-lead/manager/architect/director/head/VP",
         "exactly ONE job",
@@ -33,16 +42,18 @@ def test_prompt_pins_il_only_policy() -> None:
         assert marker in prompt, marker
 
 
-def test_prompt_has_no_eu_or_salary_floor_markers() -> None:
+def test_prompt_has_no_stale_il_only_or_eu_markers() -> None:
     prompt = build_tick_prompt(Config(campaign_dir="/tmp/camp"))
     for forbidden in (
-        "PLN",
+        "Do NOT apply to Polish sites",
+        "IL only",
         "15k",
         "RemotifyEurope",
         "EuroRemote",
         "4DayWeek",
         "We Work Remotely",
         "EU/GLOBAL",
+        "willing to relocate",
     ):
         assert forbidden not in prompt, forbidden
 

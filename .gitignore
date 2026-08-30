@@ -25,3 +25,4 @@ coverage/
 secrets-dump-*.txt
 playwright-output/
 director/
+.coverage

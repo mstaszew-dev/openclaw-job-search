@@ -1,7 +1,8 @@
-"""Policy pins: IL-only, all seniority, no EU/PL portals, no salary floor.
+"""Policy pins: IL+PL alternating regions, all seniority, PL remote-only B2B floor.
 
-These tests deliberately hard-code the campaign policy so accidental edits to
-the prompt or skill fail CI.
+These tests deliberately hard-code the campaign policy (plan 2026-08-30,
+supersedes the 2026-08-23 IL-only plan) so accidental edits to the prompt
+or skill fail CI.
 """
 from __future__ import annotations
 
@@ -13,22 +14,26 @@ from jobhermes.prompt import build_tick_prompt
 SKILL_PATH = Path(__file__).resolve().parents[1] / "skills" / "job-search-tick" / "SKILL.md"
 
 REQUIRED_MARKERS = (
-    "IL only",
+    "IL + PL",
+    "alternating 50/50",
     "remote/hybrid/onsite",
+    "fully remote ONLY",
+    "15 000 PLN",
+    "NoFluffJobs",
+    "JustJoin.it",
+    "theProtocol.it",
+    "michael-staszewski-cv-pl.pdf",
     "ALL levels accepted (junior through senior)",
     "team-lead/manager/architect/director/head/VP",
 )
 
 FORBIDDEN_MARKERS = (
-    "PLN",
-    "15k",
+    "Do NOT apply to Polish sites",
     "RemotifyEurope",
     "EuroRemote",
     "4DayWeek",
     "We Work Remotely",
     "prag",
-    "theprotocol",
-    "nofluffjobs",
 )
 
 
@@ -41,11 +46,11 @@ def test_prompt_policy_pins() -> None:
 
 
 def test_skill_policy_pins() -> None:
-    skill = SKILL_PATH.read_text(encoding="utf-8").lower()
+    skill = SKILL_PATH.read_text(encoding="utf-8")
     for marker in REQUIRED_MARKERS:
-        assert marker.lower() in skill, marker
+        assert marker in skill, marker
     for marker in FORBIDDEN_MARKERS:
-        assert marker.lower() not in skill, marker
+        assert marker not in skill, marker
 
 
 def test_skill_pins_one_job_one_record_rules() -> None:

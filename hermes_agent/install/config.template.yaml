@@ -8,6 +8,20 @@ providers:
     api_key: msrouter-local
     transport: chat_completions
     default_model: mst/free
+  tokenrouter:
+    api: https://api.tokenrouter.com/v1
+    api_key: REPLACE_WITH_TOKENROUTER_KEY  # real key lives in ~/.hermes/config.yaml (gitignored)
+    transport: chat_completions
+    default_model: z-ai/glm-5.3-free
+    models:
+      - z-ai/glm-5.3-free
+  laptop:
+    api: https://laptop-a64sv2el.taila0a683.ts.net/v1
+    api_key: laptop
+    transport: chat_completions
+    default_model: qwen3.5:0.8b
+    models:
+      - qwen3.5:0.8b
 agent:
   max_turns: 200
 plugins:

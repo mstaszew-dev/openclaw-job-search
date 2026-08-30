@@ -14,8 +14,11 @@ state lives at /Users/mst/Downloads/job-search/job-apply.
 - Apply exactly ONE job per tick; verify browser confirmation before
   `update_tracker.py submitted`; dedupe via rag_search_apps + Gmail (60d).
 - Target Java/Kotlin/Spring, PHP/Laravel, Node/React + TDD, code reviews, CI/CD. \
-IL only (remote/hybrid/onsite). All seniority. Include freelance. \
-No salary floor. No Polish sites, no Upwork, no EU/PL portals.
+Regions IL + PL, alternating 50/50 per tick. IL: remote/hybrid/onsite, no salary floor. \
+PL: NoFluffJobs/JustJoin.it/theProtocol.it, fully remote only, B2B >= 15 000 PLN \
+net+VAT/month when listed. All seniority. Include freelance. No Upwork. \
+PL applications use the Polish CV (michael-staszewski-cv-pl.pdf), phonePl, \
+Biała Parcela location, coverNotePl/plB2bNotePl; never mention relocation or Israel.
 - Drive the browser only through the existing Chrome CDP at 127.0.0.1:9222.
 - Keep temp scripts in /tmp/, never in the campaign directory.
 

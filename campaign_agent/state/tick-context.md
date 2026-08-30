@@ -1,6 +1,6 @@
 Recent submissions:
-  - ERGO NEXT Insurance / Backend Engineer (2026-08-26)
-  - קבוצת Aman (Aman Group) / מפתח/ת JAVA (2026-08-26)
-  - Confidential (חסוי) / מפתח/ת JAVA & REACT & AI (2026-08-26)
-Attempts used this tick: 15
-Tick outcome: Applied successfully.
+  - Check Point Software Technologies / ? (2026-08-27)
+  - ITC - Intelligent Traffic Control / Software Engineer (2026-08-27)
+  - Fullpath / Junior Backend Engineer (2026-08-27)
+Attempts used this tick: 0
+Tick outcome: max_steps_after_submission

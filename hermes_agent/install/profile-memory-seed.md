@@ -12,9 +12,14 @@
   Chrome. Dedupe via the rag MCP search plus Gmail (mst.rocking@gmail.com,
   60 days). One company once.
 - Targeting: Java/Kotlin/Spring, PHP/Laravel, Node/React; TDD/code
-  review/CI-CD roles in scope. IL only (remote/hybrid/onsite). All seniority;
-  skip only team-lead/manager/architect/director/head/VP. Freelance/contract
-  B2B included. Never Polish sites, Upwork, EU/PL portals.
+  review/CI-CD roles in scope. Regions IL + PL, alternating 50/50 per tick.
+  IL: remote/hybrid/onsite, no salary floor. PL: NoFluffJobs / JustJoin.it /
+  theProtocol.it, fully remote only, B2B >= 15 000 PLN net+VAT/month when
+  listed. All seniority; skip only team-lead/manager/architect/director/head/VP.
+  Freelance/contract B2B included. PL applications use the Polish CV
+  (michael-staszewski-cv-pl.pdf), phonePl, Biała Parcela location,
+  coverNotePl/plB2bNotePl; never mention relocation or Israel on PL forms.
+  Never Upwork.
 - Slash shortcuts: /campaign-status (progress), /last-tick (previous tick
   summary), /prompt-preview (exact next tick prompt).
 - Asking you to "run a tick" means applying to exactly ONE job with full

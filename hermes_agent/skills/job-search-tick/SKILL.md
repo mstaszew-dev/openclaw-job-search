@@ -1,6 +1,6 @@
 ---
 name: job-search-tick
-description: Apply to one IL job per tick - pick, dedupe, apply, record
+description: One IL/PL job per tick - pick, dedupe, apply, record
 version: 1.0.0
 platforms: [macos]
 metadata:
@@ -49,7 +49,15 @@ record it. Never run twice in a row without a recorded outcome.
   Salesforce, C/C++, .NET, ML/data, DevOps/SRE-only.
 - Seniority: ALL levels accepted (junior through senior). Skip only:
   team-lead/manager/architect/director/head/VP.
-- IL only: remote/hybrid/onsite ALL OK (central Israel for onsite; remote
-  anywhere in IL). Do NOT apply to Polish sites, Upwork, or EU/PL portals.
+- Regions: IL + PL, alternating 50/50 (the latest tracker submission's region
+  decides the next tick: IL -> PL, PL -> IL; none/ambiguous -> IL).
+- IL: remote/hybrid/onsite ALL OK (central Israel for onsite; remote anywhere
+  in IL), no salary floor. PL: fully remote ONLY (NoFluffJobs / JustJoin.it /
+  theProtocol.it), B2B >= 15 000 PLN net+VAT/month (skip when the listing shows
+  a lower B2B rate).
+- CV by region: IL listing -> cv/michael-staszewski-cv.pdf; PL listing ->
+  cv/michael-staszewski-cv-pl.pdf. PL forms: phone +48790775407, location
+  Biała Parcela, woj. łódzkie, coverNotePl / plB2bNotePl from applicant.json;
+  NEVER mention relocation or Israel on PL forms.
 - Freelance: include freelance, contract, part-time, and fixed-term B2B in
-  IL.
+  both regions.
