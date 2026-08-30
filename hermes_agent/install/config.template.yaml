@@ -19,9 +19,9 @@ providers:
     api: https://laptop-a64sv2el.taila0a683.ts.net/v1
     api_key: laptop
     transport: chat_completions
-    default_model: qwen3.5:0.8b
+    default_model: qwen3.5:2b
     models:
-      - qwen3.5:0.8b
+      - qwen3.5:2b
 agent:
   max_turns: 200
 plugins:

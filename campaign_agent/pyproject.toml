@@ -1,4 +1,5 @@
 [tool.pytest.ini_options]
+addopts = "--cov=campaign_agent --cov-report=term-missing --cov-fail-under=98"
 pythonpath = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
