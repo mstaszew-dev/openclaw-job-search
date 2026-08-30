@@ -55,8 +55,8 @@ class TestTickStatusTargetFallback:
         assert result.returncode == 0
         assert "submitted : 1200/1500" in result.stdout
 
-    def test_fallback_is_1500_not_1000(self, tick_status_script, tmp_path):
-        """When tracker.json has NO targetApplications, fallback should be 1500."""
+    def test_fallback_is_2000_not_1000(self, tick_status_script, tmp_path):
+        """When tracker.json has NO target, fallback should be 2000 (2026-08-31 target raise)."""
         data = {
             "schemaVersion": "1.0",
             "stats": {"submitted": 100},
@@ -81,8 +81,8 @@ class TestTickStatusTargetFallback:
             timeout=5,
         )
         assert result.returncode == 0
-        # Should show 1500 as target, NOT 1000
-        assert "submitted : 100/1500" in result.stdout
+        # Should show 2000 as target, NOT 1000 (2026-08-31 target raise)
+        assert "submitted : 100/2000" in result.stdout
         assert "submitted : 100/1000" not in result.stdout
 
     def test_campaign_complete_uses_correct_target(self, tick_status_script, tmp_path):
