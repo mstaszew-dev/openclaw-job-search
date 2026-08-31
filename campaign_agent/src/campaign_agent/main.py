@@ -126,7 +126,9 @@ async def run_agent_turn(
         log.info("Agent step %d/%d", step + 1, max_steps)
 
         try:
-            response = llm.chat(messages, tools=tools.schemas)
+            # Hard-deadline async wrapper: a half-open gateway socket must
+            # never wedge the whole agent (observed 8h hang, 2026-08-31).
+            response = await llm.chat_async(messages, tools=tools.schemas)
         except Exception as e:
             log.error("LLM call failed: %s", e)
             return TickResult(success=False, reason=f"llm_error: {e}")

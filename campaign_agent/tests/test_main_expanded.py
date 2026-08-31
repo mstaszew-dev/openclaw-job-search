@@ -48,7 +48,7 @@ class TestRunAgentTurnExpanded:
         → failure (anti-gaming: content alone is not a successful tick).
         """
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(side_effect=[
+        mock_llm.chat_async = AsyncMock(side_effect=[
             LLMResponse(
                 content="",
                 tool_calls=[
@@ -81,7 +81,7 @@ class TestRunAgentTurnExpanded:
         tools = ToolRouter(playwright_client=mock_pw, rag_client=None)
 
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(side_effect=[
+        mock_llm.chat_async = AsyncMock(side_effect=[
             LLMResponse(
                 content="",
                 tool_calls=[ToolCall(id="c1", name="browser_navigate", arguments={"url": "https://example.com"})],
@@ -108,7 +108,7 @@ class TestRunAgentTurnExpanded:
         tools = ToolRouter(playwright_client=None, rag_client=mock_rag)
 
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(side_effect=[
+        mock_llm.chat_async = AsyncMock(side_effect=[
             LLMResponse(
                 content="",
                 tool_calls=[ToolCall(id="c1", name="rag_search_apps", arguments={"query": "Java developer"})],
@@ -131,7 +131,7 @@ class TestRunAgentTurnExpanded:
     async def test_tool_error_continues_loop(self):
         """When a tool fails, the error result is fed back and the loop continues."""
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(side_effect=[
+        mock_llm.chat_async = AsyncMock(side_effect=[
             LLMResponse(
                 content="",
                 tool_calls=[ToolCall(id="c1", name="browser_navigate", arguments={"url": "bad-url"})],
@@ -159,7 +159,7 @@ class TestRunAgentTurnExpanded:
     async def test_long_conversation_multiple_steps(self):
         """Agent makes multiple tool calls over several steps (no submission)."""
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(side_effect=[
+        mock_llm.chat_async = AsyncMock(side_effect=[
             LLMResponse(content="", tool_calls=[ToolCall(id="c1", name="exec", arguments={"command": "echo step1"})], finish_reason="tool_calls"),
             LLMResponse(content="", tool_calls=[ToolCall(id="c2", name="exec", arguments={"command": "echo step2"})], finish_reason="tool_calls"),
             LLMResponse(content="", tool_calls=[ToolCall(id="c3", name="exec", arguments={"command": "echo step3"})], finish_reason="tool_calls"),
@@ -173,7 +173,7 @@ class TestRunAgentTurnExpanded:
 
         assert result.success is False
         assert "no_submission" in result.reason
-        assert mock_llm.chat.call_count == 4  # 3 tool calls + 1 final
+        assert mock_llm.chat_async.call_count == 4  # 3 tool calls + 1 final
 
     @pytest.mark.asyncio
     async def test_update_tracker_submission_detected(self):
@@ -183,7 +183,7 @@ class TestRunAgentTurnExpanded:
         tools.dispatch = AsyncMock(return_value="saved 1133/1200 exit=0")
 
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(side_effect=[
+        mock_llm.chat_async = AsyncMock(side_effect=[
             LLMResponse(
                 content="",
                 tool_calls=[ToolCall(

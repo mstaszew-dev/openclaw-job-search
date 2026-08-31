@@ -4,6 +4,7 @@ Handles tool-call parsing, empty response detection, retry logic.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -102,11 +103,18 @@ class LLMClient:
         max_tokens: int = 4096,
         max_retries: int = 3,
         timeout: int = 120,
+        hard_timeout: int | None = None,
     ) -> None:
         self.model = model
         self.max_tokens = max_tokens
         self.max_retries = max_retries
-        self._client = OpenAI(
+        # Hard wall-clock deadline for chat_async: a half-open socket (gateway
+        # restarted/vanished mid-request) leaves the sync httpx read blocked
+        # indefinitely even though the SDK per-request timeout is set, so the
+        # deadline is enforced at the application layer instead. Defaults to
+        # one SDK attempt plus slack.
+        self.hard_timeout = hard_timeout if hard_timeout is not None else timeout + 120
+        self._client_kwargs = dict(
             base_url=base_url,
             api_key=api_key,
             timeout=timeout,
@@ -115,6 +123,38 @@ class LLMClient:
             # wait under msrouter 429 storms, confusing request accounting).
             max_retries=0,
         )
+        self._client = OpenAI(**self._client_kwargs)
+
+    def reset_client(self) -> None:
+        """Drop the current HTTP client (and its dead pooled socket) so the
+        next request opens a fresh connection."""
+        self._client = OpenAI(**self._client_kwargs)
+
+    async def chat_async(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int | None = None,
+    ) -> LLMResponse:
+        """Async wrapper around chat() with a hard wall-clock deadline.
+
+        The sync OpenAI call blocks in a bare socket read when the gateway
+        connection goes half-open; the SDK timeout does not reliably fire in
+        that state (observed 8h hang). wait_for gives a deterministic bound;
+        on expiry the client is reset so the retry uses a fresh connection.
+        """
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self.chat, messages, tools=tools, max_tokens=max_tokens),
+                timeout=self.hard_timeout,
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            log.error(
+                "LLM hard deadline (%ss) exceeded; resetting HTTP client for fresh connection",
+                self.hard_timeout,
+            )
+            self.reset_client()
+            raise
 
     def chat(
         self,

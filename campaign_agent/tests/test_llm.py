@@ -1,5 +1,7 @@
 """Tests for LLM client — msrouter wrapper, tool-call parsing, retry logic."""
 import json
+import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -240,3 +242,45 @@ class TestLLMClient:
         with pytest.raises(APIError):
             client.chat(messages=[{"role": "user", "content": "hi"}])
         assert mock_openai_client.chat.completions.create.call_count == 1
+
+
+class TestChatAsyncHardDeadline:
+    """chat_async must enforce a hard wall-clock deadline: a half-open socket
+    (peer vanished mid-request) makes the sync httpx read block forever, and
+    the SDK per-request timeout has proven unreliable in that state - so the
+    agent resets the HTTP client and retries on a fresh connection."""
+
+    def _client(self, hard_timeout=0.2, hang=2):
+        llm = LLMClient(base_url="http://127.0.0.1:9", api_key="x", hard_timeout=hard_timeout)
+
+        def hang_forever(**kwargs):
+            time.sleep(hang)
+            return SimpleNamespace(choices=[], model="m")
+
+        llm._client.chat.completions.create = hang_forever
+        return llm
+
+    async def test_chat_async_returns_parsed_response(self):
+        llm = LLMClient(base_url="http://127.0.0.1:9", api_key="x", hard_timeout=5)
+        fake = SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content="ok", tool_calls=None),
+                finish_reason="stop")],
+            model="m",
+        )
+        llm._client.chat.completions.create = lambda **kwargs: fake
+        res = await llm.chat_async([{"role": "user", "content": "hi"}])
+        assert res.content == "ok"
+
+    async def test_chat_async_hard_timeout_resets_client(self):
+        llm = self._client(hard_timeout=0.2, hang=30)
+        old_client = llm._client
+        with pytest.raises(TimeoutError):
+            await llm.chat_async([{"role": "user", "content": "hi"}])
+        assert llm._client is not old_client
+
+    async def test_chat_async_no_timeout_when_healthy(self):
+        llm = self._client(hard_timeout=5, hang=0)
+        old_client = llm._client
+        await llm.chat_async([{"role": "user", "content": "hi"}])
+        assert llm._client is old_client

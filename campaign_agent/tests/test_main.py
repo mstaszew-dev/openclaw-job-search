@@ -92,7 +92,7 @@ class TestRunAgentTurn:
         'the files are missing') must NOT count as a successful tick.
         """
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(return_value=LLMResponse(
+        mock_llm.chat_async = AsyncMock(return_value=LLMResponse(
             content="The required files are missing", tool_calls=[], finish_reason="stop"
         ))
         mock_llm.model = "test"
@@ -109,7 +109,7 @@ class TestRunAgentTurn:
         mock_llm = MagicMock()
         # First call: tool call
         # Second call: content
-        mock_llm.chat = MagicMock(side_effect=[
+        mock_llm.chat_async = AsyncMock(side_effect=[
             LLMResponse(
                 content="",
                 tool_calls=[ToolCall(id="c1", name="exec", arguments={"command": "echo hi"})],
@@ -131,7 +131,7 @@ class TestRunAgentTurn:
     async def test_empty_response_returns_failure(self):
         """Empty response (no content, no tools) → failure."""
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(return_value=LLMResponse(
+        mock_llm.chat_async = AsyncMock(return_value=LLMResponse(
             content="", tool_calls=[], finish_reason="stop"
         ))
         mock_llm.model = "test"
@@ -146,7 +146,7 @@ class TestRunAgentTurn:
     async def test_max_steps_exceeded(self):
         """LLM keeps calling tools → max_steps exceeded (no submission)."""
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(return_value=LLMResponse(
+        mock_llm.chat_async = AsyncMock(return_value=LLMResponse(
             content="",
             tool_calls=[ToolCall(id="c1", name="exec", arguments={"command": "echo loop"})],
             finish_reason="tool_calls",
@@ -163,7 +163,7 @@ class TestRunAgentTurn:
     async def test_llm_error_returns_failure(self):
         """LLM raises exception → failure."""
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(side_effect=RuntimeError("msrouter down"))
+        mock_llm.chat_async = AsyncMock(side_effect=RuntimeError("msrouter down"))
         mock_llm.model = "test"
         tools = ToolRouter(playwright_client=None, rag_client=None)
 
@@ -180,7 +180,7 @@ class TestRunAgentTurn:
         tools.dispatch = AsyncMock(return_value="saved 1133/1200 exit=0")
 
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(side_effect=[
+        mock_llm.chat_async = AsyncMock(side_effect=[
             LLMResponse(
                 content="",
                 tool_calls=[ToolCall(
@@ -206,7 +206,7 @@ class TestRunAgentTurn:
         tools.dispatch = AsyncMock(return_value="Error: bad json exit=2")
 
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(side_effect=[
+        mock_llm.chat_async = AsyncMock(side_effect=[
             LLMResponse(
                 content="",
                 tool_calls=[ToolCall(
@@ -232,7 +232,7 @@ class TestRunAgentTurn:
         tools.dispatch = AsyncMock(return_value="saved exit=0")
 
         mock_llm = MagicMock()
-        mock_llm.chat = MagicMock(return_value=LLMResponse(
+        mock_llm.chat_async = AsyncMock(return_value=LLMResponse(
             content="",
             tool_calls=[ToolCall(
                 id="c1", name="exec",
@@ -430,6 +430,7 @@ class TestRunAgentTurnTruncation:
 
         mock_llm = MagicMock()
         mock_llm.chat = fake_chat
+        mock_llm.chat_async = AsyncMock(side_effect=fake_chat)
         mock_llm.model = "test"
         tools = ToolRouter(playwright_client=None, rag_client=None)
 
