@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,11 @@ class TickContext:
             text = text[: self.max_chars] + "\n...[truncated]"
         p = Path(self.path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(text, encoding="utf-8")
+        # Atomic: an interrupted write must never feed a truncated summary
+        # into the next tick's prompt.
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, p)
 
     def load(self) -> str:
         """Return the previous tick summary, or '' if none exists."""
@@ -82,6 +87,10 @@ def estimate_tokens_from_messages(messages: list[dict[str, Any]]) -> int:
             for part in content:
                 if isinstance(part, dict) and "text" in part:
                     total_chars += len(str(part["text"]))
+        # Tool-call arguments are part of the prompt the model sees; count
+        # them or truncation triggers late on tool-call-heavy histories.
+        for tc in msg.get("tool_calls") or []:
+            total_chars += len(json.dumps(tc))
         # Add overhead per message (role, structure)
         total_chars += 10
     return max(0, total_chars // 4)

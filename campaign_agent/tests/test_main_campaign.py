@@ -85,7 +85,15 @@ async def test_no_submission_retries_with_fresh_messages(tmp_path):
 
         tracker = h.Tracker.return_value
         tracker.campaign_complete.side_effect = [False, True]  # first tick, then done
-        tracker.submitted.return_value = 5
+        # Delta gate (anti-gaming): the tracker must move on the successful
+        # attempt, so reads return 5 first, then 6 afterwards.
+        _reads = {"n": 0}
+
+        def _submitted():
+            _reads["n"] += 1
+            return 5 if _reads["n"] == 1 else 6
+
+        tracker.submitted.side_effect = _submitted
         tracker.target.return_value = 10
 
         session = h.SessionManager.return_value
@@ -281,7 +289,15 @@ async def test_mcp_connect_failure_continues_exec_only(tmp_path):
 
         tracker = h.Tracker.return_value
         tracker.campaign_complete.side_effect = [False, True]
-        tracker.submitted.return_value = 5
+        # Delta gate (anti-gaming): the tracker must move on the successful
+        # attempt, so reads return 5 first, then 6 afterwards.
+        _reads = {"n": 0}
+
+        def _submitted():
+            _reads["n"] += 1
+            return 5 if _reads["n"] == 1 else 6
+
+        tracker.submitted.side_effect = _submitted
         tracker.target.return_value = 10
 
         session = h.SessionManager.return_value
@@ -339,7 +355,15 @@ async def test_rate_limit_backs_off_then_succeeds(tmp_path):
 
         tracker = h.Tracker.return_value
         tracker.campaign_complete.side_effect = [False, True]
-        tracker.submitted.return_value = 5
+        # Delta gate (anti-gaming): the tracker must move on the successful
+        # attempt, so reads return 5 first, then 6 afterwards.
+        _reads = {"n": 0}
+
+        def _submitted():
+            _reads["n"] += 1
+            return 5 if _reads["n"] == 1 else 6
+
+        tracker.submitted.side_effect = _submitted
         tracker.target.return_value = 10
 
         session = h.SessionManager.return_value
@@ -370,7 +394,15 @@ async def test_transient_error_retries_then_succeeds(tmp_path):
 
         tracker = h.Tracker.return_value
         tracker.campaign_complete.side_effect = [False, True]
-        tracker.submitted.return_value = 5
+        # Delta gate (anti-gaming): the tracker must move on the successful
+        # attempt, so reads return 5 first, then 6 afterwards.
+        _reads = {"n": 0}
+
+        def _submitted():
+            _reads["n"] += 1
+            return 5 if _reads["n"] == 1 else 6
+
+        tracker.submitted.side_effect = _submitted
         tracker.target.return_value = 10
 
         session = h.SessionManager.return_value
@@ -442,6 +474,46 @@ async def test_llm_client_wired_with_timeout_seconds(tmp_path):
 
         call_kwargs = h.LLMClient.call_args.kwargs
         assert call_kwargs["timeout"] == 1200
+        assert call_kwargs["hard_timeout"] == cfg.llm_hard_timeout
+    finally:
+        h.stop()
+
+
+@pytest.mark.asyncio
+async def test_three_consecutive_llm_hard_timeouts_abandon_tick(tmp_path):
+    """3 consecutive llm_hard_timeout attempts abandon the tick (no
+    inner_max_fails stall); the campaign continues on the next tick."""
+    h = _PatchHarness()
+    try:
+        cfg = _cfg(tmp_path)
+        cfg.outer_backoff = 1  # give-up backoff becomes 4 (distinguishable)
+
+        tracker = h.Tracker.return_value
+        tracker.campaign_complete.side_effect = [False, False, True]
+        tracker.submitted.return_value = 5
+        tracker.target.return_value = 2000
+
+        session = h.SessionManager.return_value
+        session.session_id = None
+        session.should_rotate.return_value = False
+
+        def fail_hard(llm, tools, messages, max_steps, **kwargs):
+            return MagicMock(success=False, reason="llm_hard_timeout", submitted=0)
+
+        sleeps = []
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
+        with patch("campaign_agent.main.run_agent_turn", side_effect=fail_hard) as mock_turn, \
+             patch("campaign_agent.main.asyncio.sleep", side_effect=fake_sleep):
+            await run_campaign(cfg)
+
+        # Tick 1 abandons after exactly 3 attempts (NOT inner_max_fails=200);
+        # tick 2 starts fresh (3 more), then campaign_complete exits.
+        assert mock_turn.await_count == 6
+        # The 4x give-up backoff fired once per abandoned tick.
+        assert sleeps.count(4) == 2
     finally:
         h.stop()
 
@@ -617,11 +689,20 @@ async def test_tick_save_exception_continues_campaign(tmp_path, caplog):
     h = _PatchHarness()
     try:
         cfg = _cfg(tmp_path)
+        cfg.inner_max_fails = 3
         h.TickContext.return_value.load.return_value = ""
 
         tracker = h.Tracker.return_value
         tracker.campaign_complete.side_effect = [False, False, True]
-        tracker.submitted.return_value = 5
+        # Delta gate (anti-gaming): the tracker must move on the successful
+        # attempt, so reads return 5 first, then 6 afterwards.
+        _reads = {"n": 0}
+
+        def _submitted():
+            _reads["n"] += 1
+            return 5 if _reads["n"] == 1 else 6
+
+        tracker.submitted.side_effect = _submitted
         tracker.target.return_value = 10
 
         session = h.SessionManager.return_value
@@ -641,9 +722,52 @@ async def test_tick_save_exception_continues_campaign(tmp_path, caplog):
             with caplog.at_level(logging.WARNING, logger="campaign_agent.main"):
                 await run_campaign(cfg)
 
-        # Campaign continued past the first tick despite save() failing
-        assert calls["n"] == 2
+        # Campaign continued past the first tick despite save() failing.
+        # Tick 1: valid delta (5 -> 6) succeeds. Tick 2: delta is zero, so
+        # the anti-gaming gate burns inner_max_fails retries before the
+        # tick is abandoned; campaign then exits.
+        assert calls["n"] == 4
         assert "disk full" in caplog.text
         assert "Could not save tick context" in caplog.text
+    finally:
+        h.stop()
+
+
+@pytest.mark.asyncio
+async def test_zero_tracker_delta_success_is_retried_anti_gaming(tmp_path):
+    """S4: a claimed success that leaves the tracker unchanged (echo tricks
+    faking the string marker) must be retried, not counted."""
+    h = _PatchHarness()
+    try:
+        cfg = _cfg(tmp_path)
+        cfg.inner_max_fails = 3
+
+        tracker = h.Tracker.return_value
+        tracker.campaign_complete.side_effect = [False] * 12 + [True]
+
+        # Read sequence (each submitted() read consumes one entry):
+        # tick1: start=5, log=5, attempts 1-3 delta=5 (zero -> retried)
+        # tick2: start=6, log=6, attempt delta=7 (moved -> counted)
+        import itertools
+        reads = iter([5, 5, 5, 5, 5, 6, 6, 6])
+        tracker.submitted.side_effect = lambda: next(reads, 7)
+        tracker.target.return_value = 2000
+
+        session = h.SessionManager.return_value
+        session.session_id = None
+        session.should_rotate.return_value = False
+
+        # Every attempt "succeeds" - only the tracker delta can validate it.
+        async def fake_turn(*args, **kwargs):
+            return MagicMock(success=True, reason="recorded", submitted=1)
+
+        with patch("campaign_agent.main.run_agent_turn", side_effect=fake_turn) as mock_turn:
+            await run_campaign(cfg)
+
+        # The zero-delta "success" must trigger at least one retry (the
+        # anti-gaming gate), and the campaign must still terminate cleanly
+        # (bounded by inner_max_fails=3 per tick and campaign_complete=True).
+        assert mock_turn.await_count >= 2
+        assert mock_turn.await_count <= 36  # sanity: bounded (12 ticks x 3)
     finally:
         h.stop()

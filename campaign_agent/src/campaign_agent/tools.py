@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import signal
 import subprocess
 from pathlib import Path
 from typing import Any, Protocol
@@ -17,6 +19,11 @@ PLAYWRIGHT_TOOL_TIMEOUT = 120.0
 
 # Default timeout for RAG MCP tool calls (seconds)
 RAG_TOOL_TIMEOUT = 60.0
+
+# exec tool: hard ceiling on model-supplied timeouts. A free-tier model
+# passing timeout=86400 must never be able to wedge the event loop for a day.
+EXEC_DEFAULT_TIMEOUT = 30
+EXEC_MAX_TIMEOUT = 300
 
 # OpenAI function-calling tool schemas
 TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -231,27 +238,45 @@ class MCPClient(Protocol):
 
 
 def exec_tool(command: str, timeout: int = 30, cwd: str | None = None) -> str:
-    """Execute a shell command and return stdout + stderr + exit code."""
+    """Execute a shell command and return stdout + stderr + exit code.
+
+    The command runs in its own session (start_new_session) so that on
+    timeout the WHOLE process group can be SIGKILLed - subprocess.run's
+    default kill only reaps the /bin/sh, leaking backgrounded grandchildren.
+    """
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             command,
             shell=True,
-            capture_output=True,
             text=True,
-            timeout=timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
             cwd=cwd,
         )
-        parts = []
-        if result.stdout:
-            parts.append(result.stdout.strip())
-        if result.stderr:
-            parts.append(f"stderr: {result.stderr.strip()}")
-        parts.append(f"exit={result.returncode}")
-        return "\n".join(parts)
-    except subprocess.TimeoutExpired:
-        return f"Command timed out after {timeout}s"
     except Exception as e:
         return f"Error: {e}"
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            proc.kill()
+        out, err = proc.communicate()
+        parts = [f"Command timed out after {timeout}s"]
+        if out and out.strip():
+            parts.append(out.strip())
+        if err and err.strip():
+            parts.append(f"stderr: {err.strip()}")
+        return "\n".join(parts)
+    parts = []
+    if out:
+        parts.append(out.strip())
+    if err:
+        parts.append(f"stderr: {err.strip()}")
+    parts.append(f"exit={proc.returncode}")
+    return "\n".join(parts)
 
 
 def read_file(path: str, base_dir: str | None = None, max_chars: int = 20000) -> str:
@@ -293,10 +318,24 @@ class ToolRouter:
     async def dispatch(self, name: str, args: dict[str, Any]) -> str:
         """Dispatch a tool call asynchronously."""
         if name == "exec":
-            return exec_tool(
-                args.get("command", ""),
-                timeout=args.get("timeout", 30),
-                cwd=args.get("cwd") or self.default_cwd,
+            try:
+                timeout = min(
+                    max(int(args.get("timeout", EXEC_DEFAULT_TIMEOUT)), 1),
+                    EXEC_MAX_TIMEOUT,
+                )
+            except (TypeError, ValueError):
+                timeout = EXEC_DEFAULT_TIMEOUT
+            # subprocess.run blocks: run it in a worker thread with a hard
+            # ceiling so the event loop stays responsive no matter what the
+            # command does.
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    exec_tool,
+                    args.get("command", ""),
+                    timeout,
+                    args.get("cwd") or self.default_cwd,
+                ),
+                timeout=timeout + 10,
             )
 
         if name == "read":

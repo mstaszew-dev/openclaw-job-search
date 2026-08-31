@@ -246,3 +246,45 @@ class TestRAGMCP:
 
         result = await rag.call_tool("rag_search_apps", {"query": "Java"})
         assert "Dict content" in result
+
+
+def _make_wedged_session_mocks():
+    """Mocks where session.initialize() hangs forever (the 2026-08-31 wedge
+    class: MCP startup blocking connect() with no timeout)."""
+    mock_read_write = MagicMock()
+    mock_read_write.__aenter__ = AsyncMock(return_value=("r", "w"))
+    mock_read_write.__aexit__ = AsyncMock(return_value=False)
+
+    async def hang_initialize():
+        await asyncio.sleep(60)
+
+    mock_session = AsyncMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.initialize = hang_initialize
+    return mock_read_write, mock_session
+
+
+@pytest.mark.asyncio
+async def test_playwright_connect_initialize_timeout_cleans_up():
+    pw = PlaywrightMCP("node", [])
+    mock_read_write, mock_session = _make_wedged_session_mocks()
+    with patch("campaign_agent.playwright_mcp.stdio_client", return_value=mock_read_write), \
+         patch("campaign_agent.playwright_mcp.ClientSession", return_value=mock_session), \
+         patch("campaign_agent.playwright_mcp.CONNECT_TIMEOUT_S", 0.2):
+        with pytest.raises(asyncio.TimeoutError):
+            await pw.connect()
+    assert pw._session is None
+    mock_read_write.__aexit__.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rag_connect_initialize_timeout_cleans_up():
+    rag = RAGMCP("python", ["-m", "rag_server"])
+    mock_read_write, mock_session = _make_wedged_session_mocks()
+    with patch("campaign_agent.rag_mcp.stdio_client", return_value=mock_read_write), \
+         patch("campaign_agent.rag_mcp.ClientSession", return_value=mock_session), \
+         patch("campaign_agent.rag_mcp.CONNECT_TIMEOUT_S", 0.2):
+        with pytest.raises(asyncio.TimeoutError):
+            await rag.connect()
+    assert rag._session is None
+    mock_read_write.__aexit__.assert_awaited_once()

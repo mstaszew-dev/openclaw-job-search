@@ -24,6 +24,7 @@ from campaign_agent.prompt import build_system_prompt, build_user_prompt
 from campaign_agent.session import SessionManager, TickContext, build_tick_summary, estimate_tokens_from_messages
 from campaign_agent.tools import ToolRouter
 from campaign_agent.tracker import Tracker
+from openai import AuthenticationError, PermissionDeniedError
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,9 @@ def classify_failure(text: str) -> str:
     # run_agent_turn reason tokens (retryable, never fatal)
     if text_lower.startswith("empty_response") or text_lower.startswith("no_submission"):
         return "transient"
+    # Bad key / quota exhausted: retrying would loop forever.
+    if text_lower.startswith("llm_auth_error"):
+        return "fatal"
     # max_steps_exceeded: the agent looped to the step cap without submitting.
     # The context at that point is huge, so treat it like context pressure:
     # rotate (compress) the session and keep going. NEVER fatal - the campaign
@@ -55,9 +59,12 @@ def classify_failure(text: str) -> str:
         return "max_steps"
     if any(p in text_lower for p in ["failover", "streaming response failed", "stream fail", "no_provider_available"]):
         return "transient"
-    if any(p in text_lower for p in ["context overflow", "prompt too large", "compaction", "maximum context", "token"]):
+    # Context checked FIRST: 'compaction timed out' is a context event even
+    # though it contains 'timed out'. The bare 'token' substring is gone -
+    # it misclassified TPM rate limits; 'tokens per minute' lives in rate.
+    if any(p in text_lower for p in ["context overflow", "prompt too large", "compaction", "maximum context", "token limit", "token too large"]):
         return "context"
-    if any(p in text_lower for p in ["rate limit", "429", "too many requests", "timed out", "timeout", "econn"]):
+    if any(p in text_lower for p in ["rate limit", "429", "too many requests", "tokens per minute", "timed out", "timeout", "econn"]):
         return "rate"
     if any(p in text_lower for p in ["connection error", "connection refused", "connection reset", "apiconnectionerror", "connection"]):
         return "transient"
@@ -92,6 +99,11 @@ def _truncate_messages(
     prefix = messages[:2]
     # Keep the last keep_last messages (or fewer if not enough)
     suffix = messages[-keep_last:] if len(messages) > keep_last else messages[2:]
+    # A kept suffix must not START with a tool message: its assistant parent
+    # (carrying tool_calls) may have been dropped with the middle section,
+    # and OpenAI rejects tool-first histories with a 400.
+    while suffix and suffix[0].get("role") == "tool":
+        suffix = suffix[1:]
     # Drop everything in between
     truncated = prefix + suffix
 
@@ -129,6 +141,13 @@ async def run_agent_turn(
             # Hard-deadline async wrapper: a half-open gateway socket must
             # never wedge the whole agent (observed 8h hang, 2026-08-31).
             response = await llm.chat_async(messages, tools=tools.schemas)
+        except asyncio.TimeoutError:
+            log.error("LLM hard deadline exceeded; connection reset for next attempt")
+            return TickResult(success=False, reason="llm_hard_timeout")
+        except (AuthenticationError, PermissionDeniedError) as e:
+            # Bad key / insufficient quota: retrying forever is pointless.
+            log.error("LLM auth/quota error: %s", e)
+            return TickResult(success=False, reason=f"llm_auth_error: {e}")
         except Exception as e:
             log.error("LLM call failed: %s", e)
             return TickResult(success=False, reason=f"llm_error: {e}")
@@ -200,6 +219,7 @@ async def run_campaign(config: Config) -> None:
         api_key=config.msrouter_api_key,
         model=config.msrouter_model,
         max_retries=3,
+        hard_timeout=config.llm_hard_timeout,
         # Timeout is managed entirely by msrouter per-provider (e.g.
         # LMSTUDIO_TIMEOUT_MS=1200s for local, UPSTREAM_TIMEOUT_MS=120s
         # for remote). The client timeout is a safety ceiling only; msrouter
@@ -234,6 +254,7 @@ async def run_campaign(config: Config) -> None:
                 return
 
             tick += 1
+            submitted_at_tick_start = tracker.submitted()
             log.info("=== Tick %d: %d/%d (%d to go) ===",
                      tick, tracker.submitted(), tracker.target(), tracker.remaining())
 
@@ -261,7 +282,9 @@ async def run_campaign(config: Config) -> None:
 
             # Run the agent turn
             fail_count = 0
+            consecutive_llm_hard = 0
             inner_result = "exhausted"
+            result = None
 
             while fail_count < config.inner_max_fails:
                 log.info("Attempt %d/%d", fail_count + 1, config.inner_max_fails)
@@ -290,11 +313,37 @@ async def run_campaign(config: Config) -> None:
                          elapsed, result.success, result.reason[:100])
 
                 if result.success:
-                    inner_result = "success"
-                    break
+                    # Anti-gaming (unforgeable): a claimed success must move
+                    # the tracker. Echo tricks that fake the string marker
+                    # produce zero delta and fall through to the failure
+                    # path (retry), never counted.
+                    tracker.reload()
+                    if tracker.submitted() > submitted_at_tick_start:
+                        inner_result = "success"
+                        break
+                    log.warning(
+                        "Success claimed but tracker delta is zero; retrying (anti-gaming)"
+                    )
+                    result = TickResult(
+                        success=False,
+                        reason="no_submission: tracker delta is zero (anti-gaming)",
+                    )
+                    # fall through: counts as a failed attempt and retries
 
                 fail_count += 1
-                kind = classify_failure(result.reason)
+                if result.reason.startswith("llm_hard_timeout"):
+                    # Gateway wedged again: retry on a fresh connection, but
+                    # abandon the tick after 3 consecutive hard timeouts.
+                    consecutive_llm_hard += 1
+                    if consecutive_llm_hard >= 3:
+                        log.error("%d consecutive LLM hard timeouts; abandoning tick",
+                                  consecutive_llm_hard)
+                        inner_result = "llm_hard_giveup"
+                        break
+                    kind = "transient"
+                else:
+                    consecutive_llm_hard = 0
+                    kind = classify_failure(result.reason)
                 if result.reason.startswith("no_submission"):
                     kind = "no_submission"
 
@@ -328,6 +377,10 @@ async def run_campaign(config: Config) -> None:
                     inner_result = "fatal"
                     break
 
+            if inner_result == "llm_hard_giveup":
+                long_backoff = config.outer_backoff * 4
+                log.warning("Backing off %.0fs after repeated LLM hard timeouts", long_backoff)
+                await asyncio.sleep(long_backoff)
             if inner_result == "fatal":
                 log.error("Fatal error, stopping campaign")
                 break
@@ -342,7 +395,9 @@ async def run_campaign(config: Config) -> None:
             try:
                 tracker.reload()
                 summary = build_tick_summary(
-                    tracker=tracker, attempts=fail_count, reason=result.reason,
+                    tracker=tracker,
+                    attempts=fail_count,
+                    reason=result.reason if result is not None else "no attempts made",
                 )
                 tick_context.save(summary)
                 log.info("Saved tick context: %s", summary.replace("\n", " | ")[:120])

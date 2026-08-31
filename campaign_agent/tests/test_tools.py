@@ -91,7 +91,9 @@ class TestExecTool:
         assert "exit=0" in result
 
     def test_exec_captures_generic_error(self):
-        with patch("campaign_agent.tools.subprocess.run",
+        # exec_tool spawns via Popen (not run) since the process-group kill
+        # hardening; a spawn failure must surface as "Error: ...".
+        with patch("campaign_agent.tools.subprocess.Popen",
                    side_effect=RuntimeError("spawn failed")):
             result = exec_tool("echo x", timeout=5)
         assert "Error:" in result
@@ -234,3 +236,75 @@ class TestToolRouter:
         result = await router.dispatch("rag_search_docs", {"query": "IL boards"})
         assert "failed" in result.lower()
         assert "rag down" in result
+
+
+class TestExecHardening:
+    """B1: model-supplied exec timeouts are capped, exec runs off the event
+    loop, and timed-out process groups are killed (no leaked grandchildren)."""
+
+    def _router(self):
+        from campaign_agent.tools import ToolRouter
+        return ToolRouter(default_cwd=None)
+
+    async def test_exec_timeout_is_capped(self, monkeypatch):
+        import asyncio
+        import time
+        from campaign_agent import tools as tools_mod
+
+        monkeypatch.setattr(tools_mod, "EXEC_MAX_TIMEOUT", 1)
+        start = time.monotonic()
+        result = await self._router().dispatch(
+            "exec", {"command": "sleep 30", "timeout": 10**9}
+        )
+        elapsed = time.monotonic() - start
+        assert "timed out after 1s" in result
+        assert elapsed < 10  # cap respected, model's 10**9 ignored
+
+    async def test_exec_does_not_block_event_loop(self, monkeypatch):
+        import asyncio
+        import time
+        from campaign_agent import tools as tools_mod
+
+        monkeypatch.setattr(tools_mod, "EXEC_MAX_TIMEOUT", 1)
+        router = self._router()
+        task = asyncio.create_task(
+            router.dispatch("exec", {"command": "sleep 5", "timeout": 5})
+        )
+        await asyncio.sleep(0.2)
+        t_wait = time.monotonic()  # loop must stay responsive during exec
+        await asyncio.sleep(0)
+        assert time.monotonic() - t_wait < 0.5
+        result = await task
+        assert "timed out" in result
+
+    async def test_exec_kills_grandchildren_on_timeout(self):
+        import asyncio
+        import subprocess
+        import time
+        from campaign_agent import tools as tools_mod
+
+        marker = "cv-restart-grandchild-probe"
+        result = await asyncio.wait_for(
+            tools_mod.ToolRouter().dispatch(
+                "exec", {"command": f"sleep 300 & echo {marker}", "timeout": 1}
+            ),
+            timeout=30,
+        )
+        assert "timed out" in result
+        time.sleep(0.5)
+        # The backgrounded `sleep 300` must have been killed with its group.
+        alive = subprocess.run(
+            ["bash", "-c", "ps -eo command | grep -c '[s]leep 300'"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        assert alive == "0", f"grandchild survived exec timeout: {alive}"
+
+    async def test_exec_string_timeout_coerced(self):
+        import asyncio
+        result = await asyncio.wait_for(
+            self._router().dispatch(
+                "exec", {"command": "echo hi", "timeout": "2"}
+            ),
+            timeout=10,
+        )
+        assert "hi" in result

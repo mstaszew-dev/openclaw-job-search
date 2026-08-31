@@ -318,3 +318,16 @@ class TestSessionManagerExpanded:
         sm.add_message({"role": "assistant", "content": "reply1"})
         sm.add_message({"role": "user", "content": "msg2"})
         assert len(sm.messages) == 3
+
+
+class TestClassifyFailureTokenVsRate:
+    """Bare 'token' substring misclassified TPM rate limits as context."""
+
+    def test_tokens_per_minute_is_rate(self):
+        assert classify_failure("You exceeded your current tokens per minute quota") == "rate"
+
+    def test_token_limit_is_context(self):
+        assert classify_failure("token limit too large for model") == "context"
+
+    def test_compaction_with_timeout_is_context(self):
+        assert classify_failure("Compaction timed out after 30s") == "context"

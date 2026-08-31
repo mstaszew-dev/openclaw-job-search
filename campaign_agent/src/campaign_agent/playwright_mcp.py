@@ -13,6 +13,9 @@ from mcp.client.stdio import stdio_client
 
 log = logging.getLogger(__name__)
 
+# MCP startup deadline: initialize() has no internal timeout in mcp 2.x
+CONNECT_TIMEOUT_S = 60.0
+
 
 class PlaywrightMCP:
     """Manages a Playwright MCP server subprocess via stdio."""
@@ -23,16 +26,32 @@ class PlaywrightMCP:
         self._ctx_stack: list[Any] = []  # holds context managers
 
     async def connect(self) -> None:
-        """Spawn the MCP server and initialize the session."""
-        self._ctx_stack = []
-        read_write = stdio_client(self.params)
-        self._ctx_stack.append(read_write)
-        read, write = await read_write.__aenter__()
+        """Spawn the MCP server and initialize the session.
 
-        self._session = ClientSession(read, write)
-        self._ctx_stack.append(self._session)
-        await self._session.__aenter__()
-        await self._session.initialize()
+        initialize() is bounded by CONNECT_TIMEOUT_S: a wedged MCP startup
+        (e.g. Chrome CDP endpoint dead) must not block connect() forever.
+        On any failure the half-initialized session and spawned context
+        managers are unwound so no broken session object survives.
+        """
+        self._ctx_stack = []
+        try:
+            read_write = stdio_client(self.params)
+            self._ctx_stack.append(read_write)
+            read, write = await read_write.__aenter__()
+
+            self._session = ClientSession(read, write)
+            self._ctx_stack.append(self._session)
+            await self._session.__aenter__()
+            await asyncio.wait_for(self._session.initialize(), timeout=CONNECT_TIMEOUT_S)
+        except BaseException:
+            self._session = None
+            for ctx in reversed(self._ctx_stack):
+                try:
+                    await ctx.__aexit__(None, None, None)
+                except Exception:
+                    pass
+            self._ctx_stack = []
+            raise
         log.info("Playwright MCP connected")
 
     async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float = 120.0) -> str:

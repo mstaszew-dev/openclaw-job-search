@@ -64,6 +64,9 @@ class Config:
     # Agent loop
     max_steps: int = 200
     timeout_seconds: int = 1200
+    # Hard wall-clock deadline per LLM call (chat_async): a half-open socket
+    # must never wedge the agent beyond this, regardless of SDK timeouts.
+    llm_hard_timeout: int = 1500
 
     # Session directory (OpenClaw sessions)
     session_dir: str = os.path.expanduser("~/.campaign-agent/sessions")
@@ -121,6 +124,7 @@ class Config:
             "OUTER_MAX_TICKS": "outer_max_ticks",
             "MAX_STEPS": "max_steps",
             "TIMEOUT_SECONDS": "timeout_seconds",
+            "LLM_HARD_TIMEOUT": "llm_hard_timeout",
         }
         str_fields = {
             "MSROUTER_URL": "msrouter_url",

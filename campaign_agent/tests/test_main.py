@@ -485,3 +485,65 @@ class TestRunAgentTurnTruncation:
         assert messages[0]["content"] == system_content
         assert messages[1]["role"] == "user"
         assert messages[1]["content"] == user_content
+
+
+class TestTruncateOrphanToolMessages:
+    """S2: a kept suffix must never START with a tool message whose assistant
+    parent was dropped - OpenAI rejects tool-first histories with a 400."""
+
+    def _messages(self):
+        msgs = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "go"},
+            # This assistant+tool pair sits in the DROPPED middle:
+            {"role": "assistant", "content": None,
+             "tool_calls": [{"id": "t1", "type": "function",
+                             "function": {"name": "exec", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "t1", "content": "result-1"},
+        ]
+        # Filler so the pair falls into the dropped middle.
+        msgs += [{"role": "user", "content": f"filler {i} " + "x" * 200} for i in range(12)]
+        # The kept suffix then starts with a tool result of a dropped parent:
+        msgs += [
+            {"role": "assistant", "content": None,
+             "tool_calls": [{"id": "t9", "type": "function",
+                             "function": {"name": "exec", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "t9", "content": "result-9"},
+            {"role": "user", "content": "continue"},
+        ]
+        return msgs
+
+    def test_suffix_never_starts_with_tool_message(self):
+        from campaign_agent.main import _truncate_messages
+        out = _truncate_messages(self._messages(), token_budget=100, keep_last=6)
+        non_system = [m for m in out[1:]]
+        assert non_system[0].get("role") != "tool"
+        assert all(m.get("role") in {"system", "user", "assistant", "tool"} for m in out)
+
+
+class TestAuthErrorIsFatal:
+    """S3: bad key / quota must be fatal-for-tick, not retried forever."""
+
+    async def test_run_agent_turn_auth_error_reason(self):
+        from openai import AuthenticationError
+        from campaign_agent.main import run_agent_turn
+        from campaign_agent.llm import LLMClient
+
+        llm = LLMClient(base_url="http://127.0.0.1:9", api_key="bad")
+        mock_resp = MagicMock()
+        llm._client.chat.completions.create = MagicMock(
+            side_effect=AuthenticationError(
+                message="401 insufficient_quota",
+                response=MagicMock(status_code=401, headers={}),
+                body=None,
+            )
+        )
+        res = await run_agent_turn(llm, MagicMock(schemas=[]), [
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "u"},
+        ])
+        assert res.reason.startswith("llm_auth_error")
+
+    def test_classify_auth_error_fatal(self):
+        from campaign_agent.main import classify_failure
+        assert classify_failure("llm_auth_error: Error code: 401 - insufficient_quota") == "fatal"

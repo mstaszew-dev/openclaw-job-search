@@ -284,3 +284,34 @@ class TestChatAsyncHardDeadline:
         old_client = llm._client
         await llm.chat_async([{"role": "user", "content": "hi"}])
         assert llm._client is old_client
+
+
+class TestExecutorSwap:
+    """B3: hard-timed-out calls abandon their wedged thread forever; a
+    dedicated small executor must be swapped so hung threads can never
+    starve new chat calls (the aggregate wedge class)."""
+
+    async def test_healthy_call_survives_repeated_timeouts(self):
+        llm = LLMClient(base_url="http://127.0.0.1:9", api_key="x", hard_timeout=0.1)
+
+        def hanging(**kwargs):
+            time.sleep(30)
+            return SimpleNamespace(choices=[], model="m")
+
+        for _ in range(3):  # more than max_workers=2
+            llm._client.chat.completions.create = hanging  # re-stub after each reset
+            with pytest.raises(TimeoutError):
+                await llm.chat_async([{"role": "user", "content": "hi"}])
+
+        import time as _t
+        fake = SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content="recovered", tool_calls=None),
+                finish_reason="stop")],
+            model="m",
+        )
+        llm._client.chat.completions.create = lambda **kwargs: fake
+        start = _t.monotonic()
+        res = await llm.chat_async([{"role": "user", "content": "hi"}])
+        assert res.content == "recovered"
+        assert _t.monotonic() - start < 1.0  # not queued behind wedged threads

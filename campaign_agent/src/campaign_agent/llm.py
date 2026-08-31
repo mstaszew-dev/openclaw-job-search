@@ -5,9 +5,11 @@ Handles tool-call parsing, empty response detection, retry logic.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -124,11 +126,22 @@ class LLMClient:
             max_retries=0,
         )
         self._client = OpenAI(**self._client_kwargs)
+        # Dedicated pool: a hard-timed-out call abandons its thread blocked on
+        # a dead socket forever, so hung threads must never starve new calls.
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="llm-chat")
 
     def reset_client(self) -> None:
         """Drop the current HTTP client (and its dead pooled socket) so the
         next request opens a fresh connection."""
         self._client = OpenAI(**self._client_kwargs)
+
+    def _reset_executor(self) -> None:
+        """Abandon the thread pool whose workers are wedged on dead sockets.
+        shutdown(cancel_futures=True) drops queued work; the already-running
+        blocked threads are left behind and eventually die with their socket.
+        """
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="llm-chat")
 
     async def chat_async(
         self,
@@ -143,16 +156,21 @@ class LLMClient:
         that state (observed 8h hang). wait_for gives a deterministic bound;
         on expiry the client is reset so the retry uses a fresh connection.
         """
+        loop = asyncio.get_running_loop()
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self.chat, messages, tools=tools, max_tokens=max_tokens),
+                loop.run_in_executor(
+                    self._executor,
+                    functools.partial(self.chat, messages, tools=tools, max_tokens=max_tokens),
+                ),
                 timeout=self.hard_timeout,
             )
         except (asyncio.TimeoutError, TimeoutError):
             log.error(
-                "LLM hard deadline (%ss) exceeded; resetting HTTP client for fresh connection",
+                "LLM hard deadline (%ss) exceeded; resetting HTTP client + executor",
                 self.hard_timeout,
             )
+            self._reset_executor()
             self.reset_client()
             raise
 
