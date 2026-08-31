@@ -1,10 +1,10 @@
 #!/usr/bin/env zsh
 # Supervised launcher for the Hermes job-search campaign agent.
 #
-# Contract-compatible with the Python agent's launcher
-# (/Users/mst/bin/job-search-agent): stays alive as the zsh parent so a
-# pgrep-based supervisor (msrouter Director) can detect it, and runs the
-# tick runner as its child in --loop mode.
+# Primary campaign launcher (the python agent's launcher is retired).
+# pgrep-based supervision (msrouter Director) detects it via the launcher
+# name pre-exec and the 'python -m jobhermes' cmdline post-exec (the exec
+# below replaces this zsh process).
 #
 # NOTE: starting this launcher begins REAL job applications once the
 # campaign is not complete. It does NOT register cron; supervision is
