@@ -8,6 +8,9 @@ all detailed rules live in the user prompt.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from campaign_agent.config import Config
 
 SYSTEM_PROMPT = """\
@@ -15,12 +18,68 @@ You are an autonomous job application agent. First action must be a TOOL CALL. \
 Follow the rules in the task message. Apply exactly ONE job per tick.
 """
 
+# Identity fallbacks: used only when applicant.json is missing/unreadable, so
+# the prompt NEVER goes out identity-less (an identity-less prompt is how an
+# agent invents form values - 2026-08-31 incident).
+_IDENTITY_FALLBACK: dict[str, str] = {
+    "full_name": "Michael Staszewski",
+    "name_pl": "Michał Staszewski",
+    "email": "mst.rocking@gmail.com",
+    "phone_il": "+972559344507",
+    "phone_pl": "+48790775407",
+    "city_il": "Petah Tikva, Israel",
+    "city_pl": "Biała Parcela, woj. łódzkie",
+}
+
+
+def load_identity(campaign_dir: str) -> dict[str, str]:
+    """Identity fields inlined into the tick prompt. applicant.json is the
+    single source of truth; the fallback keeps the block complete when the
+    file is missing or unparseable."""
+    try:
+        data = json.loads(
+            (Path(campaign_dir) / "applicant.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        data = {}
+
+    def pick(json_key: str, fallback_key: str) -> str:
+        value = data.get(json_key)
+        return str(value) if value else _IDENTITY_FALLBACK[fallback_key]
+
+    return {
+        "full_name": pick("fullName", "full_name"),
+        "name_pl": pick("namePl", "name_pl"),
+        "email": pick("email", "email"),
+        "phone_il": pick("phoneIl", "phone_il"),
+        "phone_pl": pick("phonePl", "phone_pl"),
+        "city_il": pick("locationCity", "city_il"),
+        "city_pl": pick("locationPl", "city_pl"),
+    }
+
+
+def build_identity_block(campaign_dir: str) -> str:
+    """Explicit identity block for application forms. Inlined (not a file
+    pointer) so the values are in context even if the model never opens
+    applicant.json."""
+    ident = load_identity(campaign_dir)
+    return (
+        "IDENTITY (use EXACTLY these values on every application form; "
+        "never invent, guess, or vary any of them):\n"
+        "- Name: {full_name} (PL forms: {name_pl})\n"
+        "- Email: {email} - the ONLY email you may ever type into a form field\n"
+        "- Phone: IL {phone_il} / PL {phone_pl}\n"
+        "- Location: IL {city_il} / PL {city_pl}".format(**ident)
+    )
+
 USER_PROMPT_TEMPLATE = """\
 {session_context}
 
 {token_info}
 
 {director_extras}
+
+{identity_block}
 
 TASK: Apply exactly ONE job this tick. Start with the read tool on AGENT_TICK.md \
 and CONTEXT.md (relative to the campaign dir), then browse for a job.
@@ -92,5 +151,6 @@ def build_user_prompt(
         cv_path_pl=config.cv_path_pl,
         playwright_output_dir=config.playwright_output_dir,
         director_extras="\n\n".join(extras),
+        identity_block=build_identity_block(config.campaign_dir),
     )
     return template.strip()

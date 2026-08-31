@@ -25,6 +25,12 @@ REQUIRED_MARKERS = (
     "michael-staszewski-cv-pl.pdf",
     "ALL levels accepted (junior through senior)",
     "team-lead/manager/architect/director/head/VP",
+    # Identity must also be pinned in the skill file itself: the skill is the
+    # agent-facing procedure doc, and an identity-less doc invites invented
+    # form values (2026-08-31 incident).
+    "IDENTITY",
+    "mst.rocking@gmail.com",
+    "Michał Staszewski",
 )
 
 FORBIDDEN_MARKERS = (

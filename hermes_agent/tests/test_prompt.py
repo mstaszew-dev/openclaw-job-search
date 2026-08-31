@@ -104,3 +104,63 @@ def test_prompt_collapses_leading_blank_sections() -> None:
     prompt = build_tick_prompt(Config(campaign_dir="/tmp/camp"))
     assert not prompt.startswith("\n")
     assert "\n\n\n" not in prompt
+
+
+def test_prompt_pins_identity_block() -> None:
+    """Regression 2026-08-31: an agent session invented an email on a PL
+    form because identity data lived only in applicant.json, never inlined
+    into the prompt. The tick prompt must carry an explicit IDENTITY block."""
+    prompt = build_tick_prompt(Config(campaign_dir="/tmp/camp"))
+    assert "IDENTITY" in prompt
+    for marker in (
+        "Michael Staszewski",
+        "Michał Staszewski",
+        "mst.rocking@gmail.com",
+        "+972559344507",
+        "+48790775407",
+        "Petah Tikva",
+        "Biała Parcela",
+        "EXACTLY",
+        "never invent",
+    ):
+        assert marker in prompt, marker
+
+
+def test_prompt_identity_loaded_from_applicant_json(tmp_path) -> None:
+    """Identity values come from applicant.json (single source of truth)."""
+    import json
+
+    (tmp_path / "applicant.json").write_text(
+        json.dumps(
+            {
+                "fullName": "Test Person",
+                "namePl": "Test Osoba",
+                "email": "test@example.com",
+                "phoneIl": "+972000000000",
+                "phonePl": "+48000000000",
+                "locationCity": "Test City IL",
+                "locationPl": "Test City PL",
+            }
+        ),
+        encoding="utf-8",
+    )
+    prompt = build_tick_prompt(Config(campaign_dir=str(tmp_path)))
+    for marker in (
+        "Test Person",
+        "Test Osoba",
+        "test@example.com",
+        "+972000000000",
+        "+48000000000",
+        "Test City IL",
+        "Test City PL",
+    ):
+        assert marker in prompt, marker
+
+
+def test_prompt_identity_falls_back_when_applicant_json_missing(tmp_path) -> None:
+    """Missing/unreadable applicant.json must still yield a full identity
+    block (never absent - absence is how invented emails happen)."""
+    prompt = build_tick_prompt(Config(campaign_dir=str(tmp_path / "nowhere")))
+    assert "mst.rocking@gmail.com" in prompt
+    assert "Michael Staszewski" in prompt
+    assert "Michał Staszewski" in prompt

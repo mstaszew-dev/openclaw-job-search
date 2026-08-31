@@ -59,5 +59,10 @@ record it. Never run twice in a row without a recorded outcome.
   cv/michael-staszewski-cv-pl.pdf. PL forms: phone +48790775407, location
   Biała Parcela, woj. łódzkie, coverNotePl / plB2bNotePl from applicant.json;
   NEVER mention relocation or Israel on PL forms.
+- IDENTITY on forms (use EXACTLY these values; never invent, guess, or vary):
+  name Michael Staszewski (PL forms: Michał Staszewski); email
+  mst.rocking@gmail.com (the ONLY email - never any other address); phones
+  IL +972559344507 / PL +48790775407; locations IL Petah Tikva / PL Biała
+  Parcela, woj. łódzkie. The tick prompt carries the same IDENTITY block.
 - Freelance: include freelance, contract, part-time, and fixed-term B2B in
   both regions.
