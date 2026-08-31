@@ -13,9 +13,17 @@ def test_build_hermes_command_shape() -> None:
         "-p", "jobhunter",
         "-z", "PROMPT",
         "--in", "/tmp/camp",
-        "--run-budget", "1800",
-        "--max-turns", "200",
     ]
+
+
+def test_build_hermes_command_only_supported_flags() -> None:
+    """hermes v0.20.5 removed --run-budget/--max-turns; passing them exits 2
+    (usage error) before any work happens. Turn limits live in the profile
+    config; the wall-clock budget is enforced by subprocess_timeout here."""
+    config = Config(campaign_dir="/tmp/camp", hermes_bin="/bin/hermes")
+    command = build_hermes_command(config, "PROMPT")
+    assert "--run-budget" not in command
+    assert "--max-turns" not in command
 
 
 def test_run_attempt_invokes_fake_hermes(fake_hermes, monkeypatch) -> None:
@@ -31,8 +39,8 @@ def test_run_attempt_invokes_fake_hermes(fake_hermes, monkeypatch) -> None:
     assert "-p jobhunter" in logged
     assert "-z do the tick" in logged
     assert "--in /tmp/camp" in logged
-    assert "--run-budget 1800" in logged
-    assert "--max-turns 200" in logged
+    assert "--run-budget" not in logged
+    assert "--max-turns" not in logged
 
 
 def test_run_attempt_missing_binary(fake_hermes) -> None:

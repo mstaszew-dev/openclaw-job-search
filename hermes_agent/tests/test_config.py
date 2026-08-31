@@ -34,8 +34,6 @@ def test_defaults() -> None:
     assert config.inner_max_fails == 5
     assert config.inner_sleep == 10.0
     assert config.outer_backoff == 60
-    assert config.run_budget_seconds == 1800
-    assert config.max_turns == 200
     assert config.subprocess_timeout == 2400
     assert config.skip_companies == set()
     assert config.playwright_output_dir == (

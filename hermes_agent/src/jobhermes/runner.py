@@ -36,6 +36,10 @@ LogFn = Callable[[str], None]
 
 
 def build_hermes_command(config: Config, prompt: str) -> list[str]:
+    # Only flags supported by hermes v0.20.5+: --run-budget/--max-turns were
+    # removed upstream (passing them exits 2 with a usage error). Turn limits
+    # are set in the profile config; the wall-clock budget is enforced here
+    # via subprocess_timeout + process-group kill.
     return [
         config.hermes_bin,
         "-p",
@@ -44,10 +48,6 @@ def build_hermes_command(config: Config, prompt: str) -> list[str]:
         prompt,
         "--in",
         config.campaign_dir,
-        "--run-budget",
-        str(config.run_budget_seconds),
-        "--max-turns",
-        str(config.max_turns),
     ]
 
 

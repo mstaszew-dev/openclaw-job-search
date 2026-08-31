@@ -114,9 +114,14 @@ to cut over. Starting it begins REAL applications.
 Defaults < `~/.campaign-agent/director-overrides.env` < environment.
 Env keys: `CAMPAIGN_DIR`, `HERMES_BIN`, `HERMES_PROFILE`,
 `INNER_MAX_FAILS` (5), `INNER_SLEEP` (10), `OUTER_BACKOFF` (60),
-`OUTER_MAX_FAILS` (12), `RUN_BUDGET_SECONDS` (1800), `MAX_TURNS` (200),
-`SUBPROCESS_TIMEOUT` (2400), `PORTAL_SKIP_<Company>=1` (skip list). The
+`OUTER_MAX_FAILS` (12),
+`SUBPROCESS_TIMEOUT` (2400; also the wall-clock budget per hermes attempt
+since hermes v0.20.5 removed `--run-budget`/`--max-turns`),
+`PORTAL_SKIP_<Company>=1` (skip list). The
 director note is read from `~/.campaign-agent/director-prompt-overrides.md`.
+The per-attempt turn limit is `agent.max_turns` in the hermes profile config
+(`install/config.template.yaml` writes 200); hermes v0.20.5 has no CLI flag
+for it.
 
 The jobapps plugin honors `JOBSEARCH_CAMPAIGN_DIR` and
 `JOBSEARCH_TRACKER_PATH` (separate from the runner's `CAMPAIGN_DIR`). Its

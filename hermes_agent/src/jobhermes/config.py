@@ -20,8 +20,6 @@ _INT_FIELDS = {
     "INNER_MAX_FAILS": "inner_max_fails",
     "OUTER_BACKOFF": "outer_backoff",
     "OUTER_MAX_FAILS": "outer_max_fails",
-    "RUN_BUDGET_SECONDS": "run_budget_seconds",
-    "MAX_TURNS": "max_turns",
     "SUBPROCESS_TIMEOUT": "subprocess_timeout",
 }
 _FLOAT_FIELDS = {"INNER_SLEEP": "inner_sleep"}
@@ -60,8 +58,6 @@ class Config:
     tick_context_path: str = ""
     hermes_bin: str = "hermes"
     hermes_profile: str = "jobhunter"
-    run_budget_seconds: int = 1800
-    max_turns: int = 200
     inner_max_fails: int = 5
     inner_sleep: float = 10.0
     outer_backoff: int = 60

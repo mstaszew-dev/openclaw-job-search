@@ -110,6 +110,10 @@ def test_once_campaign_complete_exit_zero(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_missing_campaign_dir_exits_two(tmp_path: Path, monkeypatch, capsys) -> None:
+    _hermetic_env(monkeypatch, tmp_path)
+    # Override after the hermetic helper: the campaign dir check fires after
+    # the lock is taken, and the lock must never touch the real state dir
+    # (a live jobhermes instance would make this test exit 3 instead of 2).
     monkeypatch.setenv("CAMPAIGN_DIR", str(tmp_path / "missing"))
     code = main(["--config", str(tmp_path / "none.env")])
     assert code == 2
