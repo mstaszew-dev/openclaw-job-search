@@ -52,6 +52,19 @@ def test_profile_memory_seed_exists() -> None:
     assert "/Users/mst/Downloads/job-search/job-apply" in text
 
 
+def test_profile_memory_seed_is_dual_region() -> None:
+    """The bot's self-description comes from this seed; it must match the
+    python agent's targeting, not the retired IL-only campaign."""
+    seed = (INSTALL_DIR / "profile-memory-seed.md").read_text(encoding="utf-8")
+    assert "IL + PL" in seed
+    assert "NoFluffJobs" in seed
+    assert "JustJoin.it" in seed
+    assert "theProtocol.it" in seed
+    assert "mst.rocking@gmail.com" in seed
+    # Stale IL-only phrasing must never return.
+    assert "IL job-search campaign" not in seed
+
+
 def test_profile_soul_is_nonempty_persona() -> None:
     soul = (INSTALL_DIR / "profile-soul.md").read_text(encoding="utf-8")
     assert len(soul.strip()) > 100

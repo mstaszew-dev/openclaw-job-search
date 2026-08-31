@@ -121,3 +121,17 @@ def test_hermes_prompt_targets_match_python_agent() -> None:
     ):
         assert marker in py, f"python targeting missing: {marker}"
         assert marker in hermes, f"hermes targeting missing: {marker}"
+
+
+def test_live_memory_is_dual_region() -> None:
+    """The live profile memory is what the bot actually recites about itself
+    (the user-facing self-description). It must carry the current IL+PL
+    targeting and the identity email, and must not use the retired
+    IL-only campaign phrasing."""
+    memory = (Path.home() / ".hermes/profiles/jobhunter/memories/MEMORY.md").read_text(
+        encoding="utf-8"
+    )
+    assert "IL + PL" in memory
+    assert "NoFluffJobs" in memory
+    assert "mst.rocking@gmail.com" in memory
+    assert "IL job-search campaign" not in memory
