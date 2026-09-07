@@ -1,13 +1,15 @@
-"""IL+PL targeting policy regression tests (plan 2026-08-30).
+"""PL-only targeting policy regression tests (plan 2026-09-07).
 
-Supersedes the 2026-08-23 IL-only plan: Poland is a second target region
-(NoFluffJobs + JustJoin.it + theProtocol.it, fully remote only, B2B >=
-15 000 PLN net+VAT/month when listed) applied on a 50/50 alternating-tick
-rotation, with a dedicated Polish CV variant for PL applications.
+Supersedes the 2026-08-30 IL+PL plan: the campaign is now focused on the
+Polish market only (NoFluffJobs + JustJoin.it + theProtocol.it + employer-ATS
+redirects, fully remote only, B2B >= 15 000 PLN net+VAT/month when listed),
+with the dedicated Polish CV variant for every application. IL targeting is
+retired: the prompt, the runtime docs, and the injected director directive
+must no longer mention it.
 
-These tests encode the policy against the live prompt template and
-runtime docs, so targeting drift fails CI instead of silently re-widening
-or re-narrowing the campaign.
+These tests encode the policy against the live prompt template and runtime
+docs, so targeting drift fails CI instead of silently re-widening the
+campaign.
 
 Machine-specific absolute paths are deliberate: the campaign config
 (config.py) already pins these locations.
@@ -44,6 +46,32 @@ OLD_IL_ONLY_PROHIBITION = "Do NOT apply to Polish sites"
 PL_SALARY_FLOOR_MARKERS = ("15 000 PLN", "B2B >=")
 
 
+import pytest
+
+if not CAMPAIGN_DIR.is_dir():
+    pytest.skip(
+        "machine-local campaign dir not present (CI runner)",
+        allow_module_level=True,
+    )
+
+# IL-era markers that must be gone from every active surface.
+IL_ONLY_POLICY_MARKERS = (
+    "IL + PL",
+    "alternating 50/50",
+    "IL: remote/hybrid/onsite",
+    "IL only",
+    "no salary floor",
+    "IL_BOARDS.md",
+)
+
+
+def _assert_no_il_markers(text: str, surface: str) -> None:
+    """Casefolded: the old IL rules were written in mixed case."""
+    lowered = text.lower()
+    for marker in IL_ONLY_POLICY_MARKERS:
+        assert marker.lower() not in lowered, f"stale IL marker in {surface}: {marker}"
+
+
 def _prompt() -> str:
     """Render the user prompt from the pure template (director extras isolated)."""
     cfg = Config()
@@ -58,10 +86,10 @@ def _read(path: Path) -> str:
 class TestPromptPolicy:
     """campaign_agent/src/campaign_agent/prompt.py (single source of truth)."""
 
-    def test_targets_il_and_pl_with_alternating_rotation(self):
+    def test_targets_pl_market_only(self):
         p = _prompt()
-        assert "IL + PL" in p
-        assert "alternating 50/50" in p
+        assert "Polish market only" in p
+        _assert_no_il_markers(p, "prompt")
 
     def test_old_il_only_prohibition_removed(self):
         p = _prompt()
@@ -94,13 +122,17 @@ class TestPromptPolicy:
         assert "ALL levels accepted" in p
         assert "architect/junior" not in p  # old skip list bundled junior
 
-    def test_il_has_no_salary_floor(self):
+    def test_il_cv_reference_removed(self):
+        cfg = Config()
         p = _prompt()
-        assert "no salary floor" in p
+        assert cfg.cv_path not in p, "IL CV path still referenced by a PL-only prompt"
+        assert cfg.cv_path_pl in p
 
-    def test_work_order_covers_both_regions(self):
-        assert "Work order: IL + PL" in _prompt()
-        assert "Work order: IL only" not in _prompt()
+    def test_work_order_pl_only(self):
+        p = _prompt()
+        assert "Work order: one confirmed submission per tick, Polish market only" in p
+        assert "Work order: IL + PL" not in p
+        assert "Work order: IL only" not in p
 
     def test_skip_list_is_domain_only(self):
         p = _prompt()
@@ -120,9 +152,11 @@ class TestPromptPolicy:
 class TestAgentTickPolicy:
     """/Users/mst/Downloads/job-search/job-apply/AGENT_TICK.md (per-tick runbook)."""
 
-    def test_work_order_alternates_regions(self):
-        assert "IL and PL, alternating 50/50" in _read(AGENT_TICK)
-        assert "Order: **IL only**" not in _read(AGENT_TICK)
+    def test_work_order_pl_only(self):
+        c = _read(AGENT_TICK)
+        assert "Polish market only" in c
+        for marker in ("IL and PL, alternating 50/50", "IL only", "IL + PL"):
+            assert marker not in c, f"stale IL marker in AGENT_TICK.md: {marker}"
 
     def test_pl_portals_listed(self):
         c = _read(AGENT_TICK)
@@ -140,9 +174,20 @@ class TestAgentTickPolicy:
 
     def test_region_salary_rules(self):
         c = _read(AGENT_TICK)
-        assert "market rate for IL" in c
         for marker in PL_SALARY_FLOOR_MARKERS:
             assert marker in c
+        assert "market rate for IL" not in c
+
+    def test_il_cv_reference_removed(self):
+        c = _read(AGENT_TICK)
+        assert "michael-staszewski-cv.pdf" not in c.replace(
+            "michael-staszewski-cv-pl.pdf", ""
+        ), "IL CV still referenced"
+        assert "michael-staszewski-cv-pl.pdf" in c
+
+    def test_il_boards_not_referenced(self):
+        c = _read(AGENT_TICK)
+        assert "IL_BOARDS.md" not in c
 
     def test_skip_list_aligned_with_prompt(self):
         c = _read(AGENT_TICK)
@@ -158,10 +203,9 @@ class TestAgentTickPolicy:
         assert "Jenkins" in c
         assert "GitHub Actions" in c
 
-    def test_dual_cv_and_pl_form_data(self):
+    def test_pl_form_data(self):
         c = _read(AGENT_TICK)
         assert "michael-staszewski-cv-pl.pdf" in c
-        assert "michael-staszewski-cv.pdf" in c
         assert "+48790775407" in c
         assert "coverNotePl" in c
         assert "plB2bNotePl" in c
@@ -171,10 +215,11 @@ class TestAgentTickPolicy:
 class TestPortalsPolicy:
     """/Users/mst/Downloads/job-search/job-apply/PORTALS.md (portal catalog)."""
 
-    def test_header_declares_il_plus_pl(self):
+    def test_header_declares_pl_only(self):
         c = _read(PORTALS)
-        assert "**IL + PL**" in c
-        assert "Israel (all work modes) + Poland (fully remote only" in c
+        assert "Polish market only" in c or "PL only" in c
+        for marker in IL_ONLY_POLICY_MARKERS:
+            assert marker not in c, f"stale IL marker in PORTALS.md: {marker}"
         assert OLD_IL_ONLY_PROHIBITION not in c
         assert "Israel ONLY" not in c
 
@@ -188,18 +233,16 @@ class TestPortalsPolicy:
             assert marker in c
 
     def test_rotation_tiebreaker_pinned(self):
-        assert "none/ambiguous" in _read(PORTALS).lower()
-        assert "none/ambiguous" in _read(AGENT_TICK).lower()
+        assert "none/ambiguous" in _read(PORTALS).lower() or "every tick targets" in _read(PORTALS).lower()
 
 
-class TestIlBoardsPolicy:
-    """/Users/mst/Downloads/job-search/job-apply/IL_BOARDS.md (IL runbook)."""
+class TestIlBoardsRetired:
+    """IL_BOARDS.md is a retired reference: no active doc may point at it."""
 
-    def test_no_stale_il_only_claim(self):
-        c = _read(IL_BOARDS)
-        assert "Israeli jobs only" not in c
-        assert "IL + PL" in c
-        assert "PL_BOARDS.md" in c
+    def test_not_referenced_by_active_docs(self):
+        assert "IL_BOARDS.md" not in _read(AGENT_TICK)
+        assert "IL_BOARDS.md" not in _read(PORTALS)
+        assert "IL_BOARDS.md" not in _prompt()
 
     def test_stale_eu_portals_absent(self):
         c = _read(PORTALS)
@@ -227,6 +270,9 @@ class TestPlBoardsPolicy:
         for marker in PL_SALARY_FLOOR_MARKERS:
             assert marker in c
 
+    def test_no_il_markers_in_pl_runbook(self):
+        _assert_no_il_markers(_read(PL_BOARDS), "PL_BOARDS.md")
+
     def test_pl_presentation_table(self):
         c = _read(PL_BOARDS)
         assert "michael-staszewski-cv-pl.pdf" in c
@@ -246,7 +292,8 @@ class TestContextPolicy:
 
     def test_goal_line(self):
         c = _read(CONTEXT)
-        assert "Regions: IL + PL" in c
+        assert "Polish market only" in c or "PL only" in c
+        assert "Regions: IL + PL" not in c
         assert "ALL seniority levels. IL only." not in c
 
     def test_score_against_line(self):
@@ -257,13 +304,17 @@ class TestContextPolicy:
         for marker in PL_SALARY_FLOOR_MARKERS:
             assert marker in c
 
+    def test_no_il_markers_anywhere(self):
+        _assert_no_il_markers(_read(CONTEXT), "CONTEXT.md")
+
 
 class TestDirectorOverridesPolicy:
     """~/.campaign-agent/director-prompt-overrides.md (injected into every prompt)."""
 
     def test_regions_directive(self):
         c = _read(DIRECTOR_OVERRIDES)
-        assert c.startswith("REGIONS IL + PL:")
+        assert c.startswith("REGIONS PL:")
+        assert "Polish market only" in c
         assert "fully remote" in c
         for marker in PL_SALARY_FLOOR_MARKERS:
             assert marker in c
@@ -272,12 +323,13 @@ class TestDirectorOverridesPolicy:
         assert "CI/CD" in c
         assert "Jenkins" in c
         assert "GitHub Actions" in c
+        _assert_no_il_markers(c, "director overrides")
 
     def test_directive_survives_appended_director_log(self):
         """The director appends timestamped entries below the directive; the
         durable invariant is that the REGIONS block stays at the top."""
         c = _read(DIRECTOR_OVERRIDES)
-        assert c.splitlines()[0].startswith("REGIONS IL + PL:")
+        assert c.splitlines()[0].startswith("REGIONS PL:")
         for required in (
             "fully remote",
             "15 000 PLN",
@@ -293,12 +345,13 @@ class TestWorkspaceAgentsPolicy:
 
     def test_targeting_updated(self):
         c = _read(WORKSPACE_AGENTS)
-        assert "IL + PL" in c
+        assert "PL only" in c or "Polish market only" in c
         for marker in PL_PORTAL_MARKERS:
             assert marker in c
         assert OLD_IL_ONLY_PROHIBITION not in c
         assert "mid-to-senior" not in c
         assert "All seniority" in c
+        _assert_no_il_markers(c, "workspace AGENTS.md")
 
 
 class TestHubAgentsPolicy:
@@ -306,9 +359,10 @@ class TestHubAgentsPolicy:
 
     def test_targeting_updated(self):
         c = _read(HUB_AGENTS)
-        assert "IL + PL" in c
+        assert "PL only" in c or "Polish market only" in c
         for marker in PL_PORTAL_MARKERS:
             assert marker in c
         assert OLD_IL_ONLY_PROHIBITION not in c
         assert "All seniority levels" in c
         assert "mid-to-senior only" not in c
+        _assert_no_il_markers(c, "hub AGENTS.md")

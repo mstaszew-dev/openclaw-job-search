@@ -427,12 +427,14 @@ async def test_transient_error_retries_then_succeeds(tmp_path):
 
 def test_main_cli_entry(tmp_path):
     """main() parses CLI args, applies model override, and runs the campaign."""
+    import os
     import sys
     from campaign_agent.main import main
 
     overrides_path = str(tmp_path / "overrides.env")
     with patch("campaign_agent.main.Config") as mock_cfg_cls, \
-         patch("campaign_agent.main.run_campaign", new_callable=AsyncMock) as mock_run:
+         patch("campaign_agent.main.run_campaign", new_callable=AsyncMock) as mock_run, \
+         patch.dict(os.environ, {"TERM_PROGRAM": "iTerm.app"}):
         mock_cfg = MagicMock()
         mock_cfg_cls.from_overrides.return_value = mock_cfg
 

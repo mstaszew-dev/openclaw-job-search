@@ -50,11 +50,13 @@ class TestUserPrompt:
         assert cfg.campaign_dir in prompt
 
     def test_includes_cv_path(self):
-        """The model must know the exact absolute CV path for uploads (it is a
-        regular file in the campaign cv/ dir, not a symlink)."""
+        """The model must know the exact absolute PL CV path for uploads (it is a
+        regular file in the campaign cv/ dir, not a symlink). PL-only campaign:
+        the IL CV path must not leak into the prompt."""
         cfg = Config()
         prompt = build_user_prompt(cfg, session_context="", token_info="")
-        assert cfg.cv_path in prompt
+        assert cfg.cv_path_pl in prompt
+        assert cfg.cv_path not in prompt
 
     def test_includes_playwright_output_dir(self):
         """The model must know playwright page snapshots live under the
@@ -100,18 +102,18 @@ class TestIdentityBlock:
     prompt must now carry an explicit IDENTITY block."""
 
     def test_prompt_contains_identity_block(self):
+        """PL-only campaign: the identity block presents the Polish identity."""
         prompt = build_user_prompt(Config(), session_context="", token_info="")
         assert "IDENTITY" in prompt
         for marker in (
-            "Michael Staszewski",
             "Michał Staszewski",
             "mst.rocking@gmail.com",
-            "+972559344507",
             "+48790775407",
-            "Petah Tikva",
             "Biała Parcela",
         ):
             assert marker in prompt, marker
+        for stale in ("+972559344507", "Petah Tikva"):
+            assert stale not in prompt, f"stale IL identity marker: {stale}"
 
     def test_identity_forbids_inventing_values(self):
         prompt = build_user_prompt(Config(), session_context="", token_info="")
@@ -120,7 +122,7 @@ class TestIdentityBlock:
 
     def test_identity_loaded_from_applicant_json(self, tmp_path):
         """Identity comes from applicant.json (single source of truth), not
-        hardcoded prompt text."""
+        hardcoded prompt text. PL-only: IL identity fields must not leak."""
         import json
 
         (tmp_path / "applicant.json").write_text(
@@ -141,15 +143,14 @@ class TestIdentityBlock:
         cfg.campaign_dir = str(tmp_path)
         prompt = build_user_prompt(cfg, session_context="", token_info="")
         for marker in (
-            "Test Person",
             "Test Osoba",
             "test@example.com",
-            "+972000000000",
             "+48000000000",
-            "Test City IL",
             "Test City PL",
         ):
             assert marker in prompt, marker
+        for stale in ("Test Person", "Test City IL", "+972000000000"):
+            assert stale not in prompt, f"stale IL identity marker: {stale}"
 
     def test_identity_falls_back_when_applicant_json_missing(self, tmp_path):
         """A missing/unreadable applicant.json must never yield an
@@ -158,4 +159,6 @@ class TestIdentityBlock:
         cfg.campaign_dir = str(tmp_path / "nowhere")
         prompt = build_user_prompt(cfg, session_context="", token_info="")
         assert "mst.rocking@gmail.com" in prompt
-        assert "Michael Staszewski" in prompt
+        assert "Michał Staszewski" in prompt
+        assert "+48790775407" in prompt
+        assert "Biała Parcela" in prompt

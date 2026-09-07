@@ -211,7 +211,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "rag_search_docs",
-            "description": "Search campaign documentation (PORTALS.md, IL_BOARDS.md, etc.)",
+            "description": "Search campaign documentation (PORTALS.md, PL_BOARDS.md, etc.)",
             "parameters": {
                 "type": "object",
                 "properties": {"query": {"type": "string"}},

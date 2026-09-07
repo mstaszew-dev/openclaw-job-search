@@ -6,7 +6,7 @@ Two collections are indexed into a single SQLite db (rag/index.db):
             Text = company + roleTitle + source + salary. Powers semantic
             dedupe ("have I applied to a role like this before?").
   - 'docs': markdown docs chunked by '##' header. Replaces per-tick
-            re-reading of PORTALS/IL_BOARDS/recruiter-contacts/etc.
+            re-reading of PORTALS/PL_BOARDS/recruiter-contacts/etc.
 
 Idempotent: drops + recreates the chunks table on every run. Re-run whenever
 the corpus grows (new applications, edited docs).
@@ -43,8 +43,7 @@ DOCS = [
     "CONTEXT.md",
     "AGENT_TICK.md",
     "PORTALS.md",
-    "IL_BOARDS.md",
-    "SCHEMA.md",
+        "SCHEMA.md",
     "HANDOVER_SUMMARY.md",
 ]
 
