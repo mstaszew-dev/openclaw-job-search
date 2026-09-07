@@ -5,11 +5,19 @@ from pathlib import Path
 
 import pytest
 
+TICK_STATUS_SCRIPT = Path("/Users/mst/Documents/Job-Search/job-apply/tick_status.sh")
+
+if not TICK_STATUS_SCRIPT.exists():
+    pytest.skip(
+        "machine-local tick_status.sh not present (CI runner)",
+        allow_module_level=True,
+    )
+
 
 @pytest.fixture
 def tick_status_script():
     """Path to the tick_status.sh script."""
-    return Path("/Users/mst/Documents/Job-Search/job-apply/tick_status.sh")
+    return TICK_STATUS_SCRIPT
 
 
 @pytest.fixture

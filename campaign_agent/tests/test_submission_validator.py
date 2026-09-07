@@ -4,12 +4,20 @@ from pathlib import Path
 
 import pytest
 
+CAMPAIGN_DIR = Path("/Users/mst/Documents/Job-Search/job-apply")
+
+if not (CAMPAIGN_DIR / "submission_validator.py").exists():
+    pytest.skip(
+        "machine-local submission_validator.py not present (CI runner)",
+        allow_module_level=True,
+    )
+
 
 @pytest.fixture
 def validator():
     """Import the submission_validator module."""
     import sys
-    sys.path.insert(0, "/Users/mst/Documents/Job-Search/job-apply")
+    sys.path.insert(0, str(CAMPAIGN_DIR))
     from submission_validator import has_valid_submission_evidence
     return has_valid_submission_evidence
 

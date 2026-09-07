@@ -6,11 +6,19 @@ from pathlib import Path
 
 import pytest
 
+UPDATE_TRACKER_SCRIPT = Path("/Users/mst/Documents/Job-Search/job-apply/update_tracker.py")
+
+if not UPDATE_TRACKER_SCRIPT.exists():
+    pytest.skip(
+        "machine-local update_tracker.py not present (CI runner)",
+        allow_module_level=True,
+    )
+
 
 @pytest.fixture
 def update_tracker_script():
     """Path to the update_tracker.py script."""
-    return Path("/Users/mst/Documents/Job-Search/job-apply/update_tracker.py")
+    return UPDATE_TRACKER_SCRIPT
 
 
 @pytest.fixture
@@ -38,7 +46,7 @@ def has_valid_submission_evidence(rec):
 ''')
         # Copy update_tracker.py to tmp_path so ROOT resolves correctly
         import shutil
-        src = Path("/Users/mst/Documents/Job-Search/job-apply/update_tracker.py")
+        src = UPDATE_TRACKER_SCRIPT
         dst = tmp_path / "update_tracker.py"
         shutil.copy2(src, dst)
         return str(tmp_path)
