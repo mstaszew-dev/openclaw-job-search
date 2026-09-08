@@ -178,12 +178,18 @@ class TestAgentTickPolicy:
             assert marker in c
         assert "market rate for IL" not in c
 
-    def test_no_captcha_solving_policy(self):
-        """2026-09-08: the agent burned ~10 min OCR-ing a BambooHR reCAPTCHA
-        and then crashed. CAPTCHA/anti-bot challenges must be skipped."""
+    def test_captcha_attempt_policy(self):
+        """2026-09-08 incident: a BambooHR reCAPTCHA crashed the agent (binary
+        decode, since fixed). Policy per user decision: the agent KEEPS
+        attempting CAPTCHAs (screenshots + OCR/visual reasoning are allowed);
+        only after a genuinely failed attempt does it record blockedManual
+        and move on. A hard 'never solve' ban is FORBIDDEN in the runbook."""
         c = _read(AGENT_TICK)
         assert "CAPTCHA" in c
         assert "blockedManual" in c
+        assert "attempt" in c
+        for banned in ("do **NOT** attempt to solve", "no OCR"):
+            assert banned not in c, f"hard captcha ban present: {banned}"
 
     def test_il_cv_reference_removed(self):
         c = _read(AGENT_TICK)

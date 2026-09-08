@@ -172,6 +172,20 @@ class TestRunAgentTurn:
         assert "invalid start byte" in messages[1]["content"]
 
     @pytest.mark.asyncio
+    async def test_llm_hard_timeout_returns_failure(self):
+        """Lines 145-146: asyncio.TimeoutError from the LLM call must return
+        llm_hard_timeout (the hard-deadline wrapper), not crash the turn."""
+        mock_llm = MagicMock()
+        mock_llm.chat_async = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_llm.model = "test"
+        tools = MagicMock()
+        tools.schemas = []
+
+        result = await run_agent_turn(mock_llm, tools, [], max_steps=5)
+        assert result.success is False
+        assert result.reason == "llm_hard_timeout"
+
+    @pytest.mark.asyncio
     async def test_max_steps_exceeded(self):
         """LLM keeps calling tools → max_steps exceeded (no submission)."""
         mock_llm = MagicMock()
@@ -548,6 +562,25 @@ class TestTruncateOrphanToolMessages:
         non_system = [m for m in out[1:]]
         assert non_system[0].get("role") != "tool"
         assert all(m.get("role") in {"system", "user", "assistant", "tool"} for m in out)
+
+    def test_all_tool_suffix_stripped_to_empty(self):
+        """Line 106: when the WHOLE suffix is tool messages, the while-loop
+        strips everything - the result is prefix-only (never tool-first)."""
+        from campaign_agent.main import _truncate_messages
+        msgs = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "go"},
+        ]
+        msgs += [{"role": "user", "content": f"filler {i} " + "x" * 300} for i in range(10)]
+        # Suffix consists ONLY of orphan tool messages:
+        msgs += [
+            {"role": "tool", "tool_call_id": "t1", "content": "r1"},
+            {"role": "tool", "tool_call_id": "t2", "content": "r2"},
+        ]
+        out = _truncate_messages(msgs, token_budget=200, keep_last=2)
+        assert out[0]["role"] == "system"
+        assert out[1]["role"] == "user"
+        assert all(m.get("role") != "tool" for m in out)
 
 
 class TestAuthErrorIsFatal:

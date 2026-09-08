@@ -1,5 +1,6 @@
 """Tests for ToolRouter — tool schemas, exec dispatch, routing logic."""
 import json
+import subprocess
 from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
@@ -90,6 +91,29 @@ class TestExecTool:
         result = exec_tool("sleep 10", timeout=1)
         # Should timeout and report it
         assert "timeout" in result.lower() or "timed out" in result.lower()
+
+    def test_exec_timeout_stderr_included(self):
+        """Line 273: a timed-out command's stderr must be reported too."""
+        result = exec_tool("echo err-part 1>&2; sleep 10", timeout=1)
+        assert "timed out after 1s" in result
+        assert "stderr: err-part" in result
+
+    def test_exec_timeout_killpg_process_gone_falls_back_to_kill(self):
+        """Lines 266-267: when the process group is already reaped between
+        SIGKILL and killpg (ProcessLookupError), the plain kill() fallback
+        must still run and communicate() must return."""
+        import campaign_agent.tools as t
+
+        def fake_killpg(pid, sig):
+            raise ProcessLookupError()
+
+        orig_killpg = t.os.killpg
+        t.os.killpg = fake_killpg
+        try:
+            result = exec_tool("sleep 5", timeout=1)
+        finally:
+            t.os.killpg = orig_killpg
+        assert "timed out after 1s" in result
 
     def test_exec_includes_stderr_on_success(self):
         result = exec_tool("echo boom 1>&2", timeout=5)
@@ -305,6 +329,19 @@ class TestExecHardening:
             capture_output=True, text=True,
         ).stdout.strip()
         assert alive == "0", f"grandchild survived exec timeout: {alive}"
+
+    async def test_dispatch_timeout_coercion_bad_value(self):
+        """Lines 328-329: a non-numeric timeout falls back to the default
+        instead of raising through dispatch."""
+        import asyncio
+        result = await asyncio.wait_for(
+            self._router().dispatch(
+                "exec", {"command": "echo coerced", "timeout": None}
+            ),
+            timeout=60,
+        )
+        assert "coerced" in result
+        assert "exit=0" in result
 
     async def test_exec_string_timeout_coerced(self):
         import asyncio

@@ -97,6 +97,25 @@ class TestPlaywrightMCP:
                 await pw.connect()
 
     @pytest.mark.asyncio
+    async def test_connect_failure_unwinds_ctx_stack_silently(self):
+        """Lines 51-52: when the session enters the ctx stack but its
+        __aenter__/initialize fails, the unwind must swallow a SECOND error
+        from __aexit__ itself (session half-open) and still clear the stack."""
+        pw = PlaywrightMCP("node", [])
+        mock_read_write = MagicMock()
+        mock_read_write.__aenter__ = AsyncMock(return_value=("r", "w"))
+        # __aexit__ also fails: proves the swallow-guard, not just the unwind
+        mock_read_write.__aexit__ = AsyncMock(side_effect=RuntimeError("exit also failed"))
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(side_effect=RuntimeError("init failed"))
+        with patch("campaign_agent.playwright_mcp.stdio_client", return_value=mock_read_write), \
+             patch("campaign_agent.playwright_mcp.ClientSession", return_value=mock_session):
+            with pytest.raises(RuntimeError, match="init failed"):
+                await pw.connect()
+        assert pw._ctx_stack == []  # unwound despite the failing __aexit__
+        mock_read_write.__aexit__.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_call_tool_times_out(self):
         pw = PlaywrightMCP("node", [])
         mock_session = AsyncMock()
@@ -194,6 +213,23 @@ class TestRAGMCP:
              patch("campaign_agent.rag_mcp.ClientSession", return_value=mock_session):
             with pytest.raises(RuntimeError, match="spawn failed"):
                 await rag.connect()
+
+    @pytest.mark.asyncio
+    async def test_connect_failure_unwinds_ctx_stack_silently(self):
+        """Lines 50-51: a failed connect unwinds the ctx stack, swallowing a
+        second error from __aexit__ itself, leaving the stack empty for retry."""
+        rag = RAGMCP("python", [])
+        mock_read_write = MagicMock()
+        mock_read_write.__aenter__ = AsyncMock(return_value=("r", "w"))
+        mock_read_write.__aexit__ = AsyncMock(side_effect=RuntimeError("exit also failed"))
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(side_effect=RuntimeError("init failed"))
+        with patch("campaign_agent.rag_mcp.stdio_client", return_value=mock_read_write), \
+             patch("campaign_agent.rag_mcp.ClientSession", return_value=mock_session):
+            with pytest.raises(RuntimeError, match="init failed"):
+                await rag.connect()
+        assert rag._ctx_stack == []
+        mock_read_write.__aexit__.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_call_tool_times_out(self):
