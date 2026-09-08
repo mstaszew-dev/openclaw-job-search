@@ -12,15 +12,21 @@ campaign_agent/     Python campaign agent (the current and only agent)
 campaign-agent      zsh launcher (supervised by the Director via pgrep)
 rag/                RAG MCP server (semantic search for dedup)
 archive/            Legacy code + tar.gz archives:
-                    hermes-agent-20260907.tar.gz      (hermes agent, retired)
+                    hermes-agent-20260907.tar.gz         (hermes agent, retired)
+                    hermes-jobhunter-persona-20260908.tar.gz
+                                                      (jobhunter persona recovery:
+                                                       install seeds + recovery note)
                     openclaw-legacy-20260907.tar.gz   (legacy agent + director snapshot)
                     agent-artifacts-2026-07-31.zip    (older artifacts)
 ```
 
 The Hermes port was retired on 2026-09-07: its source lives in
 `archive/hermes-agent-20260907.tar.gz` and its history in the
-`hermes-agent-port` branch on origin. The Python agent is the only agent
-kept for the future.
+`hermes-agent-port` branch on origin. The installed jobhunter persona
+(`~/.hermes/profiles/jobhunter/`) was deleted on 2026-09-08 without being
+archived first; its definitional seeds and a recovery note live in
+`archive/hermes-jobhunter-persona-20260908.tar.gz` (runtime state was
+unrecoverable). The Python agent is the only agent kept for the future.
 
 ## Run
 
