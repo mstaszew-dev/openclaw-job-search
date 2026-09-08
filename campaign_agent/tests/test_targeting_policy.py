@@ -178,6 +178,13 @@ class TestAgentTickPolicy:
             assert marker in c
         assert "market rate for IL" not in c
 
+    def test_no_captcha_solving_policy(self):
+        """2026-09-08: the agent burned ~10 min OCR-ing a BambooHR reCAPTCHA
+        and then crashed. CAPTCHA/anti-bot challenges must be skipped."""
+        c = _read(AGENT_TICK)
+        assert "CAPTCHA" in c
+        assert "blockedManual" in c
+
     def test_il_cv_reference_removed(self):
         c = _read(AGENT_TICK)
         assert "michael-staszewski-cv.pdf" not in c.replace(

@@ -1,6 +1,9 @@
 Recent submissions:
-  - Majestic Labs / Software Engineer (Core) (2026-08-31)
-  - Vistulo (for a major N. American bank) / ? (2026-08-31)
-  - Check Point Software Technologies / ? (2026-08-27)
+  - Maker's Den (Makers' Den GmbH) / Senior Backend Engineer, Java (2026-09-07)
+  - AdsHero (adshero.io - OH Software Sp. z o.o.) / Senior Java Developer (2026-09-07)
+  - Arche Solutions Sp. z o.o. / Senior Java Developer with Security Expertise (2026-09-07)
 Attempts used this tick: 0
-Tick outcome: The application was successfully submitted to **Profitroom** for **Product Engineering Cooperation - Backend or Full-stack | B2B** (Remote, Poland, B2B 25k PLN net+VAT/month). The Zoho Recruit ATS for
+Tick outcome: ✅ **Tick complete — application submitted and recorded.**
+
+**Position:** Senior Backend Engineer, Java
+**Company:** Maker's Den (Makers' Den GmbH) — remote-first software studio, 100% remote (Berlin/W

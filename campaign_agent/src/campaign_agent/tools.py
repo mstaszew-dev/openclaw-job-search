@@ -249,6 +249,8 @@ def exec_tool(command: str, timeout: int = 30, cwd: str | None = None) -> str:
             command,
             shell=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
@@ -285,7 +287,7 @@ def read_file(path: str, base_dir: str | None = None, max_chars: int = 20000) ->
         p = Path(path)
         if not p.is_absolute() and base_dir:
             p = Path(base_dir) / p
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8", errors="replace")
         if len(text) > max_chars:
             text = text[:max_chars] + f"\n...[truncated: file exceeds {max_chars} chars]"
         return text

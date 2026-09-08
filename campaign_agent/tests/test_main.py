@@ -143,6 +143,35 @@ class TestRunAgentTurn:
         assert "empty" in result.reason
 
     @pytest.mark.asyncio
+    async def test_tool_crash_becomes_error_tool_message(self):
+        """A crashing tool must not abort the turn: the strict UTF-8 decode
+        inside exec propagated through dispatch and killed the whole campaign
+        (paste, 2026-09-08). The LLM gets an error tool result instead."""
+        mock_llm = MagicMock()
+        mock_llm.chat_async = AsyncMock(side_effect=[
+            LLMResponse(
+                content="",
+                tool_calls=[ToolCall(id="c1", name="exec", arguments={"command": "echo hi"})],
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(content="Continuing after tool crash", tool_calls=[], finish_reason="stop"),
+        ])
+        mock_llm.model = "test"
+        boom = UnicodeDecodeError("utf-8", b"\x89PNG", 0, 1, "invalid start byte")
+        tools = MagicMock()
+        tools.schemas = []
+        tools.dispatch = AsyncMock(side_effect=boom)
+
+        messages: list[dict] = []
+        result = await run_agent_turn(mock_llm, tools, messages, max_steps=5)
+
+        assert result.success is False
+        assert "no_submission" in result.reason
+        assert len(messages) == 3  # assistant(tool_call) + tool(error) + assistant(content)
+        assert "Error" in messages[1]["content"]
+        assert "invalid start byte" in messages[1]["content"]
+
+    @pytest.mark.asyncio
     async def test_max_steps_exceeded(self):
         """LLM keeps calling tools → max_steps exceeded (no submission)."""
         mock_llm = MagicMock()

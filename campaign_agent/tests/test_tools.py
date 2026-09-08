@@ -36,6 +36,13 @@ class TestReadFile:
         assert "Error reading" in result
         assert "denied" in result
 
+    def test_read_binary_file_replaces_invalid_utf8(self, tmp_path):
+        p = tmp_path / "blob.png"
+        p.write_bytes(b"\x89PNG\r\n\x1a\n ok")
+        result = read_file(str(p), base_dir=None)
+        assert "PNG" in result
+        assert "\ufffd" in result
+
 
 class TestToolSchemas:
     def test_exec_schema_exists(self):
@@ -308,3 +315,19 @@ class TestExecHardening:
             timeout=10,
         )
         assert "hi" in result
+
+    async def test_exec_binary_output_does_not_crash_dispatch(self):
+        """Invalid-UTF-8 subprocess output must decode with U+FFFD replacement,
+        never raise UnicodeDecodeError. The strict decode killed the whole
+        campaign during a tesseract call (paste, 2026-09-08)."""
+        result = await self._router().dispatch(
+            "exec", {"command": "printf 'ok\\377PNG\\202end'", "timeout": 5}
+        )
+        assert "exit=0" in result
+        assert "ok" in result
+        assert "\ufffd" in result
+
+    def test_exec_tool_replaces_invalid_utf8(self):
+        result = exec_tool("printf 'ok\\377end'", timeout=5)
+        assert "\ufffd" in result
+        assert "exit=0" in result

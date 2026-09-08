@@ -169,7 +169,14 @@ async def run_agent_turn(
         # Dispatch each tool call
         for tc in response.tool_calls:
             log.info("Tool call: %s(%s)", tc.name, tc.arguments)
-            result = await tools.dispatch(tc.name, tc.arguments)
+            try:
+                result = await tools.dispatch(tc.name, tc.arguments)
+            except Exception as e:
+                # A crashing tool must never abort the campaign (a strict
+                # UTF-8 decode inside exec killed the whole run, 2026-09-08):
+                # feed the error back to the LLM as a tool result.
+                log.error("Tool %s crashed: %s", tc.name, e)
+                result = f"Error: tool '{tc.name}' crashed: {e}"
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
