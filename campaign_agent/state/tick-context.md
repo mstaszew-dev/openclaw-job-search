@@ -1,9 +1,10 @@
 Recent submissions:
-  - Maker's Den (Makers' Den GmbH) / Senior Backend Engineer, Java (2026-09-07)
-  - AdsHero (adshero.io - OH Software Sp. z o.o.) / Senior Java Developer (2026-09-07)
-  - Arche Solutions Sp. z o.o. / Senior Java Developer with Security Expertise (2026-09-07)
+  - CGI / Senior Java Backend Developer (2026-09-09)
+  - B2Bnetwork (B2B.net S.A.) / Java Developer (2026-09-09)
+  - signalo / Fullstack Developer – Java / Spring Boot / Laravel / Angular / Vue (2026-09-08)
 Attempts used this tick: 0
-Tick outcome: ✅ **Tick complete — application submitted and recorded.**
+Tick outcome: ✅ **Application submitted and recorded**
 
-**Position:** Senior Backend Engineer, Java
-**Company:** Maker's Den (Makers' Den GmbH) — remote-first software studio, 100% remote (Berlin/W
+**CGI (CGI Information Systems and Management Consultants Polska) / Senior Java Backend Developer** — J0926-0295, fully remote within Poland
+
+- **Flow:** Just
