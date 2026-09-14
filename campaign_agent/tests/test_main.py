@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 import pytest
 
 from campaign_agent.config import Config
-from campaign_agent.main import classify_failure, is_gateway_down_reason, run_agent_turn, TickResult, assert_in_iterm, _truncate_messages
+from campaign_agent.main import classify_failure, run_agent_turn, TickResult, assert_in_iterm, _truncate_messages
 from campaign_agent.session import estimate_tokens_from_messages
 from campaign_agent.llm import LLMClient, LLMResponse, ToolCall
 from campaign_agent.tools import ToolRouter
@@ -83,53 +83,6 @@ class TestClassifyFailure:
         assert kind == "max_steps"
 
 
-class TestIsGatewayDownReason:
-    def test_connection_error_is_gateway_down(self):
-        """The SDK's 'Connection error.' text (msrouter unreachable) must trip
-        the gateway-down circuit breaker."""
-        assert is_gateway_down_reason("llm_error: Connection error.")
-
-    def test_connection_refused_is_gateway_down(self):
-        assert is_gateway_down_reason("llm_error: Connection refused")
-
-    def test_connection_reset_is_gateway_down(self):
-        assert is_gateway_down_reason("llm_error: [Errno 54] Connection reset")
-
-    def test_case_insensitive(self):
-        assert is_gateway_down_reason("LLM_ERROR: CONNECTION ERROR.")
-
-    def test_econnrefused_errno_text_trips_breaker(self):
-        """Errno-class text ('ECONNREFUSED') is a gateway-down signal even
-        though classify_failure buckets 'econn' as 'rate'. The breaker gate
-        must not depend on classify_failure's kind, or this marker is dead
-        code and the 200-retry pathology silently returns for this shape."""
-        assert is_gateway_down_reason("ECONNREFUSED: Connection refused")
-        assert is_gateway_down_reason("llm_error: [Errno 61] Connection refused")
-
-    def test_econnreset_errno_text_trips_breaker(self):
-        assert is_gateway_down_reason("ECONNRESET: Connection reset by peer")
-
-    def test_stacktrace_wrapped_connection_error_trips_breaker(self):
-        """httpx/openai SDK stack traces wrap the connect error; the markers
-        must fire on the wrapped text even with SDK prefixes/whitespace."""
-        assert is_gateway_down_reason(
-            "APIConnectionError: httpx.ConnectError: [Errno 61] Connection refused"
-        )
-
-    def test_upstream_transients_are_not_gateway_down(self):
-        """Streaming/5xx/rate-limit failures inside the gateway (upstream
-        flapping) are NOT gateway-down - they keep the normal retry path."""
-        for reason in (
-            "streaming response failed",
-            "NO_PROVIDER_AVAILABLE",
-            "Rate limit reached (429)",
-            "Request timed out",
-            "empty_response",
-            "max_steps_exceeded",
-        ):
-            assert not is_gateway_down_reason(reason), reason
-
-
 class TestRunAgentTurn:
     @pytest.mark.asyncio
     async def test_content_without_submission_is_failure(self):
@@ -176,18 +129,88 @@ class TestRunAgentTurn:
 
     @pytest.mark.asyncio
     async def test_empty_response_returns_failure(self):
-        """Empty response (no content, no tools) → failure."""
+        """Empty responses are retried IN PLACE: the turn must not be
+        discarded (a 20-minute session was lost per empty response in the
+        2026-09-14 incident). Only after the in-place retry budget is
+        exhausted does the turn return empty_response."""
+        empty = LLMResponse(content="", tool_calls=[], finish_reason="stop")
         mock_llm = MagicMock()
-        mock_llm.chat_async = AsyncMock(return_value=LLMResponse(
-            content="", tool_calls=[], finish_reason="stop"
-        ))
+        mock_llm.chat_async = AsyncMock(return_value=empty)
         mock_llm.model = "test"
         tools = ToolRouter(playwright_client=None, rag_client=None)
 
-        result = await run_agent_turn(mock_llm, tools, [], max_steps=5)
+        result = await run_agent_turn(mock_llm, tools, [], max_steps=10,
+                                      in_place_retries=3)
 
         assert result.success is False
         assert "empty" in result.reason
+        # 1 initial + 3 in-place retries, then give up the turn.
+        assert mock_llm.chat_async.await_count == 4
+
+    @pytest.mark.asyncio
+    async def test_empty_response_retried_in_place_keeps_session(self):
+        """An empty response followed by a good one continues the SAME turn:
+        the same messages are re-sent, no empty assistant message is
+        appended, and the accumulated session survives."""
+        empty = LLMResponse(content="", tool_calls=[], finish_reason="stop")
+        good = LLMResponse(content="Done: recorded submission",
+                           tool_calls=[], finish_reason="stop")
+        mock_llm = MagicMock()
+        mock_llm.chat_async = AsyncMock(side_effect=[empty, empty, good])
+        mock_llm.model = "test"
+        tools = ToolRouter(playwright_client=None, rag_client=None)
+
+        messages: list[dict] = [{"role": "user", "content": "apply now"}]
+        result = await run_agent_turn(mock_llm, tools, messages, max_steps=5)
+
+        assert result.success is False  # content without submission
+        assert "no_submission" in result.reason
+        assert mock_llm.chat_async.await_count == 3
+        # Every retry resent the SAME messages: no empty assistant turn was
+        # ever appended (session preserved, history unpolluted).
+        for call in mock_llm.chat_async.await_args_list:
+            assert call.args[0] == messages
+        assert len(messages) == 2  # user + final assistant only
+
+    @pytest.mark.asyncio
+    async def test_llm_error_retried_in_place_keeps_session(self):
+        """A connection-class exception (gateway flap) retries the SAME turn
+        in place instead of discarding the session; recovery continues
+        seamlessly when the gateway returns."""
+        boom = ConnectionError("Connection error.")
+        good = LLMResponse(content="ok", tool_calls=[], finish_reason="stop")
+        mock_llm = MagicMock()
+        mock_llm.chat_async = AsyncMock(side_effect=[boom, boom, good])
+        mock_llm.model = "test"
+        tools = ToolRouter(playwright_client=None, rag_client=None)
+
+        messages: list[dict] = [{"role": "user", "content": "apply now"}]
+        result = await run_agent_turn(mock_llm, tools, messages, max_steps=5)
+
+        assert result.success is False
+        assert "no_submission" in result.reason
+        assert mock_llm.chat_async.await_count == 3
+        assert len(messages) == 2
+
+    @pytest.mark.asyncio
+    async def test_in_place_failures_bound_returns_llm_error(self):
+        """Consecutive in-place failures (mixed empties + exceptions) share
+        one bound; when exhausted, the turn returns llm_error (the tick loop
+        then retries with a fresh attempt as before)."""
+        empty = LLMResponse(content="", tool_calls=[], finish_reason="stop")
+        mock_llm = MagicMock()
+        mock_llm.chat_async = AsyncMock(side_effect=[
+            ConnectionError("refused"), empty, ConnectionError("refused"),
+        ])
+        mock_llm.model = "test"
+        tools = ToolRouter(playwright_client=None, rag_client=None)
+
+        result = await run_agent_turn(mock_llm, tools, [], max_steps=10,
+                                      in_place_retries=2)
+
+        assert result.success is False
+        assert result.reason.startswith("llm_error:")
+        assert mock_llm.chat_async.await_count == 3
 
     @pytest.mark.asyncio
     async def test_tool_crash_becomes_error_tool_message(self):
@@ -251,16 +274,18 @@ class TestRunAgentTurn:
 
     @pytest.mark.asyncio
     async def test_llm_error_returns_failure(self):
-        """LLM raises exception → failure."""
+        """LLM raises exception → failure after the in-place retry budget."""
         mock_llm = MagicMock()
         mock_llm.chat_async = AsyncMock(side_effect=RuntimeError("msrouter down"))
         mock_llm.model = "test"
         tools = ToolRouter(playwright_client=None, rag_client=None)
 
-        result = await run_agent_turn(mock_llm, tools, [], max_steps=5)
+        result = await run_agent_turn(mock_llm, tools, [], max_steps=5,
+                                      in_place_retries=0)
 
         assert result.success is False
         assert "llm_error" in result.reason
+        assert mock_llm.chat_async.await_count == 1
 
     @pytest.mark.asyncio
     async def test_update_tracker_submitted_exit0_is_success(self):

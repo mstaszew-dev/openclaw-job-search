@@ -1,10 +1,10 @@
 Recent submissions:
-  - CGI / Senior Java Backend Developer (2026-09-09)
-  - B2Bnetwork (B2B.net S.A.) / Java Developer (2026-09-09)
-  - signalo / Fullstack Developer – Java / Spring Boot / Laravel / Angular / Vue (2026-09-08)
-Attempts used this tick: 0
-Tick outcome: ✅ **Application submitted and recorded**
+  - j-labs software specialist / Senior Backend Developer (Java / Kotlin) (2026-09-14)
+  - Inwedo Sp. z o.o. / Remote Senior Java Developer (2026-09-14)
+  - Link Group / Senior Back-end Developer - Kotlin (2026-09-14)
+Attempts used this tick: 3
+Tick outcome: ✅ **Tick complete**: Exactly one job application submitted.
 
-**CGI (CGI Information Systems and Management Consultants Polska) / Senior Java Backend Developer** — J0926-0295, fully remote within Poland
-
-- **Flow:** Just
+**Role**: Senior Backend Developer (Java / Kotlin)  
+**Company**: j-labs software specialist  
+**Board**: NoFluffJobs (pl/job/senior-backen

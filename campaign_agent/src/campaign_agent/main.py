@@ -77,30 +77,6 @@ def classify_failure(text: str) -> str:
     return "fatal"
 
 
-def is_gateway_down_reason(reason: str) -> bool:
-    """True when the failure indicates the msrouter gateway itself is
-    unreachable (connection refused/reset/unreachable), as opposed to an
-    upstream free-tier provider flapping inside the gateway (which surfaces
-    as 5xx/streaming errors and is handled by classify_failure as transient).
-    Consecutive gateway-down reasons trip the tick circuit breaker."""
-    text = reason.lower()
-    markers = (
-        "connection error",
-        "connection refused",
-        "connection reset",
-        "connection closed",
-        "unable to connect",
-        "failed to connect",
-        "connect error",
-        "no route to host",
-        "network unreachable",
-        "econnrefused",
-        "econnreset",
-        "api connection error",
-    )
-    return any(m in text for m in markers)
-
-
 def _truncate_messages(
     messages: list[dict[str, Any]],
     token_budget: int,
@@ -151,13 +127,23 @@ async def run_agent_turn(
     messages: list[dict[str, Any]],
     max_steps: int = 200,
     context_token_budget: int = 102400,
+    in_place_retries: int = 5,
+    in_place_sleep: float = 4.0,
 ) -> TickResult:
     """
     Run one agent turn: LLM call → tool dispatch → repeat until done or max_steps.
     The turn ends when the LLM responds with content and no tool calls.
     Messages are truncated in-place when they exceed context_token_budget.
+
+    In-place retry: a gateway flap (connection error) or an empty completion
+    must NOT discard the accumulated session (2026-09-14: a 21-minute turn
+    was thrown away per empty response and the agent restarted its research
+    from scratch). Such failures re-ask with the SAME messages - iterating
+    in place is harmless - and only a bounded streak of consecutive failures
+    gives the turn up.
     """
     recorded_submission = False
+    in_place_failures = 0
     for step in range(max_steps):
         log.info("Agent step %d/%d", step + 1, max_steps)
 
@@ -173,14 +159,29 @@ async def run_agent_turn(
             log.error("LLM auth/quota error: %s", e)
             return TickResult(success=False, reason=f"llm_auth_error: {e}")
         except Exception as e:
-            log.error("LLM call failed: %s", e)
-            return TickResult(success=False, reason=f"llm_error: {e}")
-
-        messages.append(response.assistant_message_dict())
+            in_place_failures += 1
+            if in_place_failures > in_place_retries:
+                log.error("LLM call failed after %d in-place retries: %s",
+                          in_place_retries, e)
+                return TickResult(success=False, reason=f"llm_error: {e}")
+            log.warning("LLM call failed (%d/%d in place): %s; retrying same turn",
+                        in_place_failures, in_place_retries, e)
+            await asyncio.sleep(in_place_sleep)
+            continue
 
         if response.is_empty():
-            log.warning("Empty LLM response (no content, no tool calls)")
-            return TickResult(success=False, reason="empty_response")
+            in_place_failures += 1
+            if in_place_failures > in_place_retries:
+                log.warning("Empty LLM response after %d in-place retries; giving up turn",
+                            in_place_retries)
+                return TickResult(success=False, reason="empty_response")
+            log.warning("Empty LLM response (%d/%d in place); re-asking with same messages",
+                        in_place_failures, in_place_retries)
+            await asyncio.sleep(in_place_sleep)
+            continue
+
+        in_place_failures = 0
+        messages.append(response.assistant_message_dict())
 
         if not response.tool_calls:
             log.info("Agent turn complete: %s", response.content[:200])
@@ -314,7 +315,6 @@ async def run_campaign(config: Config) -> None:
             # Run the agent turn
             fail_count = 0
             consecutive_llm_hard = 0
-            consecutive_gateway_down = 0
             inner_result = "exhausted"
             result = None
 
@@ -379,28 +379,6 @@ async def run_campaign(config: Config) -> None:
                 if result.reason.startswith("no_submission"):
                     kind = "no_submission"
 
-                # Gateway-down circuit breaker: consecutive connection-class
-                # errors (gateway unreachable) abandon the tick early instead
-                # of burning all 200+ transient retries. Gated on the raw
-                # reason markers directly, NOT on classify_failure's kind:
-                # classify_failure buckets errno-class text like
-                # "ECONNRESET: connection reset" into "rate" (the "econn"
-                # marker precedes the connection markers), which would make
-                # the econnrefused/econnreset markers below unreachable dead
-                # code and silently reintroduce the 200-retry pathology for
-                # that message shape. is_gateway_down_reason is stricter than
-                # classify_failure's transient bucket (no bare "connection"),
-                # so upstream 5xx stream/rate-text mis-counts stay bounded.
-                if is_gateway_down_reason(result.reason):
-                    consecutive_gateway_down += 1
-                    if consecutive_gateway_down >= config.gateway_down_strikes:
-                        log.error("%d consecutive gateway-down errors; abandoning tick",
-                                  consecutive_gateway_down)
-                        inner_result = "gateway_down_giveup"
-                        break
-                else:
-                    consecutive_gateway_down = 0
-
                 if kind == "context":
                     log.warning("Context overflow, rotating session")
                     session.rotate()
@@ -434,10 +412,6 @@ async def run_campaign(config: Config) -> None:
             if inner_result == "llm_hard_giveup":
                 long_backoff = config.outer_backoff * 4
                 log.warning("Backing off %.0fs after repeated LLM hard timeouts", long_backoff)
-                await asyncio.sleep(long_backoff)
-            elif inner_result == "gateway_down_giveup":
-                long_backoff = config.outer_backoff * 4
-                log.warning("Backing off %.0fs after repeated gateway-down errors", long_backoff)
                 await asyncio.sleep(long_backoff)
             elif inner_result == "fatal":
                 log.error("Fatal error, stopping campaign")

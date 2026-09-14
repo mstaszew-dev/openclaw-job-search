@@ -50,10 +50,6 @@ class TestConfigDefaults:
         cfg = Config()
         assert cfg.max_steps == 200
 
-    def test_default_gateway_down_strikes(self):
-        cfg = Config()
-        assert cfg.gateway_down_strikes == 3
-
 
 class TestConfigFromEnv:
     """Config should pick up environment variable overrides."""
@@ -77,11 +73,6 @@ class TestConfigFromEnv:
         monkeypatch.setenv("OUTER_BACKOFF", "120")
         cfg = Config.from_env()
         assert cfg.outer_backoff == 120
-
-    def test_env_override_gateway_down_strikes(self, monkeypatch):
-        monkeypatch.setenv("GATEWAY_DOWN_STRIKES", "5")
-        cfg = Config.from_env()
-        assert cfg.gateway_down_strikes == 5
 
 
 class TestConfigFromOverridesFile:

@@ -1,6 +1,5 @@
 """Tests for the run_campaign outer loop — retry kinds, fresh attempts, completion."""
 import asyncio
-import itertools
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -522,15 +521,17 @@ async def test_three_consecutive_llm_hard_timeouts_abandon_tick(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_gateway_down_connection_errors_abandon_tick_early(tmp_path):
-    """Consecutive llm_error: Connection error (gateway unreachable) must
-    abandon the tick after gateway_down_strikes attempts instead of burning
-    inner_max_fails=200 futile retries; the campaign continues next tick."""
+async def test_connection_errors_do_not_abandon_tick(tmp_path):
+    """Connection errors must NOT abandon the tick early: the gateway-down
+    breaker was removed (2026-09-14) because abandoning destroys the session
+    context, while in-place iteration is harmless and recovers seamlessly
+    when the gateway returns. Connection errors classify transient and retry
+    until inner_max_fails."""
     h = _PatchHarness()
     try:
         cfg = _cfg(tmp_path)
-        cfg.outer_backoff = 1  # give-up backoff becomes 4 (distinguishable)
-        cfg.gateway_down_strikes = 3
+        cfg.outer_backoff = 1
+        cfg.inner_sleep = 3.0  # distinct from the 4x give-up backoff (4)
 
         tracker = h.Tracker.return_value
         tracker.campaign_complete.side_effect = [False, False, True]
@@ -553,119 +554,11 @@ async def test_gateway_down_connection_errors_abandon_tick_early(tmp_path):
              patch("campaign_agent.main.asyncio.sleep", side_effect=fake_sleep):
             await run_campaign(cfg)
 
-        # 3 strikes per tick x 2 ticks (NOT 200 attempts per tick).
-        assert mock_turn.await_count == 6
-        # Gateway-down give-up backoff (4s) fired once per abandoned tick.
-        assert sleeps.count(4) == 2
-    finally:
-        h.stop()
-
-
-@pytest.mark.asyncio
-async def test_gateway_down_breaker_resets_on_interleaved_transient(tmp_path):
-    """The gateway-down breaker must count only *consecutive* connection
-    errors: an interleaved non-connection transient (upstream flapping inside
-    the gateway) or a hard timeout resets the strike counter, so a healthy
-    gateway between two connection blips does NOT abandon the tick early."""
-    h = _PatchHarness()
-    try:
-        cfg = _cfg(tmp_path)
-        cfg.outer_backoff = 1  # give-up backoff becomes 4 (distinguishable)
-        cfg.gateway_down_strikes = 3
-
-        tracker = h.Tracker.return_value
-        tracker.campaign_complete.side_effect = [False, False, True]
-        tracker.submitted.return_value = 5
-        tracker.target.return_value = 2000
-
-        session = h.SessionManager.return_value
-        session.session_id = None
-        session.should_rotate.return_value = False
-
-        # Order: 2 strikes, then an upstream transient (gateway up), then 3
-        # strikes that abandon the tick. If the counter failed to reset, the
-        # tick would abandon after 3 TOTAL errors; with the reset it needs the
-        # interleaved transient between them (3 consecutive = 6 attempts).
-        # (cycle: tick 2 repeats the same flaky pattern.)
-        results = itertools.cycle([
-            "llm_error: Connection error.",
-            "llm_error: Connection error.",
-            "streaming response failed",
-            "llm_error: Connection error.",
-            "llm_error: Connection error.",
-            "llm_error: Connection error.",
-        ])
-
-        def fail_seq(llm, tools, messages, max_steps, **kwargs):
-            reason = next(results)
-            return MagicMock(success=False, reason=reason, submitted=0)
-
-        sleeps = []
-
-        async def fake_sleep(seconds):
-            sleeps.append(seconds)
-
-        with patch("campaign_agent.main.run_agent_turn", side_effect=fail_seq) as mock_turn, \
-             patch("campaign_agent.main.asyncio.sleep", side_effect=fake_sleep):
-            await run_campaign(cfg)
-
-        # 6 attempts for the first tick (break on the 3rd consecutive strike
-        # after the interleaved transient reset), then 6 more on the second
-        # tick before campaign_complete exits.
-        assert mock_turn.await_count == 12
-        # Gateway-down give-up backoff (4s) fired once per abandoned tick.
-        assert sleeps.count(4) == 2
-    finally:
-        h.stop()
-
-
-@pytest.mark.asyncio
-async def test_gateway_down_breaker_resets_on_interleaved_hard_timeout(tmp_path):
-    """A hard LLM timeout between two connection blips must also reset the
-    gateway-down strike counter (the two breakers are independent): the tick
-    abandons only on 3 *consecutive* gateway-down errors, not on the sum."""
-    h = _PatchHarness()
-    try:
-        cfg = _cfg(tmp_path)
-        cfg.outer_backoff = 1  # give-up backoff becomes 4 (distinguishable)
-        cfg.gateway_down_strikes = 3
-
-        tracker = h.Tracker.return_value
-        tracker.campaign_complete.side_effect = [False, False, True]
-        tracker.submitted.return_value = 5
-        tracker.target.return_value = 2000
-
-        session = h.SessionManager.return_value
-        session.session_id = None
-        session.should_rotate.return_value = False
-
-        # 1 strike, hard timeout (resets to 0), 3 strikes -> tick abandons
-        # on attempt 5, NOT attempt 3 (which a non-resetting counter would).
-        results = itertools.cycle([
-            "llm_error: Connection error.",
-            "llm_hard_timeout: read deadline exceeded",
-            "llm_error: Connection error.",
-            "llm_error: Connection error.",
-            "llm_error: Connection error.",
-        ])
-
-        def fail_seq(llm, tools, messages, max_steps, **kwargs):
-            reason = next(results)
-            return MagicMock(success=False, reason=reason, submitted=0)
-
-        sleeps = []
-
-        async def fake_sleep(seconds):
-            sleeps.append(seconds)
-
-        with patch("campaign_agent.main.run_agent_turn", side_effect=fail_seq) as mock_turn, \
-             patch("campaign_agent.main.asyncio.sleep", side_effect=fake_sleep):
-            await run_campaign(cfg)
-
-        # Tick 1: attempt 1 (strike 1), attempt 2 (hard timeout resets),
-        # attempts 3-5 (strikes 1-3 -> gateway-down giveup). Same on tick 2.
-        assert mock_turn.await_count == 10
-        assert sleeps.count(4) == 2
+        # NO early abandonment: the full inner_max_fails per tick (2 ticks).
+        assert mock_turn.await_count == cfg.inner_max_fails * 2
+        # Plain transient sleeps (3.0s), never the 4x give-up backoff (4s).
+        assert sleeps.count(4) == 0
+        assert sleeps.count(3.0) == cfg.inner_max_fails * 2
     finally:
         h.stop()
 

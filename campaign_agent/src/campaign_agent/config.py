@@ -60,10 +60,6 @@ class Config:
     inner_sleep: float = 4.0
     outer_backoff: int = 60
     outer_max_ticks: int = 41600
-    # Gateway-down circuit breaker: consecutive llm_error: Connection error
-    # attempts (gateway unreachable) abandon the tick early instead of burning
-    # all inner_max_fails futile retries, then back off via the give-up path.
-    gateway_down_strikes: int = 3
 
     # Agent loop
     max_steps: int = 200
@@ -129,7 +125,6 @@ class Config:
             "MAX_STEPS": "max_steps",
             "TIMEOUT_SECONDS": "timeout_seconds",
             "LLM_HARD_TIMEOUT": "llm_hard_timeout",
-            "GATEWAY_DOWN_STRIKES": "gateway_down_strikes",
         }
         str_fields = {
             "MSROUTER_URL": "msrouter_url",
