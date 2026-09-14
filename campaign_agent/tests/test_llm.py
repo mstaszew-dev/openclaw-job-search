@@ -1,4 +1,5 @@
 """Tests for LLM client — msrouter wrapper, tool-call parsing, retry logic."""
+import asyncio
 import json
 import time
 from types import SimpleNamespace
@@ -315,3 +316,83 @@ class TestExecutorSwap:
         res = await llm.chat_async([{"role": "user", "content": "hi"}])
         assert res.content == "recovered"
         assert _t.monotonic() - start < 1.0  # not queued behind wedged threads
+
+
+class TestZombieRetryGuard:
+    """After chat_async's hard deadline resets the client, the ABANDONED
+    thread's chat() retry loop must stop retrying. Pre-fix behavior
+    (2026-09-13 incident): the zombie kept its retry loop alive against the
+    FRESH client, sending duplicate 1200s requests upstream and logging
+    out-of-order 'Timeout (attempt 4/3)' lines. A generation counter makes
+    abandoned loops exit at their next check."""
+
+    def test_reset_client_stops_inflight_retry_loop(self, caplog):
+        """chat_async's hard-deadline reset must stop the abandoned chat()
+        retry loop: the zombie wakes from its (real, unpatched) backoff
+        sleep, hits the loop-top generation check, and abandons without
+        calling upstream again (pre-fix: duplicate 1200s requests from
+        zombie threads).
+
+        Deterministic outcome: the guard fires on the zombie's next loop
+        iteration no matter the thread schedule (the generation check is
+        race-free here - the reset happens while create() is wedged), so we
+        poll for the guard's log record with a generous bound instead of
+        asserting wall-clock margins."""
+        import logging as _logging
+        llm = LLMClient(base_url="http://127.0.0.1:9", api_key="x",
+                        max_retries=5, hard_timeout=0.3)
+        calls = []
+        real_sleep = time.sleep
+
+        def wedged_create(**kwargs):
+            calls.append(1)
+            # Wedged socket: hang until the hard deadline resets (bumping the
+            # generation), then surface the SDK timeout.
+            while llm.generation == 0:
+                real_sleep(0.01)
+            raise APITimeoutError(request=MagicMock())
+
+        llm._client.chat.completions.create = wedged_create
+        assert llm.generation == 0
+
+        with caplog.at_level(_logging.WARNING, logger="campaign_agent.llm"):
+            with pytest.raises(TimeoutError):
+                asyncio.run(llm.chat_async([{"role": "user", "content": "hi"}]))
+            assert llm.generation == 1
+            # The zombie now: raises APITimeoutError -> real 2s backoff ->
+            # loop-top guard -> "chat() loop abandoned". Poll for the guard.
+            deadline = time.monotonic() + 15.0
+            while time.monotonic() < deadline:
+                if any("chat() loop abandoned" in r.message for r in caplog.records):
+                    break
+                real_sleep(0.05)
+
+        assert any("chat() loop abandoned" in r.message for r in caplog.records), \
+            "generation guard never fired; zombie would have retried"
+        # At most one call ever hit the (wedged) client - no duplicates.
+        assert len(calls) == 1, f"zombie retried after reset ({len(calls)} calls)"
+
+    def test_chat_attempt_log_denominator(self, caplog):
+        """The retry loop makes max_retries+1 attempts total; the timeout log
+        must never print attempt N+1/N (the 'attempt 4/3' cosmetic bug)."""
+        import logging as _logging
+        llm = LLMClient(base_url="http://127.0.0.1:9", api_key="x", max_retries=3)
+
+        def always_timeout(**kwargs):
+            raise APITimeoutError(request=MagicMock())
+
+        llm._client.chat.completions.create = always_timeout
+        with caplog.at_level(_logging.WARNING, logger="campaign_agent.llm"), \
+             patch("campaign_agent.llm.time.sleep", lambda s: None):
+            with pytest.raises(APITimeoutError):
+                llm.chat(messages=[{"role": "user", "content": "hi"}])
+
+        timeout_logs = [r.message for r in caplog.records if "Timeout (attempt" in r.message]
+        assert len(timeout_logs) == 4  # 1 + max_retries attempts, each logged
+        import re as _re
+        pairs = [_re.search(r"attempt (\d+)/(\d+)", m) for m in timeout_logs]
+        assert all(m for m in pairs)
+        # Numerators within 1..N, denominators always N = max_retries+1.
+        assert [int(m.group(1)) for m in pairs] == [1, 2, 3, 4]
+        assert {int(m.group(2)) for m in pairs} == {4}
+        assert llm.generation == 0  # healthy loop never bumps the generation

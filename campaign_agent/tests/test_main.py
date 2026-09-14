@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 import pytest
 
 from campaign_agent.config import Config
-from campaign_agent.main import classify_failure, run_agent_turn, TickResult, assert_in_iterm, _truncate_messages
+from campaign_agent.main import classify_failure, is_gateway_down_reason, run_agent_turn, TickResult, assert_in_iterm, _truncate_messages
 from campaign_agent.session import estimate_tokens_from_messages
 from campaign_agent.llm import LLMClient, LLMResponse, ToolCall
 from campaign_agent.tools import ToolRouter
@@ -81,6 +81,53 @@ class TestClassifyFailure:
         misclassified as fatal either."""
         kind = classify_failure("max_steps_after_submission: done")
         assert kind == "max_steps"
+
+
+class TestIsGatewayDownReason:
+    def test_connection_error_is_gateway_down(self):
+        """The SDK's 'Connection error.' text (msrouter unreachable) must trip
+        the gateway-down circuit breaker."""
+        assert is_gateway_down_reason("llm_error: Connection error.")
+
+    def test_connection_refused_is_gateway_down(self):
+        assert is_gateway_down_reason("llm_error: Connection refused")
+
+    def test_connection_reset_is_gateway_down(self):
+        assert is_gateway_down_reason("llm_error: [Errno 54] Connection reset")
+
+    def test_case_insensitive(self):
+        assert is_gateway_down_reason("LLM_ERROR: CONNECTION ERROR.")
+
+    def test_econnrefused_errno_text_trips_breaker(self):
+        """Errno-class text ('ECONNREFUSED') is a gateway-down signal even
+        though classify_failure buckets 'econn' as 'rate'. The breaker gate
+        must not depend on classify_failure's kind, or this marker is dead
+        code and the 200-retry pathology silently returns for this shape."""
+        assert is_gateway_down_reason("ECONNREFUSED: Connection refused")
+        assert is_gateway_down_reason("llm_error: [Errno 61] Connection refused")
+
+    def test_econnreset_errno_text_trips_breaker(self):
+        assert is_gateway_down_reason("ECONNRESET: Connection reset by peer")
+
+    def test_stacktrace_wrapped_connection_error_trips_breaker(self):
+        """httpx/openai SDK stack traces wrap the connect error; the markers
+        must fire on the wrapped text even with SDK prefixes/whitespace."""
+        assert is_gateway_down_reason(
+            "APIConnectionError: httpx.ConnectError: [Errno 61] Connection refused"
+        )
+
+    def test_upstream_transients_are_not_gateway_down(self):
+        """Streaming/5xx/rate-limit failures inside the gateway (upstream
+        flapping) are NOT gateway-down - they keep the normal retry path."""
+        for reason in (
+            "streaming response failed",
+            "NO_PROVIDER_AVAILABLE",
+            "Rate limit reached (429)",
+            "Request timed out",
+            "empty_response",
+            "max_steps_exceeded",
+        ):
+            assert not is_gateway_down_reason(reason), reason
 
 
 class TestRunAgentTurn:

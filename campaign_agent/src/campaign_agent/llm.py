@@ -18,6 +18,12 @@ from openai import OpenAI, APIError, APITimeoutError, RateLimitError
 log = logging.getLogger(__name__)
 
 
+class _AbandonedRetryError(RuntimeError):
+    """Raised by chat() when reset_client() bumped the generation mid-loop:
+    the call belongs to an abandoned hard-deadline attempt and its zombie
+    thread must stop retrying instead of hammering the fresh client."""
+
+
 @dataclass
 class ToolCall:
     """A single tool call from the LLM."""
@@ -110,6 +116,12 @@ class LLMClient:
         self.model = model
         self.max_tokens = max_tokens
         self.max_retries = max_retries
+        # Generation counter: every reset_client() (hard-deadline recovery)
+        # bumps it. In-flight chat() retry loops capture the generation at
+        # start and abandon on mismatch - otherwise the abandoned zombie
+        # thread keeps retrying against the FRESH client (duplicate upstream
+        # requests, out-of-order retry logs; 2026-09-13 incident).
+        self.generation = 0
         # Hard wall-clock deadline for chat_async: a half-open socket (gateway
         # restarted/vanished mid-request) leaves the sync httpx read blocked
         # indefinitely even though the SDK per-request timeout is set, so the
@@ -132,7 +144,10 @@ class LLMClient:
 
     def reset_client(self) -> None:
         """Drop the current HTTP client (and its dead pooled socket) so the
-        next request opens a fresh connection."""
+        next request opens a fresh connection. Bumps the generation so any
+        in-flight chat() retry loop (abandoned by chat_async's hard deadline)
+        stops retrying instead of hammering the fresh client."""
+        self.generation += 1
         self._client = OpenAI(**self._client_kwargs)
 
     def _reset_executor(self) -> None:
@@ -157,14 +172,16 @@ class LLMClient:
         on expiry the client is reset so the retry uses a fresh connection.
         """
         loop = asyncio.get_running_loop()
+        fut = loop.run_in_executor(
+            self._executor,
+            functools.partial(self.chat, messages, tools=tools, max_tokens=max_tokens),
+        )
+        # A hard-deadline timeout abandons the executor future; consume its
+        # eventual exception (the zombie's _AbandonedRetryError / last SDK
+        # error) so asyncio never logs "Future exception was never retrieved".
+        fut.add_done_callback(lambda f: f.exception() if not f.cancelled() else None)
         try:
-            return await asyncio.wait_for(
-                loop.run_in_executor(
-                    self._executor,
-                    functools.partial(self.chat, messages, tools=tools, max_tokens=max_tokens),
-                ),
-                timeout=self.hard_timeout,
-            )
+            return await asyncio.wait_for(fut, timeout=self.hard_timeout)
         except (asyncio.TimeoutError, TimeoutError):
             log.error(
                 "LLM hard deadline (%ss) exceeded; resetting HTTP client + executor",
@@ -180,7 +197,10 @@ class LLMClient:
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int | None = None,
     ) -> LLMResponse:
-        """Send a chat completion request. Retries on rate limit / timeout."""
+        """Send a chat completion request. Retries on rate limit / timeout.
+        Abandons immediately when reset_client() bumped the generation
+        (this loop belongs to an abandoned hard-deadline call)."""
+        my_generation = self.generation
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -190,18 +210,32 @@ class LLMClient:
             kwargs["tools"] = tools
 
         last_error: Exception | None = None
+        # Loop makes at most max_retries+1 attempts (1 + max_retries).
         for attempt in range(self.max_retries + 1):
+            # Checked at loop top only: a reset landing between the check and
+            # the create() call lets a zombie fire at most ONE more upstream
+            # request before abandoning on the next iteration (bounded).
+            if self.generation != my_generation:
+                log.warning(
+                    "chat() loop abandoned: client reset while in flight "
+                    "(generation %d -> %d)",
+                    my_generation,
+                    self.generation,
+                )
+                raise _AbandonedRetryError(
+                    f"client reset during retry loop (generation {my_generation} -> {self.generation})"
+                )
             try:
                 response = self._client.chat.completions.create(**kwargs)
                 return LLMResponse.from_openai(response)
             except RateLimitError as e:
                 last_error = e
-                log.warning("Rate limit (attempt %d/%d): %s", attempt + 1, self.max_retries, e)
+                log.warning("Rate limit (attempt %d/%d): %s", attempt + 1, self.max_retries + 1, e)
                 if attempt < self.max_retries:
                     time.sleep(5 * (attempt + 1))  # backoff
             except APITimeoutError as e:
                 last_error = e
-                log.warning("Timeout (attempt %d/%d): %s", attempt + 1, self.max_retries, e)
+                log.warning("Timeout (attempt %d/%d): %s", attempt + 1, self.max_retries + 1, e)
                 if attempt < self.max_retries:
                     time.sleep(2)
             except APIError as e:

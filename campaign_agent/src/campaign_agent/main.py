@@ -77,6 +77,30 @@ def classify_failure(text: str) -> str:
     return "fatal"
 
 
+def is_gateway_down_reason(reason: str) -> bool:
+    """True when the failure indicates the msrouter gateway itself is
+    unreachable (connection refused/reset/unreachable), as opposed to an
+    upstream free-tier provider flapping inside the gateway (which surfaces
+    as 5xx/streaming errors and is handled by classify_failure as transient).
+    Consecutive gateway-down reasons trip the tick circuit breaker."""
+    text = reason.lower()
+    markers = (
+        "connection error",
+        "connection refused",
+        "connection reset",
+        "connection closed",
+        "unable to connect",
+        "failed to connect",
+        "connect error",
+        "no route to host",
+        "network unreachable",
+        "econnrefused",
+        "econnreset",
+        "api connection error",
+    )
+    return any(m in text for m in markers)
+
+
 def _truncate_messages(
     messages: list[dict[str, Any]],
     token_budget: int,
@@ -290,6 +314,7 @@ async def run_campaign(config: Config) -> None:
             # Run the agent turn
             fail_count = 0
             consecutive_llm_hard = 0
+            consecutive_gateway_down = 0
             inner_result = "exhausted"
             result = None
 
@@ -354,6 +379,28 @@ async def run_campaign(config: Config) -> None:
                 if result.reason.startswith("no_submission"):
                     kind = "no_submission"
 
+                # Gateway-down circuit breaker: consecutive connection-class
+                # errors (gateway unreachable) abandon the tick early instead
+                # of burning all 200+ transient retries. Gated on the raw
+                # reason markers directly, NOT on classify_failure's kind:
+                # classify_failure buckets errno-class text like
+                # "ECONNRESET: connection reset" into "rate" (the "econn"
+                # marker precedes the connection markers), which would make
+                # the econnrefused/econnreset markers below unreachable dead
+                # code and silently reintroduce the 200-retry pathology for
+                # that message shape. is_gateway_down_reason is stricter than
+                # classify_failure's transient bucket (no bare "connection"),
+                # so upstream 5xx stream/rate-text mis-counts stay bounded.
+                if is_gateway_down_reason(result.reason):
+                    consecutive_gateway_down += 1
+                    if consecutive_gateway_down >= config.gateway_down_strikes:
+                        log.error("%d consecutive gateway-down errors; abandoning tick",
+                                  consecutive_gateway_down)
+                        inner_result = "gateway_down_giveup"
+                        break
+                else:
+                    consecutive_gateway_down = 0
+
                 if kind == "context":
                     log.warning("Context overflow, rotating session")
                     session.rotate()
@@ -388,11 +435,14 @@ async def run_campaign(config: Config) -> None:
                 long_backoff = config.outer_backoff * 4
                 log.warning("Backing off %.0fs after repeated LLM hard timeouts", long_backoff)
                 await asyncio.sleep(long_backoff)
-            if inner_result == "fatal":
+            elif inner_result == "gateway_down_giveup":
+                long_backoff = config.outer_backoff * 4
+                log.warning("Backing off %.0fs after repeated gateway-down errors", long_backoff)
+                await asyncio.sleep(long_backoff)
+            elif inner_result == "fatal":
                 log.error("Fatal error, stopping campaign")
                 break
-
-            if inner_result != "success":
+            elif inner_result != "success":
                 log.warning("Retries exhausted, backing off %ss", config.outer_backoff)
                 await asyncio.sleep(config.outer_backoff)
 
