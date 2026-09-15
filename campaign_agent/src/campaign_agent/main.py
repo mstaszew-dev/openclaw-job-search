@@ -77,6 +77,29 @@ def classify_failure(text: str) -> str:
     return "fatal"
 
 
+async def _probe_browser(pw: Any, timeout: float = 30.0) -> bool:
+    """Startup browser health check (every worker start). MCP initialize()
+    succeeding does NOT prove the CDP session works: the 2026-09-15 incident
+    had a wedged MCP that answered initialize() then timed out on EVERY
+    page-level tool for 6h, silently zeroing the tick's throughput until the
+    Director killed the worker for staleness. One real browser tool call at
+    worker start proves the browser is usable; on failure the MCP server is
+    respawned once and re-probed."""
+    for attempt in (1, 2):
+        result = await pw.call_tool("browser_tabs", {"action": "list"}, timeout=timeout)
+        if not (isinstance(result, str) and result.startswith("Error")):
+            if attempt > 1:
+                log.info("Browser health probe recovered after MCP respawn")
+            return True
+        log.warning("Browser health probe %d/2 failed: %s", attempt, result[:120])
+        await pw.close()
+        try:
+            await pw.connect()
+        except Exception as e:
+            log.error("Browser MCP respawn after failed probe: %s", e)
+    return False
+
+
 def _truncate_messages(
     messages: list[dict[str, Any]],
     token_budget: int,
@@ -274,6 +297,17 @@ async def run_campaign(config: Config) -> None:
         log.info("Continuing without MCP (exec-only mode)")
 
     tools = ToolRouter(playwright_client=pw, rag_client=rag, default_cwd=config.campaign_dir)
+
+    # Startup browser health check: a wedged MCP CDP session passes connect()
+    # but times out on every page-level tool (2026-09-15, 6h silent zero
+    # throughput). Fail loudly here instead of discovering it mid-tick.
+    if await _probe_browser(pw):
+        log.info("Browser health probe OK")
+    else:
+        log.error(
+            "Browser unhealthy at startup; browser tools may fail "
+            "(the per-tool wedge watchdog keeps retrying)"
+        )
 
     system_prompt = build_system_prompt(config)
     tick = 0

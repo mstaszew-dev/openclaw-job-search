@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 import pytest
 
 from campaign_agent.config import Config
-from campaign_agent.main import classify_failure, run_agent_turn, TickResult, assert_in_iterm, _truncate_messages
+from campaign_agent.main import classify_failure, run_agent_turn, TickResult, assert_in_iterm, _truncate_messages, _probe_browser
 from campaign_agent.session import estimate_tokens_from_messages
 from campaign_agent.llm import LLMClient, LLMResponse, ToolCall
 from campaign_agent.tools import ToolRouter
@@ -523,6 +523,61 @@ class TestTruncateMessages:
         msgs = self._make_msgs(3, content_len=100)
         result = _truncate_messages(msgs, token_budget=50, keep_last=50)
         assert len(result) == 3
+
+
+class TestBrowserHealthProbe:
+    """Startup browser probe: MCP initialize() succeeding does NOT prove the
+    CDP session works. The 2026-09-15 incident had a wedged MCP that answered
+    initialize() then timed out on EVERY page-level tool for 6h, silently
+    zeroing the tick's throughput until the Director killed the worker for
+    staleness. One real browser tool call at worker start proves the browser
+    is usable; on failure the MCP server is respawned once and re-probed."""
+
+    @pytest.mark.asyncio
+    async def test_probe_healthy(self):
+        pw = MagicMock()
+        pw.call_tool = AsyncMock(return_value="[{'type': 'page'}]")
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+        assert await _probe_browser(pw) is True
+        assert pw.close.await_count == 0
+        assert pw.connect.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_probe_non_string_result_counts_as_healthy(self):
+        """Real call_tool always returns str, but mock doubles may not - a
+        non-str result must never be treated as a wedge."""
+        pw = MagicMock()
+        pw.call_tool = AsyncMock(return_value=MagicMock())
+        assert await _probe_browser(pw) is True
+
+    @pytest.mark.asyncio
+    async def test_probe_respawns_once_and_recovers(self):
+        pw = MagicMock()
+        pw.call_tool = AsyncMock(side_effect=[
+            "Error: Playwright tool 'browser_tabs' timed out after 30.0s",
+            "[{'type': 'page'}]",
+        ])
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+        assert await _probe_browser(pw) is True
+        pw.close.assert_awaited_once()
+        pw.connect.assert_awaited_once()
+        assert pw.call_tool.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_probe_both_attempts_fail(self):
+        pw = MagicMock()
+        pw.call_tool = AsyncMock(
+            return_value="Error: Playwright tool 'browser_tabs' timed out after 30.0s"
+        )
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock(side_effect=RuntimeError("spawn failed"))
+        assert await _probe_browser(pw) is False
+        assert pw.call_tool.await_count == 2
+        # Both attempts respawn (close + connect) before giving up.
+        assert pw.close.await_count == 2
+        assert pw.connect.await_count == 2
 
 
 class TestRunAgentTurnTruncation:

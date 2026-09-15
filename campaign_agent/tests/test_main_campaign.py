@@ -564,6 +564,31 @@ async def test_connection_errors_do_not_abandon_tick(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_startup_browser_probe_runs(tmp_path):
+    """Every worker start probes the browser with a real tool call (the
+    2026-09-15 wedged MCP passed connect() then timed out on every page
+    operation for 6h). Unhealthy startup must log an error, not crash."""
+    h = _PatchHarness()
+    try:
+        pw = h.PlaywrightMCP.return_value
+        pw.call_tool = AsyncMock(
+            return_value="Error: Playwright tool 'browser_tabs' timed out after 30.0s"
+        )
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+
+        tracker = h.Tracker.return_value
+        tracker.campaign_complete.side_effect = [True]
+
+        await run_campaign(_cfg(tmp_path))
+
+        # The probe ran its two attempts against the wedged MCP.
+        assert pw.call_tool.await_count == 2
+    finally:
+        h.stop()
+
+
+@pytest.mark.asyncio
 async def test_previous_tick_summary_injected_into_user_prompt(tmp_path):
     """The summarized previous tick context must be passed to the next tick's
     user prompt so the model knows what happened before."""
