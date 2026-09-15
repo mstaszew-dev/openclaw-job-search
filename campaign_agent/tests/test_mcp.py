@@ -125,8 +125,82 @@ class TestPlaywrightMCP:
 
         mock_session.call_tool = never_completes
         pw._session = mock_session
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
         result = await pw.call_tool("browser_snapshot", {}, timeout=0.05)
         assert "timed out" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_timeout_dismisses_leave_dialog_and_retries(self):
+        """A pending native dialog ("Leave site?" beforeunload from form
+        pages like ATS/registration portals) blocks every page-level
+        operation and everything queued behind it. On timeout the wrapper
+        must dismiss the dialog (accept = proceed with leaving) and retry
+        the original tool once, instead of burning the full timeout and
+        wedging the whole MCP session (2026-09-15: 6h of 120s timeouts)."""
+        pw = PlaywrightMCP("node", [])
+        mock_session = AsyncMock()
+        calls = []
+        mock_result = MagicMock()
+        mock_result.content = [MagicMock(text="navigated")]
+
+        async def scripted(name, arguments=None):
+            calls.append(name)
+            if name == "browser_handle_dialog":
+                return MagicMock(content=[MagicMock(text="dialog accepted")])
+            if len([c for c in calls if c == name]) <= 1:
+                await asyncio.sleep(30)
+            return MagicMock(content=[MagicMock(text="navigated ok")])
+
+        mock_session.call_tool = scripted
+        pw._session = mock_session
+        result = await pw.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
+        assert "navigated ok" in result
+        assert "dialog was auto-accepted" in result
+        assert calls == ["browser_navigate", "browser_handle_dialog", "browser_navigate"]
+        assert pw._consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_dialog_clear_then_retry_still_failing_counts_strike(self):
+        """If the dialog dismiss answers but the retry still hangs, that is
+        a real wedge: one strike is recorded (the respawn watchdog acts at 3)."""
+        pw = PlaywrightMCP("node", [])
+        mock_session = AsyncMock()
+
+        async def scripted(name, arguments=None):
+            if name == "browser_handle_dialog":
+                return MagicMock(content=[MagicMock(text="no dialog open")])
+            await asyncio.sleep(30)
+
+        mock_session.call_tool = scripted
+        pw._session = mock_session
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+        result = await pw.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
+        assert "timed out" in result
+        assert pw._consecutive_failures == 1
+
+    @pytest.mark.asyncio
+    async def test_wedged_dialog_clear_goes_straight_to_strike(self):
+        """When even the dismiss call hangs, the session is dead: no retry,
+        straight to the wedge watchdog counting."""
+        pw = PlaywrightMCP("node", [], dialog_clear_timeout=0.05)
+        mock_session = AsyncMock()
+        calls = []
+
+        async def never_completes(name, arguments=None):
+            calls.append(name)
+            await asyncio.sleep(30)
+
+        mock_session.call_tool = never_completes
+        pw._session = mock_session
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+        result = await pw.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
+        assert "timed out" in result
+        assert pw._consecutive_failures == 1
+        # Exactly one original call + one dismiss attempt, then failure handling.
+        assert calls == ["browser_navigate", "browser_handle_dialog"]
 
     @pytest.mark.asyncio
     async def test_consecutive_failures_respawn_mcp(self):

@@ -16,6 +16,17 @@ log = logging.getLogger(__name__)
 # MCP startup deadline: initialize() has no internal timeout in mcp 2.x
 CONNECT_TIMEOUT_S = 60.0
 
+
+def _extract_texts(result: Any) -> str:
+    """Pull text out of an MCP CallToolResult (objects or dicts)."""
+    texts = []
+    for content in result.content:
+        if hasattr(content, "text"):
+            texts.append(content.text)
+        elif isinstance(content, dict) and "text" in content:
+            texts.append(content["text"])
+    return "\n".join(texts) if texts else str(result)
+
 # Consecutive browser-tool failures that indicate a WEDGED MCP CDP session
 # (2026-09-15: every browser tool timed out for 6h while Chrome's own CDP
 # HTTP layer answered instantly; respawning the MCP server fixed it in one
@@ -29,11 +40,13 @@ class PlaywrightMCP:
     """Manages a Playwright MCP server subprocess via stdio."""
 
     def __init__(self, command: str, args: list[str],
-                 wedge_restart_strikes: int = WEDGE_RESTART_STRIKES) -> None:
+                 wedge_restart_strikes: int = WEDGE_RESTART_STRIKES,
+                 dialog_clear_timeout: float = 5.0) -> None:
         self.params = StdioServerParameters(command=command, args=args)
         self._session: ClientSession | None = None
         self._ctx_stack: list[Any] = []  # holds context managers
         self.wedge_restart_strikes = wedge_restart_strikes
+        self.dialog_clear_timeout = dialog_clear_timeout
         self._consecutive_failures = 0
 
     async def connect(self) -> None:
@@ -75,16 +88,28 @@ class PlaywrightMCP:
                 self._session.call_tool(name, arguments),
                 timeout=timeout,
             )
-            # Extract text from result content
-            texts = []
-            for content in result.content:
-                if hasattr(content, "text"):
-                    texts.append(content.text)
-                elif isinstance(content, dict) and "text" in content:
-                    texts.append(content["text"])
             self._consecutive_failures = 0
-            return "\n".join(texts) if texts else str(result)
+            return _extract_texts(result)
         except asyncio.TimeoutError:
+            # A pending native dialog ("Leave site?" beforeunload fired by
+            # form pages - ATS portals, registration forms) blocks every
+            # page-level operation and all actions queued behind it: the
+            # next tool hangs its full timeout and the session wedges
+            # (2026-09-15: 6h of 120s timeouts). Dismiss the dialog
+            # (accept = proceed with leaving) and retry the original tool
+            # once; only a repeat failure counts toward the wedge watchdog.
+            note = await self._clear_pending_dialog()
+            if note is not None:
+                try:
+                    retry = await asyncio.wait_for(
+                        self._session.call_tool(name, arguments),
+                        timeout=timeout,
+                    )
+                    if not (isinstance(retry, str) and retry.startswith("Error")):
+                        self._consecutive_failures = 0
+                        return _extract_texts(retry) + note
+                except Exception:
+                    pass
             return await self._handle_failure(
                 f"Error: Playwright tool '{name}' timed out after {timeout}s",
                 "tool '%s' timed out after %.1fs", name, timeout,
@@ -93,6 +118,22 @@ class PlaywrightMCP:
             return await self._handle_failure(
                 f"Error: {e}", "tool '%s' failed: %s", name, e,
             )
+
+    async def _clear_pending_dialog(self) -> str | None:
+        """Dismiss a pending native dialog (accept = leave the page) via the
+        MCP's browser_handle_dialog tool. Returns a caller-facing note when
+        the dismiss call ANSWERED (even 'no dialog open' proves the session
+        is alive), or None when the dismiss itself hung (session dead)."""
+        try:
+            await asyncio.wait_for(
+                self._session.call_tool(
+                    "browser_handle_dialog", {"accept": True},
+                ),
+                timeout=self.dialog_clear_timeout,
+            )
+            return " (a pending browser dialog was auto-accepted)"
+        except Exception:
+            return None
 
     async def _handle_failure(self, err_msg: str, log_fmt: str, *log_args: Any) -> str:
         """Count consecutive failures; at the wedge threshold, kill + respawn
