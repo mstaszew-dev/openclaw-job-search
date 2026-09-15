@@ -213,6 +213,61 @@ class TestRunAgentTurn:
         assert mock_llm.chat_async.await_count == 3
 
     @pytest.mark.asyncio
+    async def test_llm_giveup_after_submission_counts_as_success(self):
+        """A verified submission already recorded this turn must not be
+        discarded when the LLM later exhausts its in-place retry budget:
+        the fresh attempt would re-read a pre-submission prompt and risk a
+        duplicate application (2026-09-15 review). The outer tracker-delta
+        gate still validates the success."""
+        good = LLMResponse(
+            content="",
+            tool_calls=[ToolCall(id="c1", name="exec",
+                                 arguments={"command": "update_tracker.py submitted x; exit=0"})],
+            finish_reason="tool_calls",
+        )
+        mock_llm = MagicMock()
+        mock_llm.chat_async = AsyncMock(side_effect=[
+            good, good, ConnectionError("gateway died"),
+        ])
+        mock_llm.model = "test"
+        tools = MagicMock()
+        tools.schemas = []
+        tools.dispatch = AsyncMock(return_value="saved exit=0")
+
+        messages: list[dict] = []
+        result = await run_agent_turn(mock_llm, tools, messages, max_steps=5,
+                                      in_place_retries=0)
+
+        assert result.success is True
+        assert result.submitted == 1
+
+    @pytest.mark.asyncio
+    async def test_empty_giveup_after_submission_counts_as_success(self):
+        """Same as the LLM-error case but via the empty-response giveup."""
+        good = LLMResponse(
+            content="",
+            tool_calls=[ToolCall(id="c1", name="exec",
+                                 arguments={"command": "update_tracker.py submitted x; exit=0"})],
+            finish_reason="tool_calls",
+        )
+        empty = LLMResponse(content="", tool_calls=[], finish_reason="stop")
+        mock_llm = MagicMock()
+        mock_llm.chat_async = AsyncMock(side_effect=[
+            good, good, empty, empty, empty, empty, empty, empty,
+        ])
+        mock_llm.model = "test"
+        tools = MagicMock()
+        tools.schemas = []
+        tools.dispatch = AsyncMock(return_value="saved exit=0")
+
+        messages: list[dict] = []
+        result = await run_agent_turn(mock_llm, tools, messages, max_steps=10,
+                                      in_place_retries=5)
+
+        assert result.success is True
+        assert result.submitted == 1
+
+    @pytest.mark.asyncio
     async def test_tool_crash_becomes_error_tool_message(self):
         """A crashing tool must not abort the turn: the strict UTF-8 decode
         inside exec propagated through dispatch and killed the whole campaign

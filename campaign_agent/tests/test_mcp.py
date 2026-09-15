@@ -181,6 +181,32 @@ class TestPlaywrightMCP:
         assert pw._consecutive_failures == 1
 
     @pytest.mark.asyncio
+    async def test_retry_error_string_reported_verbatim_no_strike(self):
+        """When the post-dismiss retry ANSWERS with an error result (e.g.
+        navigation refused), the session is alive: report the real error
+        text verbatim (never rebranded as 'timed out') and reset the wedge
+        counter - consistent with the normal path where error-string
+        results are healthy responses."""
+        pw = PlaywrightMCP("node", [])
+        mock_session = AsyncMock()
+        calls = []
+
+        async def scripted(name, arguments=None):
+            calls.append(name)
+            if name == "browser_handle_dialog":
+                return MagicMock(content=[MagicMock(text="dialog accepted")])
+            if calls.count(name) == 1:
+                await asyncio.sleep(30)
+            return MagicMock(content=[MagicMock(text="Error: target closed")])
+
+        mock_session.call_tool = scripted
+        pw._session = mock_session
+        result = await pw.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
+        assert "target closed" in result
+        assert "timed out" not in result
+        assert pw._consecutive_failures == 0
+
+    @pytest.mark.asyncio
     async def test_wedged_dialog_clear_goes_straight_to_strike(self):
         """When even the dismiss call hangs, the session is dead: no retry,
         straight to the wedge watchdog counting."""

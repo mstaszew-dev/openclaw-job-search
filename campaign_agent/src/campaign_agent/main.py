@@ -186,6 +186,14 @@ async def run_agent_turn(
             if in_place_failures > in_place_retries:
                 log.error("LLM call failed after %d in-place retries: %s",
                           in_place_retries, e)
+                if recorded_submission:
+                    # A verified submission (exec exit=0) already landed this
+                    # turn; failing it would start a fresh attempt whose
+                    # prompt predates the submission and risk a duplicate
+                    # application in the same tick. Report success - the
+                    # outer tracker-delta gate still validates.
+                    return TickResult(success=True, reason="llm_error after submission",
+                                      submitted=1)
                 return TickResult(success=False, reason=f"llm_error: {e}")
             log.warning("LLM call failed (%d/%d in place): %s; retrying same turn",
                         in_place_failures, in_place_retries, e)
@@ -197,6 +205,9 @@ async def run_agent_turn(
             if in_place_failures > in_place_retries:
                 log.warning("Empty LLM response after %d in-place retries; giving up turn",
                             in_place_retries)
+                if recorded_submission:
+                    return TickResult(success=True, reason="empty_response after submission",
+                                      submitted=1)
                 return TickResult(success=False, reason="empty_response")
             log.warning("Empty LLM response (%d/%d in place); re-asking with same messages",
                         in_place_failures, in_place_retries)

@@ -105,11 +105,18 @@ class PlaywrightMCP:
                         self._session.call_tool(name, arguments),
                         timeout=timeout,
                     )
-                    if not (isinstance(retry, str) and retry.startswith("Error")):
+                    retry_text = _extract_texts(retry)
+                    if isinstance(retry_text, str) and retry_text.startswith("Error"):
+                        # The session ANSWERED (no hang): report the real
+                        # error and reset the wedge counter, consistent with
+                        # the normal path where an error-string result is a
+                        # healthy response.
                         self._consecutive_failures = 0
-                        return _extract_texts(retry) + note
-                except Exception:
-                    pass
+                        return retry_text
+                    self._consecutive_failures = 0
+                    return retry_text + note
+                except Exception as e:
+                    log.warning("Post-dialog-dismiss retry failed: %s", e)
             return await self._handle_failure(
                 f"Error: Playwright tool '{name}' timed out after {timeout}s",
                 "tool '%s' timed out after %.1fs", name, timeout,
@@ -131,8 +138,13 @@ class PlaywrightMCP:
                 ),
                 timeout=self.dialog_clear_timeout,
             )
-            return " (a pending browser dialog was auto-accepted)"
-        except Exception:
+            return (
+                " (a pending browser dialog was auto-accepted: the page may "
+                "have reloaded and unsaved form state was lost - re-verify "
+                "form contents before submitting)"
+            )
+        except Exception as e:
+            log.warning("Dialog dismiss attempt failed: %s", e)
             return None
 
     async def _handle_failure(self, err_msg: str, log_fmt: str, *log_args: Any) -> str:
