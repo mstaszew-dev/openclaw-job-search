@@ -129,6 +129,78 @@ class TestPlaywrightMCP:
         assert "timed out" in result.lower()
 
     @pytest.mark.asyncio
+    async def test_consecutive_failures_respawn_mcp(self):
+        """A wedged MCP CDP session (2026-09-15: EVERY browser tool timed out
+        for 6h while Chrome's own CDP HTTP layer answered instantly) must be
+        respawned after a bounded streak of consecutive failures, so the turn
+        recovers in place instead of grinding timeout x steps until the
+        Director kills the worker."""
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=3)
+        mock_session = AsyncMock()
+
+        async def never_completes(*_a, **_k):
+            await asyncio.sleep(30)
+
+        mock_session.call_tool = never_completes
+        pw._session = mock_session
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+
+        for _ in range(3):
+            result = await pw.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
+        assert pw.close.await_count == 1
+        assert pw.connect.await_count == 1
+        assert "respawned" in result.lower()
+        assert pw._consecutive_failures == 0  # fresh session resets the counter
+
+    @pytest.mark.asyncio
+    async def test_success_resets_wedge_counter(self):
+        """Interleaved success means the session is alive: no respawn."""
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=3)
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.content = [MagicMock(text="ok")]
+        calls = {"n": 0}
+
+        async def flaky(*_a, **_k):
+            calls["n"] += 1
+            if calls["n"] % 2 == 1:
+                await asyncio.sleep(30)
+            return mock_result
+
+        mock_session.call_tool = flaky
+        pw._session = mock_session
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+
+        for _ in range(4):
+            await pw.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
+        assert pw.close.await_count == 0
+        assert pw.connect.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_respawn_failure_keeps_counting(self):
+        """If the respawn itself fails (Chrome down), report it and keep the
+        counter so later failures retry the respawn."""
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=2)
+        mock_session = AsyncMock()
+
+        async def never_completes(*_a, **_k):
+            await asyncio.sleep(30)
+
+        mock_session.call_tool = never_completes
+        pw._session = mock_session
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock(side_effect=RuntimeError("spawn failed"))
+
+        await pw.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
+        result = await pw.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
+        assert pw.connect.await_count == 1
+        assert "respawn failed" in result.lower()
+        # Counter NOT reset: the next failure retries the respawn.
+        assert pw._consecutive_failures == 2
+
+    @pytest.mark.asyncio
     async def test_close_swallows_exit_exceptions(self):
         pw = PlaywrightMCP("node", [])
         bad_ctx = MagicMock()

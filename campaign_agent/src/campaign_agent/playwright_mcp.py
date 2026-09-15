@@ -16,14 +16,25 @@ log = logging.getLogger(__name__)
 # MCP startup deadline: initialize() has no internal timeout in mcp 2.x
 CONNECT_TIMEOUT_S = 60.0
 
+# Consecutive browser-tool failures that indicate a WEDGED MCP CDP session
+# (2026-09-15: every browser tool timed out for 6h while Chrome's own CDP
+# HTTP layer answered instantly; respawning the MCP server fixed it in one
+# second). After this many consecutive failures, call_tool kills + respawns
+# the MCP server so the turn recovers in place instead of grinding
+# timeout x steps until the Director kills the worker for staleness.
+WEDGE_RESTART_STRIKES = 3
+
 
 class PlaywrightMCP:
     """Manages a Playwright MCP server subprocess via stdio."""
 
-    def __init__(self, command: str, args: list[str]) -> None:
+    def __init__(self, command: str, args: list[str],
+                 wedge_restart_strikes: int = WEDGE_RESTART_STRIKES) -> None:
         self.params = StdioServerParameters(command=command, args=args)
         self._session: ClientSession | None = None
         self._ctx_stack: list[Any] = []  # holds context managers
+        self.wedge_restart_strikes = wedge_restart_strikes
+        self._consecutive_failures = 0
 
     async def connect(self) -> None:
         """Spawn the MCP server and initialize the session.
@@ -71,13 +82,38 @@ class PlaywrightMCP:
                     texts.append(content.text)
                 elif isinstance(content, dict) and "text" in content:
                     texts.append(content["text"])
+            self._consecutive_failures = 0
             return "\n".join(texts) if texts else str(result)
         except asyncio.TimeoutError:
-            log.error("Playwright MCP tool '%s' timed out after %.1fs", name, timeout)
-            return f"Error: Playwright tool '{name}' timed out after {timeout}s"
+            return await self._handle_failure(
+                f"Error: Playwright tool '{name}' timed out after {timeout}s",
+                "tool '%s' timed out after %.1fs", name, timeout,
+            )
         except Exception as e:
-            log.error("Playwright MCP tool '%s' failed: %s", name, e)
-            return f"Error: {e}"
+            return await self._handle_failure(
+                f"Error: {e}", "tool '%s' failed: %s", name, e,
+            )
+
+    async def _handle_failure(self, err_msg: str, log_fmt: str, *log_args: Any) -> str:
+        """Count consecutive failures; at the wedge threshold, kill + respawn
+        the MCP server so the session recovers without a worker restart."""
+        self._consecutive_failures += 1
+        log.error("Playwright MCP " + log_fmt, *log_args)
+        if self._consecutive_failures < self.wedge_restart_strikes:
+            return err_msg
+        log.warning(
+            "%d consecutive Playwright MCP failures; respawning MCP server",
+            self._consecutive_failures,
+        )
+        await self.close()
+        try:
+            await self.connect()
+            self._consecutive_failures = 0
+            return err_msg + " (Playwright MCP respawned; retry the browser tool)"
+        except Exception as e:
+            log.error("Playwright MCP respawn failed: %s", e)
+            # Counter deliberately NOT reset: a later failure retries the respawn.
+            return f"{err_msg} (Playwright MCP respawn failed: {e})"
 
     async def close(self) -> None:
         """Close the MCP session and subprocess."""
