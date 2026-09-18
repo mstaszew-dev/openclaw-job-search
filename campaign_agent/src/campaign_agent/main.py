@@ -286,10 +286,11 @@ async def run_campaign(config: Config) -> None:
         model=config.msrouter_model,
         max_retries=3,
         hard_timeout=config.llm_hard_timeout,
-        # Timeout is managed entirely by msrouter per-provider (e.g.
-        # LMSTUDIO_TIMEOUT_MS=1200s for local, UPSTREAM_TIMEOUT_MS=120s
-        # for remote). The client timeout is a safety ceiling only; msrouter
-        # will abort the attempt before the client does in normal operation.
+        # msrouter manages per-provider attempts (UPSTREAM_TIMEOUT_MS=60s
+        # remote, LOCAL/LMSTUDIO_TIMEOUT_MS=300s, LAPTOP_TIMEOUT_MS=1800s).
+        # The client timeout is the walk ceiling: deadline 300s + LM Studio
+        # first try 300s + laptop 1800s = 2400s, so a 30-min laptop response
+        # survives failover; the gateway never outlives the client here.
         timeout=config.timeout_seconds,
     )
 

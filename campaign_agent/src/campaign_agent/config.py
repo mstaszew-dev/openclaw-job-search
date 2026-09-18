@@ -63,10 +63,14 @@ class Config:
 
     # Agent loop
     max_steps: int = 200
-    timeout_seconds: int = 1200
+    # SDK per-request timeout. Must cover the gateway's full slow-walk budget:
+    # walk deadline 300s + LM Studio first try 300s + laptop tail 1800s
+    # (LAPTOP_TIMEOUT_MS=1800000 in msrouter) = 2400s, so a 30-min laptop
+    # response survives even when the remote phase burns its deadline first.
+    timeout_seconds: int = 2400
     # Hard wall-clock deadline per LLM call (chat_async): a half-open socket
     # must never wedge the agent beyond this, regardless of SDK timeouts.
-    llm_hard_timeout: int = 1500
+    llm_hard_timeout: int = 2520
 
     # Session directory (OpenClaw sessions)
     session_dir: str = os.path.expanduser("~/.campaign-agent/sessions")

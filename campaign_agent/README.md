@@ -34,11 +34,13 @@ or via the supervised launcher (what the Director uses):
 
 ## Runtime behavior notes
 
-- msrouter free chain (`mst/free`) under OpenRouter 429 walls: each provider
-  hop can hang up to 120s (UPSTREAM_TIMEOUT_MS), so a single chat call can
-  take 5-10 min. The LLMClient timeout is wired from `config.timeout_seconds`
-  (600) so it outlasts the chain walk; SDK retries + llm.py retries stack on
-  top. Slow is not hung - watch msrouter logs for chain demotions.
+- msrouter free chain (`mst/free`) under OpenRouter 429 walls: each remote
+  provider hop hangs at most UPSTREAM_TIMEOUT_MS (60s) before the walk
+  deadline (WALK_DEADLINE_MS) skips the rest, so a single chat call usually
+  takes seconds-to-minutes. The LLMClient timeout is wired from
+  `config.timeout_seconds` (2400s: walk deadline 300 + LM Studio first try
+  300 + laptop tail 1800) so it outlasts even a full failover onto the
+  30-min laptop tail. Slow is not hung - watch msrouter logs for demotions.
 - A tick only counts as success when the agent actually ran
   `update_tracker.py submitted` with exit=0 (anti-gaming: content alone, e.g.
   "done" or "TICK_COMPLETE", is `no_submission` and triggers a fresh retry).

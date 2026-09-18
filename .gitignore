@@ -26,3 +26,4 @@ secrets-dump-*.txt
 playwright-output/
 director/
 .coverage
+campaign_agent/state/tick-context.md

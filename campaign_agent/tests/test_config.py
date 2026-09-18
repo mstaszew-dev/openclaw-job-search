@@ -50,6 +50,16 @@ class TestConfigDefaults:
         cfg = Config()
         assert cfg.max_steps == 200
 
+    def test_default_llm_timeouts_cover_30min_laptop_tail(self):
+        """The gateway's slowest walk must fit inside the client budget:
+        walk deadline 300s + LM Studio first try 300s + laptop 1800s
+        (LAPTOP_TIMEOUT_MS=1800000 in msrouter) = 2400s, so the SDK timeout
+        covers the full 30-min laptop window even in failover, and the hard
+        deadline keeps its +120s headroom above the SDK timeout."""
+        cfg = Config()
+        assert cfg.timeout_seconds == 2400
+        assert cfg.llm_hard_timeout == 2520
+
 
 class TestConfigFromEnv:
     """Config should pick up environment variable overrides."""
