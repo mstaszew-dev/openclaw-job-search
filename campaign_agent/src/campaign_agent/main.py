@@ -144,6 +144,32 @@ def _truncate_messages(
     return truncated
 
 
+# Safety fraction of token_budget applied before the context cap, and the
+# minimum history budget when tool schemas eat the ceiling.
+_CONTEXT_SAFETY_FRACTION = 0.80
+_MIN_HISTORY_TOKENS = 1500
+
+
+def _llm_context_budget(
+    token_budget: int,
+    max_context_tokens: int,
+    tool_tokens: int,
+) -> int:
+    """Per-request history budget in tokens.
+
+    min(_CONTEXT_SAFETY_FRACTION * token_budget, max_context_tokens) minus
+    tool schemas, floored at _MIN_HISTORY_TOKENS so a tool-heavy setup
+    never budgets to zero. Policy (2026-09-27): a slow answer beats no
+    answer when every remote is down, so the cap only mirrors the gateway's
+    laptop-tail guard (100K tokens: the server's 131072 context window minus
+    output headroom; see msrouter src/providers/instances.ts). The tail
+    prefills fresh tokens at ~20 tok/s and decodes at ~8 tok/s, so large
+    cache-warm contexts are slow but viable.
+    """
+    ceiling = min(int(token_budget * _CONTEXT_SAFETY_FRACTION), max_context_tokens)
+    return max(_MIN_HISTORY_TOKENS, ceiling - tool_tokens)
+
+
 async def run_agent_turn(
     llm: LLMClient,
     tools: ToolRouter,
@@ -157,6 +183,8 @@ async def run_agent_turn(
     Run one agent turn: LLM call → tool dispatch → repeat until done or max_steps.
     The turn ends when the LLM responds with content and no tool calls.
     Messages are truncated in-place when they exceed context_token_budget.
+    Callers must pass the policy budget (run_campaign computes it via
+    _llm_context_budget); the 102400 default predates the context cap.
 
     In-place retry: a gateway flap (connection error) or an empty completion
     must NOT discard the accumulated session (2026-09-14: a 21-minute turn
@@ -251,9 +279,22 @@ async def run_agent_turn(
                     log.info("Submission recorded: %s", command[:120])
 
         # Truncate if context is growing too large (prevents malformed JSON
-        # from under-trained models choking on huge prompts)
+        # from under-trained models choking on huge prompts). Single-pass
+        # truncation with keep_last=20 can still exceed the budget when the
+        # recent messages alone are huge (uncapped tool results), so shrink
+        # the kept window until it fits or bottoms out.
         if estimate_tokens_from_messages(messages) > context_token_budget:
-            truncated = _truncate_messages(messages, token_budget=context_token_budget)
+            truncated: list[dict[str, Any]] = messages
+            for keep_last in (20, 10, 5, 2):
+                truncated = _truncate_messages(
+                    messages, token_budget=context_token_budget, keep_last=keep_last)
+                if estimate_tokens_from_messages(truncated) <= context_token_budget:
+                    break
+            if estimate_tokens_from_messages(truncated) > context_token_budget:
+                log.warning(
+                    "History still ~%d tokens over budget %d after truncation "
+                    "(oversized recent messages)",
+                    estimate_tokens_from_messages(truncated), context_token_budget)
             messages.clear()
             messages.extend(truncated)
 
@@ -285,6 +326,10 @@ async def run_campaign(config: Config) -> None:
         api_key=config.msrouter_api_key,
         model=config.msrouter_model,
         max_retries=3,
+        # Output cap from config (llm_max_output_tokens): 1500 tokens is
+        # ~190s at the laptop tail's ~8 tok/s decode; a runaway generation
+        # must not sit for many minutes.
+        max_tokens=config.llm_max_output_tokens,
         hard_timeout=config.llm_hard_timeout,
         # msrouter manages per-provider attempts (UPSTREAM_TIMEOUT_MS=60s
         # remote, LOCAL/LMSTUDIO_TIMEOUT_MS=300s, LAPTOP_TIMEOUT_MS=1800s).
@@ -375,12 +420,20 @@ async def run_campaign(config: Config) -> None:
                 ]
 
                 t0 = time.time()
-                # Truncate at 80% of token budget to leave room for response.
-                # Include tool schemas in the budget (they add 2-5K tokens that
-                # the message-only estimator doesn't count).
+                # Truncate at 80% of token budget OR the context cap,
+                # whichever is smaller. Include tool schemas in the budget
+                # (they add ~1K tokens that the message-only estimator
+                # doesn't count).
                 tool_chars = sum(len(json.dumps(s)) for s in tools.schemas)
                 tool_tokens = tool_chars // 4
-                ctx_budget = max(1000, int(config.token_budget * 0.80) - tool_tokens)
+                ctx_budget = _llm_context_budget(
+                    config.token_budget, config.max_context_tokens, tool_tokens)
+                baseline = estimate_tokens_from_messages(messages) + tool_tokens
+                if baseline > config.max_context_tokens:
+                    log.warning(
+                        "Fresh turn baseline ~%d tokens (incl. tools) exceeds "
+                        "max_context_tokens=%d; the gateway may fast-fail it",
+                        baseline, config.max_context_tokens)
                 result = await run_agent_turn(
                     llm, tools, messages, config.max_steps,
                     context_token_budget=ctx_budget,

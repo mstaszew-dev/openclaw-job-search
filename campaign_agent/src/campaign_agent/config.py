@@ -54,6 +54,11 @@ class Config:
     # Token budget
     token_budget: int = 128000
     rotation_threshold: float = 0.60  # rotate at 60% of budget
+    # Per-request context cap (tokens, INCLUDING tool schemas). Policy
+    # (2026-09-27): large contexts and slow responses are preferable to no
+    # response at all when every remote provider is down, so this only
+    # enforces the laptop tail's context window (131072 minus headroom).
+    max_context_tokens: int = 100000
 
     # Retry settings
     inner_max_fails: int = 200
@@ -63,6 +68,10 @@ class Config:
 
     # Agent loop
     max_steps: int = 200
+    # Output token cap per LLM call: 1500 tokens is ~190s at the laptop
+    # tail's ~8 tok/s decode, so a runaway generation cannot sit for many
+    # minutes. Config-driven so the Director can retune without a code change.
+    llm_max_output_tokens: int = 1500
     # SDK per-request timeout. Must cover the gateway's full slow-walk budget:
     # walk deadline 300s + LM Studio first try 300s + laptop tail 1800s
     # (LAPTOP_TIMEOUT_MS=1800000 in msrouter) = 2400s, so a 30-min laptop
@@ -129,6 +138,8 @@ class Config:
             "MAX_STEPS": "max_steps",
             "TIMEOUT_SECONDS": "timeout_seconds",
             "LLM_HARD_TIMEOUT": "llm_hard_timeout",
+            "LLM_MAX_OUTPUT_TOKENS": "llm_max_output_tokens",
+            "MAX_CONTEXT_TOKENS": "max_context_tokens",
         }
         str_fields = {
             "MSROUTER_URL": "msrouter_url",

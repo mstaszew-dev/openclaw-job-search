@@ -477,6 +477,7 @@ async def test_llm_client_wired_with_timeout_seconds(tmp_path):
         call_kwargs = h.LLMClient.call_args.kwargs
         assert call_kwargs["timeout"] == 1200
         assert call_kwargs["hard_timeout"] == cfg.llm_hard_timeout
+        assert call_kwargs["max_tokens"] == cfg.llm_max_output_tokens == 1500
     finally:
         h.stop()
 

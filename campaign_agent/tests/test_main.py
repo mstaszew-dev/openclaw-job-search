@@ -791,3 +791,26 @@ class TestAuthErrorIsFatal:
     def test_classify_auth_error_fatal(self):
         from campaign_agent.main import classify_failure
         assert classify_failure("llm_auth_error: Error code: 401 - insufficient_quota") == "fatal"
+
+
+class TestLLMContextBudget:
+    """The per-request context budget follows the large-context policy.
+
+    Policy (2026-09-27): a slow answer beats no answer when every remote is
+    down, so the cap only enforces the laptop tail's context window
+    (100000). History is trimmed to min(80% of token_budget,
+    max_context_tokens) minus tool schemas, with a floor so a tool-heavy
+    setup never budgets to zero.
+    """
+
+    def test_capped_at_max_context_minus_tools(self):
+        from campaign_agent.main import _llm_context_budget
+        assert _llm_context_budget(128000, 100000, 2000) == 98000
+
+    def test_small_token_budget_uses_eighty_percent(self):
+        from campaign_agent.main import _llm_context_budget
+        assert _llm_context_budget(8000, 100000, 1000) == 5400
+
+    def test_floor_1500_when_tools_eat_the_budget(self):
+        from campaign_agent.main import _llm_context_budget
+        assert _llm_context_budget(128000, 100000, 99000) == 1500

@@ -188,3 +188,21 @@ class TestConfigFileEdgeCases:
         cfg.token_budget = 100000
         cfg.rotation_threshold = 0.6
         assert cfg.rotation_token_threshold == 60000
+
+    def test_env_override_max_context_tokens(self, monkeypatch):
+        monkeypatch.setenv("MAX_CONTEXT_TOKENS", "50000")
+        cfg = Config.from_env()
+        assert cfg.max_context_tokens == 50000
+
+    def test_default_max_context_tokens(self, monkeypatch):
+        monkeypatch.delenv("MAX_CONTEXT_TOKENS", raising=False)
+        assert Config().max_context_tokens == 100000
+
+    def test_env_override_llm_max_output_tokens(self, monkeypatch):
+        monkeypatch.setenv("LLM_MAX_OUTPUT_TOKENS", "800")
+        cfg = Config.from_env()
+        assert cfg.llm_max_output_tokens == 800
+
+    def test_default_llm_max_output_tokens(self, monkeypatch):
+        monkeypatch.delenv("LLM_MAX_OUTPUT_TOKENS", raising=False)
+        assert Config().llm_max_output_tokens == 1500
