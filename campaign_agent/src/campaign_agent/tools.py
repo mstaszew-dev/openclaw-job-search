@@ -345,7 +345,7 @@ class ToolRouter:
 
         if name in PLAYWRIGHT_TOOLS:
             if self.playwright is None:
-                return f"Error: Playwright MCP not available"
+                return "Error: Playwright MCP not available"
             try:
                 return await self.playwright.call_tool(name, args, timeout=PLAYWRIGHT_TOOL_TIMEOUT)
             except Exception as e:
@@ -353,7 +353,7 @@ class ToolRouter:
 
         if name in RAG_TOOLS:
             if self.rag is None:
-                return f"Error: RAG MCP not available"
+                return "Error: RAG MCP not available"
             try:
                 return await self.rag.call_tool(name, args, timeout=RAG_TOOL_TIMEOUT)
             except Exception as e:

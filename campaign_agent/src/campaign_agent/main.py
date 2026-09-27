@@ -6,25 +6,31 @@ from __future__ import annotations
 
 # Suppress the "leaked semaphore" warning from loky/joblib at shutdown
 import warnings
+
 warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.resource_tracker")
 
 import asyncio
 import json
 import logging
 import os
-import re
 import sys
 import time
 from dataclasses import dataclass
 from typing import Any
 
+from openai import AuthenticationError, PermissionDeniedError
+
 from campaign_agent.config import Config
-from campaign_agent.llm import LLMClient, LLMResponse
+from campaign_agent.llm import LLMClient
 from campaign_agent.prompt import build_system_prompt, build_user_prompt
-from campaign_agent.session import SessionManager, TickContext, build_tick_summary, estimate_tokens_from_messages
+from campaign_agent.session import (
+    SessionManager,
+    TickContext,
+    build_tick_summary,
+    estimate_tokens_from_messages,
+)
 from campaign_agent.tools import ToolRouter
 from campaign_agent.tracker import Tracker
-from openai import AuthenticationError, PermissionDeniedError
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +52,7 @@ def classify_failure(text: str) -> str:
     """
     text_lower = text.lower()
     # run_agent_turn reason tokens (retryable, never fatal)
-    if text_lower.startswith("empty_response") or text_lower.startswith("no_submission"):
+    if text_lower.startswith(("empty_response", "no_submission")):
         return "transient"
     # Bad key / quota exhausted: retrying would loop forever.
     if text_lower.startswith("llm_auth_error"):

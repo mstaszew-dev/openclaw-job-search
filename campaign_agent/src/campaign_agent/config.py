@@ -152,15 +152,15 @@ class Config:
         }
 
         for key, attr in int_fields.items():
-            if key in d and d[key]:
+            if d.get(key):
                 setattr(self, attr, int(d[key]))
 
         for key, attr in str_fields.items():
-            if key in d and d[key]:
+            if d.get(key):
                 setattr(self, attr, d[key])
 
         for key, attr in float_fields.items():
-            if key in d and d[key]:
+            if d.get(key):
                 setattr(self, attr, float(d[key]))
 
         # PORTAL_SKIP_<Company>=1 -> skip_companies (lowercased)

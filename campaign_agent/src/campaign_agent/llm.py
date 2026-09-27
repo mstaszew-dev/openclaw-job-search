@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
-from openai import OpenAI, APIError, APITimeoutError, RateLimitError
+from openai import APIError, APITimeoutError, OpenAI, RateLimitError
 
 log = logging.getLogger(__name__)
 
@@ -128,15 +128,15 @@ class LLMClient:
         # deadline is enforced at the application layer instead. Defaults to
         # one SDK attempt plus slack.
         self.hard_timeout = hard_timeout if hard_timeout is not None else timeout + 120
-        self._client_kwargs = dict(
-            base_url=base_url,
-            api_key=api_key,
-            timeout=timeout,
+        self._client_kwargs = {
+            "base_url": base_url,
+            "api_key": api_key,
+            "timeout": timeout,
             # llm.py's chat() loop below is the single retry layer; disable the
             # SDK's internal retries so they do not stack (double worst-case
             # wait under msrouter 429 storms, confusing request accounting).
-            max_retries=0,
-        )
+            "max_retries": 0,
+        }
         self._client = OpenAI(**self._client_kwargs)
         # Dedicated pool: a hard-timed-out call abandons its thread blocked on
         # a dead socket forever, so hung threads must never starve new calls.
