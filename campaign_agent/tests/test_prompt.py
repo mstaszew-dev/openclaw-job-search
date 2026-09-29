@@ -1,8 +1,7 @@
 """Tests for prompt builder — system prompt, user prompt, token budget notice."""
-import pytest
 
-from campaign_agent.prompt import build_system_prompt, build_user_prompt
 from campaign_agent.config import Config
+from campaign_agent.prompt import build_system_prompt, build_user_prompt
 
 
 class TestSystemPrompt:

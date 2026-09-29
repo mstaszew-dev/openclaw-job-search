@@ -1,5 +1,4 @@
 """Tests for the run_campaign outer loop — retry kinds, fresh attempts, completion."""
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -429,6 +428,7 @@ def test_main_cli_entry(tmp_path):
     """main() parses CLI args, applies model override, and runs the campaign."""
     import os
     import sys
+
     from campaign_agent.main import main
 
     overrides_path = str(tmp_path / "overrides.env")
@@ -819,7 +819,6 @@ async def test_zero_tracker_delta_success_is_retried_anti_gaming(tmp_path):
         # Read sequence (each submitted() read consumes one entry):
         # tick1: start=5, log=5, attempts 1-3 delta=5 (zero -> retried)
         # tick2: start=6, log=6, attempt delta=7 (moved -> counted)
-        import itertools
         reads = iter([5, 5, 5, 5, 5, 6, 6, 6])
         tracker.submitted.side_effect = lambda: next(reads, 7)
         tracker.target.return_value = 2000

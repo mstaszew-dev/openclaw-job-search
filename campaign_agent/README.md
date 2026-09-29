@@ -51,6 +51,14 @@ or via the supervised launcher (what the Director uses):
 ## Tests
 
 ```zsh
-.venv/bin/python -m pytest            # 158 tests
+.venv/bin/python -m pytest            # 380 tests (2026-09-18)
 .venv/bin/python -m pytest --cov=campaign_agent --cov-report=term-missing
 ```
+
+## Trust boundary (explicit)
+
+The agent's `exec` tool runs LLM-authored shell commands (`shell=True`, 300s
+cap, process-group kill, cwd pinned to the campaign dir) and `read` resolves
+arbitrary absolute paths - no allowlist. This is an accepted boundary for an
+autonomous local agent on this machine; do not point it at directories you do
+not want it to read. The venv is Python 3.14; CI runs 3.13.

@@ -1,3 +1,29 @@
+[project]
+name = "campaign-agent"
+version = "1.0.0"
+description = "Autonomous job-application campaign agent (PL market) over the msrouter gateway"
+requires-python = ">=3.13"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+# The families the repo already polices (d4b4410) + correctness basics.
+# BLE001/PLW1510/S110 are deliberate patterns here (broad excepts surface
+# str(e) to the agent; subprocess check is explicit via returncode).
+select = ["E", "F", "W", "I", "UP", "B", "RUF"]
+ignore = [
+  "E501",  # line length handled by line-length + formatter, not gate
+  "B008",  # function-call-in-default used for MCP arg fixtures
+]
+
+[tool.ruff.lint.per-file-ignores]
+# main.py: imports follow the warnings-filter preamble.
+# tests: machine-local modules use module-level skip guards before imports.
+"src/campaign_agent/main.py" = ["E402"]
+"tests/*" = ["E402"]
+
 [tool.pytest.ini_options]
 addopts = "--cov=campaign_agent --cov-report=term-missing --cov-fail-under=98"
 pythonpath = ["src"]

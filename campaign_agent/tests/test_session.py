@@ -1,11 +1,9 @@
 """Tests for SessionManager — token estimation, rotation, context passing."""
 import json
-from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
-from campaign_agent.session import SessionManager
+from campaign_agent.session import SessionManager, build_tick_summary
 from campaign_agent.tracker import Tracker
 
 
@@ -144,3 +142,31 @@ class TestTickSummaryAndTokenEstimation:
         sm.messages = [{"role": "user", "content": "hello world"}]
         # 11 chars + 10 overhead = 21 -> 5 tokens
         assert sm.estimate_tokens() == 21 // 4
+
+
+class TestNullAppliedAt:
+    """2026-09-18 audit: live tracker rows carry "appliedAt": null (index 1670
+    of 1684 at audit time); build_tick_summary subscripted the None and the
+    crash was swallowed by main's handler - silently losing cross-tick memory.
+    tracker.py wraps the same field in str(); session.py must too."""
+
+    def test_build_tick_summary_tolerates_null_appliedat(self):
+        tracker = type(
+            "T",
+            (),
+            {
+                "recent_applications": staticmethod(
+                    lambda n: [
+                        {
+                            "company": "acme",
+                            "roleTitle": "Senior Java Developer",
+                            "appliedAt": None,
+                        }
+                    ]
+                )
+            },
+        )()
+        out = build_tick_summary(tracker=tracker, attempts=1, reason="submitted")
+        assert "acme" in out
+        assert "Senior Java Developer" in out
+        assert "NoneType" not in out

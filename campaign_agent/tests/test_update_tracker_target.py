@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-UPDATE_TRACKER_SCRIPT = Path("/Users/mst/Documents/Job-Search/job-apply/update_tracker.py")
+UPDATE_TRACKER_SCRIPT = Path("/Users/mst/Downloads/job-search/job-apply/update_tracker.py")
 
 if not UPDATE_TRACKER_SCRIPT.exists():
     pytest.skip(

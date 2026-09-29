@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -154,7 +155,10 @@ def main(argv: list[str] | None = None) -> int:
         vectors_path = f.name
     log.info("Wrote %d vectors to %s", len(all_vectors), vectors_path)
 
-    result = upsert_to_pinecone(index, vectors_path)
+    try:
+        result = upsert_to_pinecone(index, vectors_path)
+    finally:
+        os.unlink(vectors_path)  # NamedTemporaryFile(delete=False) leak (2026-09-18 audit)
     if result.returncode != 0:
         log.error("pc upsert failed: %s", result.stderr[-500:])
         return 1

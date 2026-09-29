@@ -1,8 +1,6 @@
-openai>=1.0
-mcp>=1.0
-pydantic>=2.0
-httpx>=0.28
-python-dotenv
-pytest
-pytest-asyncio
-pytest-cov
+# Runtime: the agent is deliberately lean - everything heavy (browser,
+# embeddings) lives behind MCP servers. pydantic/httpx are transitives of
+# openai/mcp; only direct imports are declared here, with major caps so a
+# future 3.x doesn't flow into CI unannounced (2026-09-18 audit).
+openai>=2,<3
+mcp>=2,<3

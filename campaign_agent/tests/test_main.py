@@ -1,17 +1,22 @@
 """Tests for main agent loop — tick flow, failure classification, agent turn."""
 import asyncio
-import json
 import os
 import runpy
 import sys
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from campaign_agent.config import Config
-from campaign_agent.main import classify_failure, run_agent_turn, TickResult, assert_in_iterm, _truncate_messages, _probe_browser
-from campaign_agent.session import estimate_tokens_from_messages
 from campaign_agent.llm import LLMClient, LLMResponse, ToolCall
+from campaign_agent.main import (
+    _probe_browser,
+    _truncate_messages,
+    assert_in_iterm,
+    classify_failure,
+    run_agent_turn,
+)
+from campaign_agent.session import estimate_tokens_from_messages
 from campaign_agent.tools import ToolRouter
 
 
@@ -301,7 +306,7 @@ class TestRunAgentTurn:
         """Lines 145-146: asyncio.TimeoutError from the LLM call must return
         llm_hard_timeout (the hard-deadline wrapper), not crash the turn."""
         mock_llm = MagicMock()
-        mock_llm.chat_async = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_llm.chat_async = AsyncMock(side_effect=TimeoutError())
         mock_llm.model = "test"
         tools = MagicMock()
         tools.schemas = []
@@ -770,11 +775,10 @@ class TestAuthErrorIsFatal:
 
     async def test_run_agent_turn_auth_error_reason(self):
         from openai import AuthenticationError
+
         from campaign_agent.main import run_agent_turn
-        from campaign_agent.llm import LLMClient
 
         llm = LLMClient(base_url="http://127.0.0.1:9", api_key="bad")
-        mock_resp = MagicMock()
         llm._client.chat.completions.create = MagicMock(
             side_effect=AuthenticationError(
                 message="401 insufficient_quota",

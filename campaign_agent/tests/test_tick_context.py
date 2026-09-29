@@ -1,5 +1,4 @@
 """Tests for TickContext — summarized previous-tick context persistence."""
-import pytest
 
 from campaign_agent.session import TickContext
 
@@ -49,6 +48,7 @@ class TestBuildTickSummaryGaps:
         """Gap A: build_tick_summary should list the last 3 submissions,
         not just 1, for richer cross-tick context."""
         from unittest.mock import MagicMock
+
         from campaign_agent.session import build_tick_summary
         tracker = MagicMock()
         tracker.recent_applications.return_value = [
@@ -64,6 +64,7 @@ class TestBuildTickSummaryGaps:
     def test_summary_fewer_than_3_apps(self):
         """If tracker has fewer than 3 apps, include all available."""
         from unittest.mock import MagicMock
+
         from campaign_agent.session import build_tick_summary
         tracker = MagicMock()
         tracker.recent_applications.return_value = [

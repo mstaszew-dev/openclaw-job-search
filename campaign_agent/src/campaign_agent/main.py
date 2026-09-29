@@ -208,7 +208,7 @@ async def run_agent_turn(
             # Hard-deadline async wrapper: a half-open gateway socket must
             # never wedge the whole agent (observed 8h hang, 2026-08-31).
             response = await llm.chat_async(messages, tools=tools.schemas)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.error("LLM hard deadline exceeded; connection reset for next attempt")
             return TickResult(success=False, reason="llm_hard_timeout")
         except (AuthenticationError, PermissionDeniedError) as e:
@@ -352,12 +352,14 @@ async def run_campaign(config: Config) -> None:
     pw = PlaywrightMCP(config.playwright_command, config.playwright_args)
     rag = RAGMCP(config.rag_command, config.rag_args)
 
-    try:
-        await pw.connect()
-        await rag.connect()
-    except Exception as e:
-        log.error("MCP connection failed: %s", e)
-        log.info("Continuing without MCP (exec-only mode)")
+    # Separate try blocks: a Playwright connect failure must not leave the
+    # independent RAG dedupe path dead all run (2026-09-18 audit).
+    for label, client in (("Playwright", pw), ("RAG", rag)):
+        try:
+            await client.connect()
+        except Exception as e:
+            log.error("%s MCP connection failed: %s", label, e)
+    log.info("MCP clients up (failures above degrade that client only)")
 
     tools = ToolRouter(playwright_client=pw, rag_client=rag, default_cwd=config.campaign_dir)
 

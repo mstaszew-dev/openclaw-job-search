@@ -8,13 +8,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from campaign_agent.seed_memory import (
+    _embed_fn,
+    build_upsert_payload,
+    build_vectors,
     chunk_markdown,
     collect_seed_files,
-    build_vectors,
-    build_upsert_payload,
-    upsert_to_pinecone,
-    _embed_fn,
     main,
+    upsert_to_pinecone,
 )
 
 SAMPLE_MD = """# Header
@@ -166,19 +166,25 @@ class TestMain:
         (tmp_path / "rules" / "global").mkdir()
         (tmp_path / "rules" / "global" / "10-search.md").write_text("## R\nrule content")
 
+        captured: dict = {}
+
+        def fake_upsert(index, vectors_path):
+            # Capture at call time: main deletes the temp file after upsert
+            # (2026-09-18 leak fix).
+            with open(vectors_path) as f:
+                captured["data"] = json.load(f)
+            return MagicMock(returncode=0)
+
         with patch(
             "campaign_agent.seed_memory._embed_fn", return_value=lambda t: [0.1] * 256
-        ), patch("campaign_agent.seed_memory.upsert_to_pinecone") as mock_up:
-            mock_up.return_value = MagicMock(returncode=0)
+        ), patch("campaign_agent.seed_memory.upsert_to_pinecone", side_effect=fake_upsert) as mock_up:
             rc = main(["agent-memory", str(tmp_path)])
 
         assert rc == 0
         assert mock_up.call_count == 1
-        index, vectors_path = mock_up.call_args[0]
+        index = mock_up.call_args[0][0]
         assert index == "agent-memory"
-        # Vectors file was written and is valid JSON with all chunks.
-        with open(vectors_path) as f:
-            data = json.load(f)
+        data = captured["data"]
         assert len(data) == 3  # one chunk per seed file
 
     def test_kind_classification_by_source(self, tmp_path):
@@ -190,16 +196,19 @@ class TestMain:
         (tmp_path / "rules" / "global").mkdir()
         (tmp_path / "rules" / "global" / "r.md").write_text("## R\ncontent")
 
+        captured: dict = {}
+
+        def fake_upsert(index, vectors_path):
+            with open(vectors_path) as f:
+                captured["data"] = json.load(f)
+            return MagicMock(returncode=0)
+
         with patch(
             "campaign_agent.seed_memory._embed_fn", return_value=lambda t: [0.1] * 256
-        ), patch("campaign_agent.seed_memory.upsert_to_pinecone") as mock_up:
-            mock_up.return_value = MagicMock(returncode=0)
+        ), patch("campaign_agent.seed_memory.upsert_to_pinecone", side_effect=fake_upsert):
             main(["idx", str(tmp_path)])
 
-        _, vectors_path = mock_up.call_args[0]
-        with open(vectors_path) as f:
-            data = json.load(f)
-        kinds = {v["metadata"]["kind"] for v in data}
+        kinds = {v["metadata"]["kind"] for v in captured["data"]}
         assert kinds == {"keyword", "memory", "rules"}
 
     def test_returns_1_on_upsert_failure(self, tmp_path):

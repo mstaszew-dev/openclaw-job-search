@@ -81,7 +81,12 @@ class PlaywrightMCP:
     async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float = 120.0) -> str:
         """Call a tool on the Playwright MCP server with a timeout."""
         if self._session is None:
-            return "Error: Playwright MCP not connected"
+            # Disconnected (e.g. a failed respawn left _session None): count
+            # a strike through the wedge watchdog so the respawn is retried
+            # at the threshold instead of returning instantly forever.
+            return await self._handle_failure(
+                "Error: Playwright MCP not connected", "tool call while disconnected"
+            )
         try:
             # Use asyncio.wait_for to enforce a timeout on the tool call
             result = await asyncio.wait_for(
@@ -90,7 +95,7 @@ class PlaywrightMCP:
             )
             self._consecutive_failures = 0
             return _extract_texts(result)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # A pending native dialog ("Leave site?" beforeunload fired by
             # form pages - ATS portals, registration forms) blocks every
             # page-level operation and all actions queued behind it: the

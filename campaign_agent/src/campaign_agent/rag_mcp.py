@@ -69,7 +69,7 @@ class RAGMCP:
                 elif isinstance(content, dict) and "text" in content:
                     texts.append(content["text"])
             return "\n".join(texts) if texts else str(result)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.error("RAG MCP tool '%s' timed out after %.1fs", name, timeout)
             return f"Error: RAG tool '{name}' timed out after {timeout}s"
         except Exception as e:

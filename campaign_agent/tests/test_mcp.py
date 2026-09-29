@@ -81,8 +81,6 @@ class TestPlaywrightMCP:
             await pw.connect()
         assert pw._session is mock_session
         mock_session.initialize.assert_awaited_once()
-        # ClientSession was constructed with the stdio streams
-        stream_args = mock_session.await_args  # not needed; assert session stored
 
     @pytest.mark.asyncio
     async def test_connect_failure_propagates(self):
@@ -496,3 +494,46 @@ async def test_rag_connect_initialize_timeout_cleans_up():
             await rag.connect()
     assert rag._session is None
     mock_read_write.__aexit__.assert_awaited_once()
+
+
+class TestDisconnectedAfterFailedRespawn:
+    """2026-09-18 audit: after a FAILED respawn, _session stays None and every
+    call_tool early-returned 'not connected' BEFORE the wedge watchdog - so
+    strikes never incremented and the respawn was never retried: the browser
+    client stayed dead until worker restart while the agent burned its step
+    budget against an instant error string. The disconnected state must count
+    as a strike and re-attempt the respawn at the threshold."""
+
+    @pytest.mark.asyncio
+    async def test_disconnected_calls_count_strikes_and_retry_respawn(self):
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=2)
+        pw._session = None
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()  # respawn succeeds this time
+
+        r1 = await pw.call_tool("browser_navigate", {"url": "x"})
+        assert "not connected" in r1.lower()
+        assert "respawn" not in r1.lower()
+        assert pw.connect.await_count == 0
+
+        r2 = await pw.call_tool("browser_navigate", {"url": "x"})
+        assert "respawned" in r2.lower()
+        assert pw.connect.await_count == 1
+        assert pw._consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_disconnected_respawn_failure_keeps_retrying_next_strike(self):
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=2)
+        pw._session = None
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock(side_effect=RuntimeError("boom"))
+
+        for _ in range(2):
+            r = await pw.call_tool("browser_navigate", {"url": "x"})
+        assert "respawn failed" in r.lower()
+        # Still disconnected: every subsequent failure retries the respawn
+        # (the counter is deliberately NOT reset on a failed respawn).
+        for _ in range(2):
+            r = await pw.call_tool("browser_navigate", {"url": "x"})
+        assert pw.connect.await_count == 3
+        assert "respawn failed" in r.lower()

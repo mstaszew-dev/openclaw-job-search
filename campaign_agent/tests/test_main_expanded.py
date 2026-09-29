@@ -1,12 +1,10 @@
 """Expanded tests for main.py — campaign loop, LLM error paths, tool edge cases."""
-import asyncio
-import json
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from campaign_agent.main import classify_failure, run_agent_turn, TickResult
 from campaign_agent.llm import LLMClient, LLMResponse, ToolCall
+from campaign_agent.main import classify_failure, run_agent_turn
 from campaign_agent.tools import ToolRouter
 
 
@@ -287,7 +285,6 @@ class TestSessionManagerExpanded:
     @pytest.mark.asyncio
     async def test_estimate_tokens_with_tool_calls(self):
         from campaign_agent.session import SessionManager
-        import json
 
         sm = SessionManager("/tmp", "/tmp/tracker.json")
         messages = [

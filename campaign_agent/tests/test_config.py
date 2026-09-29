@@ -1,8 +1,5 @@
 """Tests for Config dataclass — default values, env overrides, file loading."""
-import os
-from pathlib import Path
 
-import pytest
 
 from campaign_agent.config import Config
 
@@ -183,11 +180,6 @@ class TestConfigFileEdgeCases:
         cfg = Config.from_env()
         assert cfg.inner_sleep == 2.5
 
-    def test_rotation_token_threshold(self):
-        cfg = Config()
-        cfg.token_budget = 100000
-        cfg.rotation_threshold = 0.6
-        assert cfg.rotation_token_threshold == 60000
 
     def test_env_override_max_context_tokens(self, monkeypatch):
         monkeypatch.setenv("MAX_CONTEXT_TOKENS", "50000")

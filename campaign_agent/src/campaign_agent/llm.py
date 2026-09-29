@@ -182,7 +182,7 @@ class LLMClient:
         fut.add_done_callback(lambda f: f.exception() if not f.cancelled() else None)
         try:
             return await asyncio.wait_for(fut, timeout=self.hard_timeout)
-        except (asyncio.TimeoutError, TimeoutError):
+        except TimeoutError:
             log.error(
                 "LLM hard deadline (%ss) exceeded; resetting HTTP client + executor",
                 self.hard_timeout,

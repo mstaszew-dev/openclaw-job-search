@@ -1,11 +1,10 @@
 """Tests for ToolRouter — tool schemas, exec dispatch, routing logic."""
-import json
 import subprocess
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from campaign_agent.tools import ToolRouter, exec_tool, TOOL_SCHEMAS, read_file
+from campaign_agent.tools import TOOL_SCHEMAS, ToolRouter, exec_tool, read_file
 
 
 class TestReadFile:
@@ -278,8 +277,8 @@ class TestExecHardening:
         return ToolRouter(default_cwd=None)
 
     async def test_exec_timeout_is_capped(self, monkeypatch):
-        import asyncio
         import time
+
         from campaign_agent import tools as tools_mod
 
         monkeypatch.setattr(tools_mod, "EXEC_MAX_TIMEOUT", 1)
@@ -294,6 +293,7 @@ class TestExecHardening:
     async def test_exec_does_not_block_event_loop(self, monkeypatch):
         import asyncio
         import time
+
         from campaign_agent import tools as tools_mod
 
         monkeypatch.setattr(tools_mod, "EXEC_MAX_TIMEOUT", 1)
@@ -310,8 +310,8 @@ class TestExecHardening:
 
     async def test_exec_kills_grandchildren_on_timeout(self):
         import asyncio
-        import subprocess
         import time
+
         from campaign_agent import tools as tools_mod
 
         marker = "cv-restart-grandchild-probe"
@@ -368,3 +368,20 @@ class TestExecHardening:
         result = exec_tool("printf 'ok\\377end'", timeout=5)
         assert "\ufffd" in result
         assert "exit=0" in result
+
+
+class TestExecOutputCap:
+    """2026-09-18 audit: exec had no output-size cap while read_file caps at
+    20k chars - one `cat events.jsonl` could blow the context budget in a
+    single step. exec must cap its combined output the same way."""
+
+    def test_exec_output_capped_to_20k_chars(self):
+        out = exec_tool("python3 -c \"print('x' * 100000)\"", timeout=30)
+        assert len(out) <= 20100  # head + tail cap
+        assert "truncated" in out
+        assert out.rstrip().endswith("exit=0")  # tail survives for the gate
+        assert len(out) < 100000
+
+    def test_exec_small_output_untouched(self):
+        out = exec_tool("echo hello", timeout=10)
+        assert "hello" in out

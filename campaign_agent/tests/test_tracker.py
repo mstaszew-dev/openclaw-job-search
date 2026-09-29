@@ -1,6 +1,5 @@
 """Tests for Tracker — reads tracker.json for submitted count, target, recent apps."""
 import json
-from pathlib import Path
 
 import pytest
 

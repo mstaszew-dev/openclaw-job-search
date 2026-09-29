@@ -1,6 +1,5 @@
 """Tests for LLM client — msrouter wrapper, tool-call parsing, retry logic."""
 import asyncio
-import json
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -163,7 +162,6 @@ class TestLLMClient:
 
     def test_chat_retries_on_rate_limit(self, mock_openai_client):
         """Should retry on RateLimitError."""
-        from openai import RateLimitError
         mock_resp = MagicMock()
         mock_resp.choices = [MagicMock()]
         mock_resp.choices[0].message.content = "ok"

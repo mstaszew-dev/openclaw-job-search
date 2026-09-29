@@ -278,7 +278,14 @@ def exec_tool(command: str, timeout: int = 30, cwd: str | None = None) -> str:
     if err:
         parts.append(f"stderr: {err.strip()}")
     parts.append(f"exit={proc.returncode}")
-    return "\n".join(parts)
+    result = "\n".join(parts)
+    # Cap like read_file: one `cat events.jsonl` must not blow the context
+    # budget in a single step (2026-09-18 audit). Keep the head AND the tail:
+    # the tail carries the `exit=N` trailer the submission gate keys on.
+    if len(result) > 20000:
+        dropped = len(result) - 19800
+        result = result[:17800] + f"\n[... truncated {dropped} chars ...]\n" + result[-2000:]
+    return result
 
 
 def read_file(path: str, base_dir: str | None = None, max_chars: int = 20000) -> str:

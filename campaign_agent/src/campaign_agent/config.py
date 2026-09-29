@@ -38,9 +38,7 @@ class Config:
 
     # Campaign state
     tracker_path: str = "/Users/mst/Downloads/job-search/job-apply/tracker.json"
-    events_path: str = "/Users/mst/Downloads/job-search/job-apply/events.jsonl"
     campaign_dir: str = "/Users/mst/Downloads/job-search/job-apply"
-    workspace: str = "/Users/mst/ZCodeProject/openclaw-job-search"
 
     # Absolute paths the agent must know for file operations (CV uploads and
     # Playwright page snapshots live outside the campaign dir).
@@ -48,7 +46,9 @@ class Config:
     cv_path_pl: str = "/Users/mst/Downloads/job-search/job-apply/cv/michael-staszewski-cv-pl.pdf"
     playwright_output_dir: str = "/Users/mst/ZCodeProject/openclaw-job-search/playwright-output"
 
-    # Chrome CDP
+    # Chrome CDP endpoint; wired into playwright_args in __post_init__ so a
+    # CDP_URL override actually takes effect (2026-09-18 audit: it was read
+    # but the arg was hardcoded).
     cdp_url: str = "http://127.0.0.1:9222"
 
     # Token budget
@@ -112,6 +112,17 @@ class Config:
     # Director overrides
     overrides_path: str = os.path.expanduser("~/.campaign-agent/director-overrides.env")
 
+    def __post_init__(self) -> None:
+        """Wire cdp_url into the Playwright MCP launch args (kept in sync with
+        any CDP_URL override applied after construction via _apply_dict)."""
+        self._sync_cdp_arg()
+
+    def _sync_cdp_arg(self) -> None:
+        for i, a in enumerate(self.playwright_args):
+            if a == "--cdp-endpoint" and i + 1 < len(self.playwright_args):
+                self.playwright_args[i + 1] = self.cdp_url
+                return
+
     @classmethod
     def from_env(cls) -> Config:
         """Load config from environment variables only (no file)."""
@@ -146,6 +157,8 @@ class Config:
             "MSROUTER_MODEL": "msrouter_model",
             "MSROUTER_API_KEY": "msrouter_api_key",
             "CDP_URL": "cdp_url",
+            "TOKEN_BUDGET": "token_budget",
+            "ROTATION_THRESHOLD": "rotation_threshold",
         }
         float_fields = {
             "INNER_SLEEP": "inner_sleep",
@@ -169,6 +182,7 @@ class Config:
                 company = key[len("PORTAL_SKIP_"):].strip().lower()
                 if company:
                     self.skip_companies.add(company)
+        self._sync_cdp_arg()
 
     @property
     def director_note(self) -> str:
@@ -179,7 +193,3 @@ class Config:
         except (FileNotFoundError, OSError):
             return ""
 
-    @property
-    def rotation_token_threshold(self) -> int:
-        """Token count at which proactive rotation triggers."""
-        return int(self.token_budget * self.rotation_threshold)

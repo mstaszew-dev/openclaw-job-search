@@ -1,10 +1,9 @@
 """Tests for submission_validator.py — prevents fake/test record contamination."""
-import json
 from pathlib import Path
 
 import pytest
 
-CAMPAIGN_DIR = Path("/Users/mst/Documents/Job-Search/job-apply")
+CAMPAIGN_DIR = Path("/Users/mst/Downloads/job-search/job-apply")
 
 if not (CAMPAIGN_DIR / "submission_validator.py").exists():
     pytest.skip(

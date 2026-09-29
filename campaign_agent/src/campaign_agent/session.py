@@ -66,7 +66,7 @@ def build_tick_summary(
         for app in recent:
             lines.append(
                 f"  - {app.get('company', '?')} / "
-                f"{app.get('roleTitle', '?')} ({app.get('appliedAt', '?')[:10]})"
+                f"{app.get('roleTitle', '?')} ({str(app.get('appliedAt') or '?')[:10]})"
             )
     else:
         lines.append("Last tick result: no submission recorded.")

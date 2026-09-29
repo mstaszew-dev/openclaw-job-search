@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-TICK_STATUS_SCRIPT = Path("/Users/mst/Documents/Job-Search/job-apply/tick_status.sh")
+TICK_STATUS_SCRIPT = Path("/Users/mst/Downloads/job-search/job-apply/tick_status.sh")
 
 if not TICK_STATUS_SCRIPT.exists():
     pytest.skip(
@@ -42,7 +42,7 @@ class TestTickStatusTargetFallback:
 
     def test_shows_target_from_tracker(self, tick_status_script, tracker_file, tmp_path):
         """When tracker.json has targetApplications, tick_status.sh uses it."""
-        tracker_path = tracker_file(target_applications=1500, submitted=1200)
+        tracker_file(target_applications=1500, submitted=1200)
         # Copy tick_status.sh to tmp_path and modify ROOT to use our tracker
         script_content = tick_status_script.read_text()
         # Replace ROOT derivation to point to tmp_path
