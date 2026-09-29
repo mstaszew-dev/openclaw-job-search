@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+import campaign_agent.tools as tools_mod
 from campaign_agent.tools import TOOL_SCHEMAS, ToolRouter, exec_tool, read_file
 
 
@@ -385,3 +386,36 @@ class TestExecOutputCap:
     def test_exec_small_output_untouched(self):
         out = exec_tool("echo hello", timeout=10)
         assert "hello" in out
+
+
+class TestExecTimeoutPathCap:
+    """2026-09-18 review S-2: the TimeoutExpired branch returned early and
+    bypassed the cap - a command that floods stdout before timing out still
+    blew the context budget. The timeout path must cap too."""
+
+    def test_timeout_path_output_also_capped(self, monkeypatch):
+        import subprocess as sp
+
+        huge = "y" * 100_000
+
+        def dead_group(pid, sig):
+            raise ProcessLookupError()  # group already gone; handler path
+
+        monkeypatch.setattr(tools_mod.os, "killpg", dead_group)
+
+        class FakePopen:
+            pid = 12345
+
+            def kill(self):
+                return None
+
+            def communicate(self, timeout=None):
+                if timeout is not None:
+                    raise sp.TimeoutExpired(cmd="x", timeout=timeout)
+                return huge, ""
+
+        monkeypatch.setattr(tools_mod.subprocess, "Popen", lambda *a, **k: FakePopen())
+        out = exec_tool("whatever", timeout=2)
+        assert "timed out after 2s" in out
+        assert len(out) <= 20100
+        assert "truncated" in out

@@ -537,3 +537,28 @@ class TestDisconnectedAfterFailedRespawn:
             r = await pw.call_tool("browser_navigate", {"url": "x"})
         assert pw.connect.await_count == 3
         assert "respawn failed" in r.lower()
+
+
+class TestRagDisconnectedWatchdog:
+    """2026-09-18 review S-3: RAGMCP had the same dead-client trap Playwright
+    had - after a failed connect/respawn, call_tool returned 'not connected'
+    instantly forever. The disconnected state must count strikes and retry
+    the respawn at the threshold."""
+
+    @pytest.mark.asyncio
+    async def test_disconnected_rag_counts_strikes_and_respawns(self):
+        from campaign_agent.rag_mcp import RAGMCP
+
+        rag = RAGMCP("python3", ["rag_server.py"])
+        rag.wedge_restart_strikes = 2
+        rag._session = None
+        rag.close = AsyncMock()
+        rag.connect = AsyncMock()
+
+        r1 = await rag.call_tool("rag_search_apps", {"query": "x"})
+        assert "not connected" in r1.lower()
+        assert rag.connect.await_count == 0
+
+        r2 = await rag.call_tool("rag_search_apps", {"query": "x"})
+        assert "respawned" in r2.lower()
+        assert rag.connect.await_count == 1

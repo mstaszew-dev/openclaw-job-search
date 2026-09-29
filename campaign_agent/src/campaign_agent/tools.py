@@ -237,6 +237,15 @@ class MCPClient(Protocol):
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str: ...
 
 
+def _cap_output(result: str, limit: int = 20000) -> str:
+    """Head+tail cap: the tail keeps the `exit=N` trailer the submission gate
+    keys on (2026-09-18 audit)."""
+    if len(result) <= limit:
+        return result
+    dropped = len(result) - 19800
+    return result[:17800] + f"\n[... truncated {dropped} chars ...]\n" + result[-2000:]
+
+
 def exec_tool(command: str, timeout: int = 30, cwd: str | None = None) -> str:
     """Execute a shell command and return stdout + stderr + exit code.
 
@@ -271,21 +280,14 @@ def exec_tool(command: str, timeout: int = 30, cwd: str | None = None) -> str:
             parts.append(out.strip())
         if err and err.strip():
             parts.append(f"stderr: {err.strip()}")
-        return "\n".join(parts)
+        return _cap_output("\n".join(parts))
     parts = []
     if out:
         parts.append(out.strip())
     if err:
         parts.append(f"stderr: {err.strip()}")
     parts.append(f"exit={proc.returncode}")
-    result = "\n".join(parts)
-    # Cap like read_file: one `cat events.jsonl` must not blow the context
-    # budget in a single step (2026-09-18 audit). Keep the head AND the tail:
-    # the tail carries the `exit=N` trailer the submission gate keys on.
-    if len(result) > 20000:
-        dropped = len(result) - 19800
-        result = result[:17800] + f"\n[... truncated {dropped} chars ...]\n" + result[-2000:]
-    return result
+    return _cap_output("\n".join(parts))
 
 
 def read_file(path: str, base_dir: str | None = None, max_chars: int = 20000) -> str:

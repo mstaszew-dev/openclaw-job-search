@@ -19,10 +19,12 @@ CONNECT_TIMEOUT_S = 60.0
 class RAGMCP:
     """Manages a RAG MCP server subprocess via stdio."""
 
-    def __init__(self, command: str, args: list[str]) -> None:
+    def __init__(self, command: str, args: list[str], wedge_restart_strikes: int = 3) -> None:
         self.params = StdioServerParameters(command=command, args=args)
         self._session: ClientSession | None = None
         self._ctx_stack: list[Any] = []
+        self.wedge_restart_strikes = wedge_restart_strikes
+        self._consecutive_failures = 0
 
     async def connect(self) -> None:
         """Spawn the RAG MCP server and initialize the session.
@@ -53,10 +55,36 @@ class RAGMCP:
             raise
         log.info("RAG MCP connected")
 
+    async def _handle_failure(self, err_msg: str, log_fmt: str, *log_args: Any) -> str:
+        """Wedge watchdog (ported from PlaywrightMCP, 2026-09-18 review S-3):
+        count consecutive failures; at the threshold kill + respawn the MCP
+        server so a dead dedupe path recovers without a worker restart."""
+        self._consecutive_failures += 1
+        log.error("RAG MCP " + log_fmt, *log_args)
+        if self._consecutive_failures < self.wedge_restart_strikes:
+            return err_msg
+        log.warning(
+            "%d consecutive RAG MCP failures; respawning MCP server",
+            self._consecutive_failures,
+        )
+        await self.close()
+        try:
+            await self.connect()
+            self._consecutive_failures = 0
+            return err_msg + " (RAG MCP respawned; retry the tool)"
+        except Exception as e:
+            log.error("RAG MCP respawn failed: %s", e)
+            # Counter deliberately NOT reset: a later failure retries the respawn.
+            return f"{err_msg} (RAG MCP respawn failed: {e})"
+
     async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float = 60.0) -> str:
         """Call a tool on the RAG MCP server with a timeout."""
         if self._session is None:
-            return "Error: RAG MCP not connected"
+            # Disconnected (e.g. a failed respawn): count a strike so the
+            # respawn is retried at the threshold instead of erroring forever.
+            return await self._handle_failure(
+                "Error: RAG MCP not connected", "tool call while disconnected"
+            )
         try:
             result = await asyncio.wait_for(
                 self._session.call_tool(name, arguments),

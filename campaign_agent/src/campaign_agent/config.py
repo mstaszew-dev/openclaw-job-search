@@ -5,6 +5,7 @@ Env vars take precedence over file, file takes precedence over defaults.
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -120,6 +121,10 @@ class Config:
     def _sync_cdp_arg(self) -> None:
         for i, a in enumerate(self.playwright_args):
             if a == "--cdp-endpoint" and i + 1 < len(self.playwright_args):
+                if self.playwright_args[i + 1] != self.cdp_url:
+                    logging.getLogger(__name__).debug(
+                        "cdp-endpoint rewired to %s", self.cdp_url
+                    )
                 self.playwright_args[i + 1] = self.cdp_url
                 return
 
@@ -147,6 +152,7 @@ class Config:
             "OUTER_BACKOFF": "outer_backoff",
             "OUTER_MAX_TICKS": "outer_max_ticks",
             "MAX_STEPS": "max_steps",
+            "TOKEN_BUDGET": "token_budget",
             "TIMEOUT_SECONDS": "timeout_seconds",
             "LLM_HARD_TIMEOUT": "llm_hard_timeout",
             "LLM_MAX_OUTPUT_TOKENS": "llm_max_output_tokens",
@@ -157,11 +163,10 @@ class Config:
             "MSROUTER_MODEL": "msrouter_model",
             "MSROUTER_API_KEY": "msrouter_api_key",
             "CDP_URL": "cdp_url",
-            "TOKEN_BUDGET": "token_budget",
-            "ROTATION_THRESHOLD": "rotation_threshold",
         }
         float_fields = {
             "INNER_SLEEP": "inner_sleep",
+            "ROTATION_THRESHOLD": "rotation_threshold",
         }
 
         for key, attr in int_fields.items():

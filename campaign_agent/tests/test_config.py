@@ -198,3 +198,41 @@ class TestConfigFileEdgeCases:
     def test_default_llm_max_output_tokens(self, monkeypatch):
         monkeypatch.delenv("LLM_MAX_OUTPUT_TOKENS", raising=False)
         assert Config().llm_max_output_tokens == 1500
+
+
+class TestDirectorTunableTypes:
+    """2026-09-18 review B-1: TOKEN_BUDGET/ROTATION_THRESHOLD first landed in
+    str_fields - the values stayed str and every consumer (max(), int(budget *
+    fraction), rotation math) raised TypeError on the first tick that used
+    them. They must coerce like their sibling knobs."""
+
+    def test_token_budget_coerces_to_int(self, monkeypatch):
+        monkeypatch.setenv("TOKEN_BUDGET", "64000")
+        cfg = Config.from_env()
+        assert isinstance(cfg.token_budget, int)
+        assert cfg.token_budget == 64000
+
+    def test_rotation_threshold_coerces_to_float(self, monkeypatch):
+        monkeypatch.setenv("ROTATION_THRESHOLD", "0.5")
+        cfg = Config.from_env()
+        assert isinstance(cfg.rotation_threshold, float)
+        assert cfg.rotation_threshold == 0.5
+
+
+class TestCdpUrlWiring:
+    """2026-09-18 review S-4: a CDP_URL override must actually rewrite the
+    Playwright --cdp-endpoint arg (it used to be a hardcoded no-op)."""
+
+    def test_env_cdp_url_rewrites_endpoint_arg(self, monkeypatch):
+        monkeypatch.setenv("CDP_URL", "http://127.0.0.1:9333")
+        cfg = Config.from_env()
+        args = cfg.playwright_args
+        i = args.index("--cdp-endpoint")
+        assert args[i + 1] == "http://127.0.0.1:9333"
+
+    def test_apply_dict_resyncs_endpoint_arg(self):
+        cfg = Config()
+        cfg._apply_dict({"CDP_URL": "http://localhost:9444"})
+        i = cfg.playwright_args.index("--cdp-endpoint")
+        assert cfg.playwright_args[i + 1] == "http://localhost:9444"
+        assert cfg.cdp_url == "http://localhost:9444"

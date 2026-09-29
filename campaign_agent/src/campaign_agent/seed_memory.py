@@ -157,6 +157,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         result = upsert_to_pinecone(index, vectors_path)
+    except OSError as e:
+        log.error("pc upsert could not run: %s", e)
+        return 1
     finally:
         os.unlink(vectors_path)  # NamedTemporaryFile(delete=False) leak (2026-09-18 audit)
     if result.returncode != 0:
