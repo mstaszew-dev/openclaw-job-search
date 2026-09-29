@@ -7,3 +7,5 @@ index.db
 # Python caches
 __pycache__/
 *.pyc
+.coverage
+.pytest_cache/

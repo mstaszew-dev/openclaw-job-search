@@ -23,6 +23,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.
 
 import json
 import re
+import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -31,7 +32,7 @@ from pathlib import Path
 from model2vec import StaticModel
 
 ROOT = Path(__file__).resolve().parent
-CAMPAIGN = Path("/Users/mst/Downloads/job-search/job-apply")
+CAMPAIGN = Path(os.environ.get("RAG_CAMPAIGN", "/Users/mst/Downloads/job-search/job-apply"))
 TRACKER = CAMPAIGN / "tracker.json"
 DB = ROOT / "index.db"
 MODEL = "minishlab/potion-base-8M"
@@ -39,12 +40,15 @@ MODEL = "minishlab/potion-base-8M"
 # The docs to index (relative to CAMPAIGN). Chunked by '##' header.
 # NOTE: recruiter-contacts-* are intentionally NOT here - those live in .txt
 # files and recruiter contacts are kept out of RAG by design.
+# 2026-09-18: HANDOVER_SUMMARY.md dropped (deleted from the campaign dir);
+# PL_BOARDS.md + DEDUPE.md added (PL-only targeting).
 DOCS = [
     "CONTEXT.md",
     "AGENT_TICK.md",
     "PORTALS.md",
-        "SCHEMA.md",
-    "HANDOVER_SUMMARY.md",
+    "PL_BOARDS.md",
+    "DEDUPE.md",
+    "SCHEMA.md",
 ]
 
 
@@ -137,7 +141,7 @@ def collect_corpus(campaign: Path = CAMPAIGN) -> list[dict]:
     rows: list[dict] = []
 
     # Applications.
-    tracker = json.loads((campaign / "tracker.json").read_text())
+    tracker = json.loads((campaign / "tracker.json").read_text(encoding="utf-8"))
     for a in tracker.get("applications", []):
         text = app_text(a)
         if not text:
@@ -157,7 +161,7 @@ def collect_corpus(campaign: Path = CAMPAIGN) -> list[dict]:
         if not path.exists():
             print(f"  (skip, missing: {name})", file=sys.stderr)
             continue
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         for title, body in chunk_doc(text):
             rows.append(
                 {
@@ -176,10 +180,13 @@ def write_index(
     vectors: "np.ndarray",
     db_path: Path = DB,
 ) -> None:
-    """Write rows + their vectors into a SQLite index. Idempotent (drops existing)."""
-    if db_path.exists():
-        db_path.unlink()
-    conn = sqlite3.connect(db_path)
+    """Write rows + their vectors into a SQLite index. Atomic: builds a
+    sibling temp db and os.replace()s it over the target, so concurrent
+    one-shot readers (the Director) never see a missing or half-built index."""
+    tmp_path = db_path.with_suffix(db_path.suffix + ".tmp")
+    if tmp_path.exists():
+        tmp_path.unlink()
+    conn = sqlite3.connect(tmp_path)
     try:
         conn.execute(
             """
@@ -222,6 +229,7 @@ def write_index(
         conn.commit()
     finally:
         conn.close()
+    os.replace(tmp_path, db_path)
 
 
 def build(

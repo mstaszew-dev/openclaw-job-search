@@ -634,3 +634,29 @@ class TestStalenessGuard:
         monkeypatch.setattr(rag_server, "CAMPAIGN", empty_dir)
         joined = "\n".join(self._load_with(monkeypatch, mock_model, db))
         assert "loaded" in joined and "STALE" not in joined
+
+
+class TestNullAppliedAt:
+    """2026-09-18 audit: live tracker rows carry "appliedAt": null (two Senior
+    Java entries) and ARE indexed; _format_apps subscripted the None and the
+    MCP tool errored with a TypeError instead of returning results."""
+
+    def test_format_apps_tolerates_null_appliedat(self):
+        from rag_server import _format_apps
+
+        hits = [
+            {
+                "score": 0.9,
+                "meta": {
+                    "roleTitle": "Senior Java Developer",
+                    "company": "acme",
+                    "source": "nofluffjobs",
+                    "appliedAt": None,
+                    "status": "applied",
+                },
+            }
+        ]
+        out = _format_apps(hits)
+        assert "Senior Java Developer" in out
+        assert "NoneType" not in out
+        assert "TypeError" not in out

@@ -5,7 +5,7 @@ as two MCP tools. No torch, no external vector DB, no API calls at query time.
 
 ## What it does
 
-- **`rag_search_apps(query, k=5)`** - semantic search over the 1060 past
+- **`rag_search_apps(query, k=5)`** - semantic search over the 1684 past (2026-09-18)
   applications in `tracker.json`. Use for **semantic dedupe**: "have I applied
   to a role/company like this before?" Catches similar-but-not-identical titles
   ("Senior Java Engineer" ~ "Lead JVM Developer") that exact-match dedupe misses.
@@ -18,7 +18,7 @@ as two MCP tools. No torch, no external vector DB, no API calls at query time.
 - **Embeddings**: `model2vec` (`minishlab/potion-base-8M`, 256-dim, ~30MB, pure
   Python + numpy, NO torch). Static embedding lookup - fast, local, no GPU.
 - **Storage**: SQLite (`index.db`) with vectors as JSON blobs; cosine similarity
-  computed in numpy at query time (1116 rows = sub-ms).
+  computed in numpy at query time (1713 rows = sub-ms, 2026-09-18).
 - **Integration**: stdio MCP server registered in `~/.openclaw/openclaw.json`
   alongside playwright. The agent calls it like any other tool.
 
@@ -45,11 +45,11 @@ Re-run the builder periodically, or after a batch of submissions.
 
 ## Files
 
-- `index_builder.py` - reads `tracker.json` (apps) + 9 MD docs (chunked by `##`
+- `index_builder.py` - reads `tracker.json` (apps) + the MD docs (chunked by `##`; CONTEXT, AGENT_TICK, PORTALS, PL_BOARDS, DEDUPE, SCHEMA)
   header), embeds, writes `index.db`. Idempotent.
 - `rag_server.py` - the MCP server (stdio). Loads model + index lazily on first
   query, then serves from memory.
-- `index.db` - the built index (SQLite, ~7MB, 1116 rows). Gitignore this; it's
+- `index.db` - the built index (SQLite, ~10.8MB, 1713 rows). Gitignore this; it's
   rebuildable from the corpus.
 - `requirements.txt` - `model2vec`, `mcp`, `numpy` (pinned).
 - `.venv/` - the isolated Python env. Gitignore this.
@@ -62,7 +62,7 @@ Re-run the builder periodically, or after a batch of submissions.
 - Score > 0.85 + `appliedAt` within 60d = strong duplicate signal. The agent is
   instructed to skip in that case. Below 0.85, treat as "similar but distinct".
 - The model is small (8M params). It distinguishes stacks well (Java vs Node vs
-  PHP) but won't catch every paraphrase. Exact-match dedupe (`check_dupe.py`)
+  PHP) but won't catch every paraphrase. The exact-match dedupe process (see DEDUPE.md)
   still runs as the primary gate; RAG is the semantic backstop.
 
 ## Rollback

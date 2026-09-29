@@ -264,3 +264,51 @@ def test_build_stamps_meta_with_built_at_and_app_count(tmp_campaign, mock_model,
         conn.close()
     assert "built_at" in rows and "T" in rows["built_at"]  # ISO timestamp
     assert int(rows["n_apps"]) == 4  # tmp_campaign fixture has 4 applications
+
+
+class TestAtomicWriteIndex:
+    """2026-09-18 audit: the rebuild unlinked index.db and recreated it, so a
+    Director one-shot reader in that window crashed on 'no such table'. The
+    rebuild must be atomic: build a sibling temp db and os.replace it over the
+    target, so the old index stays readable until the swap."""
+
+    def test_rebuild_swaps_atomically_old_db_readable_until_replace(self, tmp_path, monkeypatch):
+        import os as os_mod
+        import sqlite3
+
+        import index_builder
+        import numpy as np
+
+        db = tmp_path / "index.db"
+        index_builder.write_index(
+            [{"collection": "apps", "source": "old", "chunk": "x", "meta": {}, "vector": [0.1]}],
+            np.array([[0.1]]),
+            db_path=db,
+        )
+
+        seen = {}
+        real_replace = os_mod.replace
+
+        def spy_replace(src, dst):
+            # At swap time the OLD target must still exist and be readable
+            # (never unlinked), and the new content must be complete in src.
+            seen["src_exists"] = os_mod.path.exists(src)
+            conn = sqlite3.connect(dst)
+            seen["old_rows"] = conn.execute("select source from chunks").fetchall()
+            conn.close()
+            return real_replace(src, dst)
+
+        monkeypatch.setattr(index_builder.os, "replace", spy_replace)
+        index_builder.write_index(
+            [{"collection": "apps", "source": "new", "chunk": "y", "meta": {}, "vector": [0.2]}],
+            np.array([[0.2]]),
+            db_path=db,
+        )
+
+        assert seen["src_exists"] is True
+        assert seen["old_rows"] == [("old",)]
+        conn = sqlite3.connect(db)
+        assert conn.execute("select source from chunks").fetchall() == [("new",)]
+        conn.close()
+        # No temp leftovers.
+        assert [p.name for p in tmp_path.iterdir()] == ["index.db"]

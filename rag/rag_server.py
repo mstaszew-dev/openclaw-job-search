@@ -192,7 +192,7 @@ def _warn_if_stale() -> None:
     except (FileNotFoundError, sqlite3.OperationalError, KeyError, ValueError):
         return  # old index without a stamp; nothing to compare
     try:
-        tracker = json.loads((CAMPAIGN / "tracker.json").read_text())
+        tracker = json.loads((CAMPAIGN / "tracker.json").read_text(encoding="utf-8"))
         live_apps = len(tracker.get("applications", []))
     except (OSError, json.JSONDecodeError):
         return
@@ -223,7 +223,7 @@ def _format_apps(hits: list[dict]) -> str:
         m = h["meta"]
         lines.append(
             f"  - score {h['score']}: {m.get('roleTitle')} @ {m.get('company')} "
-            f"({m.get('source')}, {m.get('appliedAt', '?')[:10]}, {m.get('status')})"
+            f"({m.get('source')}, {str(m.get('appliedAt') or '?')[:10]}, {m.get('status')})"
         )
     return "\n".join(lines)
 
@@ -287,7 +287,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "What you need: e.g. 'IL hybrid portal', 'Poland B2B note', 'dedupe rules'.",
+                        "description": "What you need: e.g. 'PL B2B note', 'dedupe rules', 'NoFluffJobs apply flow'.",
                     },
                     "k": {
                         "type": "integer",
@@ -306,7 +306,7 @@ async def list_tools() -> list[Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     query = arguments.get("query", "")
-    k = int(arguments.get("k", 5))
+    k = min(20, max(1, int(arguments.get("k", 5))))
     if not query.strip():
         _log(f"call {name} rejected: empty query")
         return [TextContent(type="text", text="Error: query is required.")]
@@ -384,7 +384,7 @@ if __name__ == "__main__":
         "--campaign",
         type=Path,
         default=Path("/Users/mst/Downloads/job-search/job-apply"),
-        help="Campaign directory (informational; the db is already built).",
+        help="Campaign directory (used by the staleness check in one-shot mode).",
     )
     args = parser.parse_args()
     if args.query:
@@ -392,6 +392,8 @@ if __name__ == "__main__":
         # level assignment rebinds the global the loader reads), search, print
         # one JSON line, exit.
         DB = args.db
+        if args.campaign:
+            CAMPAIGN = args.campaign  # noqa: F811 - rebind for staleness check
         _ensure_loaded()
         if not args.tool:
             print(json.dumps({"error": "--tool is required when using --query"}))
