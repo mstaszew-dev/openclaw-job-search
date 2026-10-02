@@ -98,11 +98,16 @@ class RAGMCP:
                     texts.append(content["text"])
             return "\n".join(texts) if texts else str(result)
         except TimeoutError:
-            log.error("RAG MCP tool '%s' timed out after %.1fs", name, timeout)
-            return f"Error: RAG tool '{name}' timed out after {timeout}s"
+            # Mirror PlaywrightMCP: timeout/exception paths must count strikes
+            # so a wedged-but-connected server respawns (2026-10-01 bug hunt).
+            return await self._handle_failure(
+                f"Error: RAG tool '{name}' timed out after {timeout}s",
+                "tool '%s' timed out after %.1fs", name, timeout,
+            )
         except Exception as e:
-            log.error("RAG MCP tool '%s' failed: %s", name, e)
-            return f"Error: {e}"
+            return await self._handle_failure(
+                f"Error: {e}", "tool '%s' failed: %s", name, e,
+            )
 
     async def close(self) -> None:
         """Close the MCP session and subprocess."""

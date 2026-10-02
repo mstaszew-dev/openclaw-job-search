@@ -629,3 +629,80 @@ class TestModalStateFailFast:
         assert calls.count("browser_handle_dialog") == 1
         # Session answered (alive): wedge counter resets.
         assert pw._consecutive_failures == 0
+
+
+class TestRagWatchdogTimeoutPaths:
+    """2026-10-01 bug-hunt BUG 1: the RAG wedge watchdog was only reachable
+    from the disconnected branch - timeout/exception paths returned directly
+    without counting strikes, so a wedged-but-connected RAG server never
+    respawned and every dedupe call burned the full 60s timeout for the life
+    of the worker."""
+
+    @pytest.mark.asyncio
+    async def test_timeouts_and_exceptions_count_strikes_and_respawn(self):
+        from campaign_agent.rag_mcp import RAGMCP
+
+        rag = RAGMCP("python3", ["rag_server.py"], wedge_restart_strikes=3)
+        mock_session = AsyncMock()
+
+        async def never_completes(*_a, **_k):
+            await asyncio.sleep(30)
+
+        mock_session.call_tool = never_completes
+        rag._session = mock_session
+        rag.close = AsyncMock()
+        rag.connect = AsyncMock()
+
+        for _ in range(3):
+            await rag.call_tool("rag_search_apps", {"query": "x"}, timeout=0.05)
+        assert rag.close.await_count == 1
+        assert rag.connect.await_count == 1
+        # After a successful respawn the counter resets.
+        assert rag._consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_exception_path_also_counts_strikes(self):
+        from campaign_agent.rag_mcp import RAGMCP
+
+        rag = RAGMCP("python3", ["rag_server.py"], wedge_restart_strikes=2)
+        mock_session = AsyncMock()
+        mock_session.call_tool = AsyncMock(side_effect=RuntimeError("session broke"))
+        rag._session = mock_session
+        rag.close = AsyncMock()
+        rag.connect = AsyncMock()
+
+        for _ in range(2):
+            out = await rag.call_tool("rag_search_apps", {"query": "x"}, timeout=1)
+        assert "session broke" in out
+        assert rag.connect.await_count == 1
+
+
+class TestModalStateDismissHang:
+    """2026-10-01 bug-hunt BUG 2: when the modal-state refusal appears AND the
+    dismiss itself hangs (_clear_pending_dialog returns None), the branch fell
+    through with no strike - a half-wedged session starved the watchdog
+    forever. The hung-dismiss refusal must count as a strike."""
+
+    @pytest.mark.asyncio
+    async def test_hung_dismiss_counts_strike_and_respawns(self):
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=3)
+        mock_session = AsyncMock()
+
+        async def refusing_then_hang(name, args):
+            if name == "browser_handle_dialog":
+                await asyncio.sleep(30)
+            result = MagicMock()
+            result.content = [MagicMock(text=(
+                'Error: Tool "browser_navigate" does not handle the modal state.'
+            ))]
+            return result
+
+        mock_session.call_tool = refusing_then_hang
+        pw._session = mock_session
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+
+        for _ in range(3):
+            await pw.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
+        assert pw.close.await_count == 1
+        assert pw.connect.await_count == 1

@@ -93,25 +93,40 @@ class PlaywrightMCP:
                 self._session.call_tool(name, arguments),
                 timeout=timeout,
             )
-            self._consecutive_failures = 0
             text = _extract_texts(result)
             # playwright-mcp refuses every non-dialog tool INSTANTLY while a
             # dialog is open ("does not handle the modal state", 2026-10-01).
             # That fail-fast path never times out, so the timeout immunity
             # below never fired and the agent burned step budget on refusals.
             # Dismiss immediately (accept = proceed) and retry once.
+            # NOTE: the wedge counter is NOT reset before this branch - a hung
+            # dismiss (note None) must still count a strike, else a half-wedged
+            # session loops on refusals forever.
             if "does not handle the modal state" in text:
                 note = await self._clear_pending_dialog()
                 if note is not None:
-                    retry = await asyncio.wait_for(
-                        self._session.call_tool(name, arguments),
-                        timeout=timeout,
-                    )
-                    retry_text = _extract_texts(retry)
+                    # The dismiss ANSWERED: the session is alive.
                     self._consecutive_failures = 0
-                    if isinstance(retry_text, str) and retry_text.startswith("Error"):
-                        return retry_text
-                    return retry_text + note
+                    try:
+                        retry = await asyncio.wait_for(
+                            self._session.call_tool(name, arguments),
+                            timeout=timeout,
+                        )
+                        retry_text = _extract_texts(retry)
+                        if isinstance(retry_text, str) and retry_text.startswith("Error"):
+                            return retry_text
+                        return retry_text + note
+                    except Exception as e:
+                        log.warning("Post-dialog-dismiss retry failed: %s", e)
+                        return text
+                else:
+                    # The dismiss itself hung: half-wedged session. Count the
+                    # strike so the watchdog respawns instead of looping on
+                    # refusals forever (2026-10-01 bug hunt).
+                    return await self._handle_failure(
+                        text, "modal-state refusal and dialog dismiss hung",
+                    )
+            self._consecutive_failures = 0
             return text
         except TimeoutError:
             # A pending native dialog ("Leave site?" beforeunload fired by
