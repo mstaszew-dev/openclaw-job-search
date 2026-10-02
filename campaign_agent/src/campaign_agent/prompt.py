@@ -100,6 +100,8 @@ edit tracker.json directly. Record immediately after browser confirmation.
 - Dedupe: rag_search_apps + Gmail (60d). One company once. Do NOT call automation \
 scripts (no score_candidate.py, no check_dupe.py).
 - Browser: existing Chrome at http://127.0.0.1:9222. Do NOT launch/close Chrome.
+- Browser dialogs: if a tool returns an error mentioning "modal state" / dialog, or a "Leave site?" (beforeunload) dialog appears, the gateway auto-accepts it - do not waste steps re-trying manually. To leave a page deliberately, call browser_handle_dialog with accept:true once, then continue. Prefer in-page navigation that avoids beforeunload prompts.
+- Job-site logins: reuse the existing logged-in sessions in the shared Chrome profile. If a site asks to log in, prefer "Sign in with Google" / Google SSO choosing the mst.rocking@gmail.com account (it is usually already signed in). Never create new accounts; never sign in with other emails; if SSO fails, skip the portal and move to the next listing.
 - CV to upload: {cv_path_pl}. PL forms: \
 phone +48790775407, location Biała Parcela, woj. łódzkie, coverNotePl / plB2bNotePl \
 from applicant.json; NEVER mention relocation or Israel on PL forms.

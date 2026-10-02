@@ -94,7 +94,25 @@ class PlaywrightMCP:
                 timeout=timeout,
             )
             self._consecutive_failures = 0
-            return _extract_texts(result)
+            text = _extract_texts(result)
+            # playwright-mcp refuses every non-dialog tool INSTANTLY while a
+            # dialog is open ("does not handle the modal state", 2026-10-01).
+            # That fail-fast path never times out, so the timeout immunity
+            # below never fired and the agent burned step budget on refusals.
+            # Dismiss immediately (accept = proceed) and retry once.
+            if "does not handle the modal state" in text:
+                note = await self._clear_pending_dialog()
+                if note is not None:
+                    retry = await asyncio.wait_for(
+                        self._session.call_tool(name, arguments),
+                        timeout=timeout,
+                    )
+                    retry_text = _extract_texts(retry)
+                    self._consecutive_failures = 0
+                    if isinstance(retry_text, str) and retry_text.startswith("Error"):
+                        return retry_text
+                    return retry_text + note
+            return text
         except TimeoutError:
             # A pending native dialog ("Leave site?" beforeunload fired by
             # form pages - ATS portals, registration forms) blocks every

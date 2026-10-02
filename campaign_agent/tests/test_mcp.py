@@ -562,3 +562,70 @@ class TestRagDisconnectedWatchdog:
         r2 = await rag.call_tool("rag_search_apps", {"query": "x"})
         assert "respawned" in r2.lower()
         assert rag.connect.await_count == 1
+
+
+class TestModalStateFailFast:
+    """2026-10-01: playwright-mcp refuses every non-dialog tool INSTANTLY with
+    'Error: Tool \"X\" does not handle the modal state.' while a dialog is
+    open (extracted from the installed bundle). That fail-fast path never
+    timed out, so the existing timeout->handle_dialog immunity never fired
+    and the agent burned its step budget on instant refusals. The refusal
+    must be detected and the dialog dismissed immediately, then the original
+    tool retried."""
+
+    @pytest.mark.asyncio
+    async def test_modal_state_refusal_dismisses_and_retries(self):
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=3)
+        calls = []
+
+        mock_session = AsyncMock()
+
+        async def refusing_then_ok(name, args):
+            calls.append(name)
+            if len(calls) == 1:
+                result = MagicMock()
+                result.content = [MagicMock(text=(
+                    'Error: Tool "browser_navigate" does not handle the modal '
+                    'state. There is a dialog.'
+                ))]
+                return result
+            result = MagicMock()
+            result.content = [MagicMock(text="navigated ok")]
+            return result
+
+        mock_session.call_tool = refusing_then_ok
+        pw._session = mock_session
+
+        out = await pw.call_tool("browser_navigate", {"url": "x"}, timeout=5)
+        # Sequence: refused -> browser_handle_dialog -> retry -> OK.
+        assert calls == ["browser_navigate", "browser_handle_dialog", "browser_navigate"]
+        assert "navigated ok" in out
+        # A fail-fast refusal with successful dismiss is not a wedge strike.
+        assert pw._consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_modal_state_refusal_when_dismiss_reports_no_dialog(self):
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=3)
+        calls = []
+
+        mock_session = AsyncMock()
+
+        async def refusing(name, args):
+            calls.append(name)
+            result = MagicMock()
+            if name == "browser_handle_dialog":
+                result.content = [MagicMock(text='Error: no dialog open')]
+            else:
+                result.content = [MagicMock(text=(
+                    'Error: Tool "browser_click" does not handle the modal state.'
+                ))]
+            return result
+
+        mock_session.call_tool = refusing
+        pw._session = mock_session
+
+        out = await pw.call_tool("browser_click", {"element": "btn", "ref": "r1"}, timeout=5)
+        assert "does not handle the modal state" in out or "no dialog open" in out
+        assert calls.count("browser_handle_dialog") == 1
+        # Session answered (alive): wedge counter resets.
+        assert pw._consecutive_failures == 0
