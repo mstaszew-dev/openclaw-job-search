@@ -1,5 +1,6 @@
 """Tests for Config dataclass — default values, env overrides, file loading."""
 
+import pytest
 
 from campaign_agent.config import Config
 
@@ -182,13 +183,17 @@ class TestConfigFileEdgeCases:
 
 
     def test_env_override_max_context_tokens(self, monkeypatch):
-        monkeypatch.setenv("MAX_CONTEXT_TOKENS", "50000")
+        monkeypatch.setenv("MAX_CONTEXT_TOKENS", "32000")
         cfg = Config.from_env()
-        assert cfg.max_context_tokens == 50000
+        assert cfg.max_context_tokens == 32000
 
     def test_default_max_context_tokens(self, monkeypatch):
         monkeypatch.delenv("MAX_CONTEXT_TOKENS", raising=False)
-        assert Config().max_context_tokens == 100000
+        # The laptop GGUF's trained 64K window minus generation headroom. The
+        # Go gateway in front of ollama compacts with LFM2-350M before
+        # inference, so the cap is NOT ollama's num_ctx (8192) - and it must
+        # stay <= msrouter's laptop maxPromptTokens, which hard-400s above it.
+        assert Config().max_context_tokens == 61440
 
     def test_env_override_llm_max_output_tokens(self, monkeypatch):
         monkeypatch.setenv("LLM_MAX_OUTPUT_TOKENS", "800")
@@ -198,6 +203,60 @@ class TestConfigFileEdgeCases:
     def test_default_llm_max_output_tokens(self, monkeypatch):
         monkeypatch.delenv("LLM_MAX_OUTPUT_TOKENS", raising=False)
         assert Config().llm_max_output_tokens == 1500
+
+
+class TestLaptopContextCeiling:
+    """max_context_tokens must stay within the laptop model's usable window.
+
+    The original 100000 was justified by a comment claiming a 131072-token
+    laptop window that never existed. The real ceiling is msrouter's laptop
+    `maxPromptTokens` (the GGUF's trained 64K minus generation headroom):
+    above it the gateway refuses the request with BAD_REQUEST, and that text
+    matches no classify_failure context phrase, so it burns retries instead
+    of rotating away.
+
+    The two repos drift silently, so the pairing is pinned here.
+    """
+
+    def test_default_config_is_the_usable_window(self):
+        from campaign_agent.config import LAPTOP_MAX_CONTEXT_TOKENS
+
+        cfg = Config()
+        assert cfg.max_context_tokens == LAPTOP_MAX_CONTEXT_TOKENS
+        assert LAPTOP_MAX_CONTEXT_TOKENS == 61440
+
+    def test_stays_under_the_msrouter_laptop_guard(self):
+        # The paired constant lives in the msrouter repo
+        # (src/providers/instances.ts, laptop provider). If that number moves,
+        # this test must be revisited with it - the agent is silently refused
+        # above it, and only on the last-resort failover path.
+        from campaign_agent.config import LAPTOP_MAX_CONTEXT_TOKENS
+
+        assert LAPTOP_MAX_CONTEXT_TOKENS <= 61_440
+
+    @pytest.mark.parametrize("cap", [61440, 32000, 8192, 5000])
+    def test_supported_override_combinations_are_accepted(self, monkeypatch, cap):
+        monkeypatch.setenv("MAX_CONTEXT_TOKENS", str(cap))
+        assert Config.from_env().max_context_tokens == cap
+
+    def test_cap_above_the_window_clamps_rather_than_crashing(self, monkeypatch):
+        # The agent runs under a pgrep-based Director that restarts it every
+        # few minutes: raising here would restart-loop forever.
+        monkeypatch.setenv("MAX_CONTEXT_TOKENS", "100000")
+        cfg = Config.from_env()
+        assert cfg.max_context_tokens == 61440
+
+    def test_non_positive_cap_clamps_to_the_window(self, monkeypatch):
+        monkeypatch.setenv("MAX_CONTEXT_TOKENS", "0")
+        assert Config.from_env().max_context_tokens == 61440
+
+    def test_output_cap_override_is_independent(self, monkeypatch):
+        # llm_max_output_tokens is a decode-latency knob, not a window knob:
+        # the gateway compacts the prompt, so it is NOT bounded by the cap.
+        monkeypatch.setenv("LLM_MAX_OUTPUT_TOKENS", "4000")
+        cfg = Config.from_env()
+        assert cfg.llm_max_output_tokens == 4000
+        assert cfg.max_context_tokens == 61440
 
 
 class TestDirectorTunableTypes:

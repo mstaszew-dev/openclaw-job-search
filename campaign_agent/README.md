@@ -48,10 +48,44 @@ or via the supervised launcher (what the Director uses):
   (`/Users/mst/Downloads/job-search/job-apply`); `read` resolves relative
   paths against it. The agent never needs `/root/...` style paths.
 
+## Laptop tail (verified 2026-10-02)
+
+The last-resort provider is the travelmate laptop over Tailscale
+(`mstro-travelmate-p215-52.taila0a683.ts.net` -> nginx :443 -> `llm-gateway`
+on 127.0.0.1:11436 -> ollama on 127.0.0.1:11434). Facts read from the laptop
+itself, not assumed:
+
+- The model ollama serves under the legacy name **`qwen35-2b-64k`** is
+  actually **Qwen3.5-4B Q4_K_M** (4.2B params). The "2b" in the name is
+  wrong; the "64k" is right - it is the GGUF's trained window.
+- **LFM2 compaction IS on**, in a Go gateway (`llm-gateway.service`,
+  `/usr/local/bin/llm-gateway`, source package `llmgw/compact`) that sits in
+  front of ollama. It summarises with **LFM2-350M**
+  (`/opt/llm/models/LFM2-350M-Q4_K_M.gguf`). Startup line from its journal:
+  `GATEWAY compaction ready model=...LFM2-350M-Q4_K_M.gguf ctx=19968
+  chunk=16384 yarn=false chat=true threads=4`, and live requests show
+  `compact=12117->1989tok passes=1`, `compact=25635->2361tok`. Requests of
+  ~220KB have been served; everything is reduced to roughly 700-2400 tokens
+  before inference.
+- ollama itself is SERVED at `PARAMETER num_ctx 8192` (`/api/ps`
+  context_length: 8192). That bounds what the gateway hands ollama, **not**
+  what we may send, because the compaction runs first. Nothing overrides
+  num_ctx to 32K, and nothing needs to.
+- `max_context_tokens` is **61440** - the GGUF's trained 64K window minus
+  generation headroom, and the same number as msrouter's laptop
+  `maxPromptTokens`, which hard-refuses anything above it with
+  `BAD_REQUEST`. It used to be 100000, justified by a comment claiming a
+  131072-token laptop window that never existed. The two repos must move
+  together; the pairing is pinned by a test.
+- Trade-off worth knowing: the compaction target is ~2000 tokens, so the
+  model rarely sees more than that regardless of what the agent sends.
+  Raising `LLM_COMPACT_TARGET` on the laptop is the lever for more usable
+  context, not the agent-side cap.
+
 ## Tests
 
 ```zsh
-.venv/bin/python -m pytest            # 380 tests (2026-09-18)
+.venv/bin/python -m pytest            # 401 tests (2026-10-02)
 .venv/bin/python -m pytest --cov=campaign_agent --cov-report=term-missing
 ```
 

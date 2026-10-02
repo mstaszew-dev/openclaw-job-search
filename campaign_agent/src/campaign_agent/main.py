@@ -150,10 +150,8 @@ def _truncate_messages(
     return truncated
 
 
-# Safety fraction of token_budget applied before the context cap, and the
-# minimum history budget when tool schemas eat the ceiling.
+# Safety fraction of token_budget applied before the context cap.
 _CONTEXT_SAFETY_FRACTION = 0.80
-_MIN_HISTORY_TOKENS = 1500
 
 
 def _llm_context_budget(
@@ -164,16 +162,22 @@ def _llm_context_budget(
     """Per-request history budget in tokens.
 
     min(_CONTEXT_SAFETY_FRACTION * token_budget, max_context_tokens) minus
-    tool schemas, floored at _MIN_HISTORY_TOKENS so a tool-heavy setup
-    never budgets to zero. Policy (2026-09-27): a slow answer beats no
-    answer when every remote is down, so the cap only mirrors the gateway's
-    laptop-tail guard (100K tokens: the server's 131072 context window minus
-    output headroom; see msrouter src/providers/instances.ts). The tail
-    prefills fresh tokens at ~20 tok/s and decodes at ~8 tok/s, so large
-    cache-warm contexts are slow but viable.
+    tool schemas, clamped at zero. Policy (2026-09-27): a slow answer beats no
+    answer when every remote is down, so keep real working history even when
+    the only provider left is a slow local tail.
+    The laptop is served by ollama at num_ctx 8192, but a Go gateway sits in
+    front of it and compacts oversized requests with LFM2-350M, so the cap is
+    the GGUF's trained 64K window rather than ollama's 8192; see
+    config.LAPTOP_MAX_CONTEXT_TOKENS.
     """
     ceiling = min(int(token_budget * _CONTEXT_SAFETY_FRACTION), max_context_tokens)
-    return max(_MIN_HISTORY_TOKENS, ceiling - tool_tokens)
+    # Tool schemas are spent before history is added, so whatever room is
+    # left IS the whole history budget. There used to be a
+    # _MIN_HISTORY_TOKENS floor here "so a tool-heavy setup never budgets to
+    # zero", but a floor is added on top of already-spent tool tokens and so
+    # returns a request LARGER than max_context_tokens. Zero history is the
+    # honest answer when the tools alone fill the window.
+    return max(0, ceiling - tool_tokens)
 
 
 async def run_agent_turn(

@@ -9,6 +9,33 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Final
+
+# Largest context we will ever hand the laptop tail, in tokens.
+#
+# The binding constraint is NOT ollama's window. On the travelmate, a Go
+# gateway (llm-gateway.service, 127.0.0.1:11436, fronting ollama on 11434)
+# runs an LFM2-350M summarizer that compacts oversized requests before they
+# reach the model - verified 2026-10-02 in its journal:
+#   GATEWAY compaction ready model=/opt/llm/models/LFM2-350M-Q4_K_M.gguf
+#     ctx=19968 chunk=16384 yarn=false chat=true threads=4
+#   compact=12117->1989tok passes=1 ... compact=25635->2361tok
+# Requests of ~220KB have been served, and everything is reduced to roughly
+# 700-2400 tokens before inference. So the agent may send a large context
+# even though the model is SERVED at `PARAMETER num_ctx 8192` (ollama /api/ps
+# context_length: 8192) - that window bounds what the gateway hands ollama,
+# not what we may send.
+#
+# The real ceiling is the OTHER repo: msrouter's laptop provider hard-rejects
+# anything above its `maxPromptTokens` with BAD_REQUEST (see
+# ~/ZCodeProject/msrouter/src/providers/instances.ts, ~61440, and the guard in
+# src/providers/local.ts). That is the GGUF's trained 64K window minus
+# generation headroom. Staying under it matters twice over: above it the
+# request is refused, and the refusal text matches no classify_failure
+# context phrase, so it lands in the transient bucket and burns retries
+# instead of rotating away. The two repos drift silently, hence the pairing
+# is pinned by a test in tests/test_config.py.
+LAPTOP_MAX_CONTEXT_TOKENS: Final[int] = 61_440
 
 
 def _load_env_file(path: str) -> dict[str, str]:
@@ -57,9 +84,18 @@ class Config:
     rotation_threshold: float = 0.60  # rotate at 60% of budget
     # Per-request context cap (tokens, INCLUDING tool schemas). Policy
     # (2026-09-27): large contexts and slow responses are preferable to no
-    # response at all when every remote provider is down, so this only
-    # enforces the laptop tail's context window (131072 minus headroom).
-    max_context_tokens: int = 100000
+    # response at all when every remote provider is down.
+    #
+# Corrected 2026-10-02: the old 100_000 was justified by a comment
+    # claiming the laptop served a 131072-token window. No such window ever
+    # existed - ollama serves the model at num_ctx 8192 - but the number was
+    # also not the real constraint, because the Go gateway in front of ollama
+    # compacts oversized requests with LFM2-350M before inference. The cap is
+    # the GGUF's trained window minus generation headroom,
+    # LAPTOP_MAX_CONTEXT_TOKENS (61440): large enough that the agent keeps
+    # real working history, and small enough that msrouter does not refuse
+    # the request outright when the walk fails over to the tail.
+    max_context_tokens: int = LAPTOP_MAX_CONTEXT_TOKENS
 
     # Retry settings
     inner_max_fails: int = 200
@@ -115,8 +151,39 @@ class Config:
 
     def __post_init__(self) -> None:
         """Wire cdp_url into the Playwright MCP launch args (kept in sync with
-        any CDP_URL override applied after construction via _apply_dict)."""
+        any CDP_URL override applied after construction via _apply_dict) and
+        check the laptop window invariant."""
         self._sync_cdp_arg()
+        self._validate_context_window()
+
+    def _validate_context_window(self) -> None:
+        """Keep max_context_tokens inside the laptop model's usable window.
+
+        The Go gateway compacts anything oversized, so this is NOT about
+        ollama's num_ctx - it is about staying under msrouter's laptop
+        `maxPromptTokens`, which refuses the request outright above it.
+
+        A bad override CLAMPS rather than raises. This config is loaded at
+        startup under a pgrep-based Director that restarts the worker every
+        few minutes, so a ValueError here would become a permanent restart
+        loop (the codebase's convention elsewhere is degrade, don't crash -
+        see _probe_browser and the MCP connect failure path).
+        """
+        ceiling = LAPTOP_MAX_CONTEXT_TOKENS
+        if self.max_context_tokens <= 0:
+            logging.getLogger(__name__).error(
+                "max_context_tokens=%d is not a usable context size; using %d",
+                self.max_context_tokens, ceiling,
+            )
+            self.max_context_tokens = ceiling
+        elif self.max_context_tokens > ceiling:
+            logging.getLogger(__name__).error(
+                "max_context_tokens=%d exceeds the laptop model's usable window "
+                "(%d); msrouter would refuse the request when the walk fails "
+                "over to the tail. Clamping.",
+                self.max_context_tokens, ceiling,
+            )
+            self.max_context_tokens = ceiling
 
     def _sync_cdp_arg(self) -> None:
         for i, a in enumerate(self.playwright_args):
@@ -188,6 +255,10 @@ class Config:
                 if company:
                     self.skip_companies.add(company)
         self._sync_cdp_arg()
+        # Overrides land after __post_init__, so re-check the ceiling:
+        # MAX_CONTEXT_TOKENS is overridable and must stay within the laptop
+        # model's trained window.
+        self._validate_context_window()
 
     @property
     def director_note(self) -> str:

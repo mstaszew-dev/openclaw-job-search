@@ -801,20 +801,29 @@ class TestLLMContextBudget:
     """The per-request context budget follows the large-context policy.
 
     Policy (2026-09-27): a slow answer beats no answer when every remote is
-    down, so the cap only enforces the laptop tail's context window
-    (100000). History is trimmed to min(80% of token_budget,
-    max_context_tokens) minus tool schemas, with a floor so a tool-heavy
-    setup never budgets to zero.
+    down, so keep real working history (config.max_context_tokens, 61440-
+    the laptop model's usable window; the Go gateway compacts on the way to
+    ollama). History is trimmed to min(80% of token_budget,
+    max_context_tokens) minus tool schemas, clamped at zero: the tools are
+    already spent by then, so a floor would return a request larger than
+    the cap.
     """
 
     def test_capped_at_max_context_minus_tools(self):
         from campaign_agent.main import _llm_context_budget
-        assert _llm_context_budget(128000, 100000, 2000) == 98000
+        assert _llm_context_budget(128000, 61440, 2000) == 59440
 
     def test_small_token_budget_uses_eighty_percent(self):
         from campaign_agent.main import _llm_context_budget
-        assert _llm_context_budget(8000, 100000, 1000) == 5400
+        # 0.80 * 8000 = 6400 is the smaller ceiling than the 61440 cap.
+        assert _llm_context_budget(8000, 61440, 1000) == 5400
 
-    def test_floor_1500_when_tools_eat_the_budget(self):
+    def test_small_remaining_room_is_kept_not_floored(self):
         from campaign_agent.main import _llm_context_budget
-        assert _llm_context_budget(128000, 100000, 99000) == 1500
+        assert _llm_context_budget(128000, 61440, 61240) == 200
+
+    def test_clamped_to_zero_when_tools_alone_exceed_the_cap(self):
+        # Tool schemas are spent before history is added, so honouring a floor
+        # here would send cap+floor. No room for history means zero history.
+        from campaign_agent.main import _llm_context_budget
+        assert _llm_context_budget(128000, 61440, 99000) == 0
