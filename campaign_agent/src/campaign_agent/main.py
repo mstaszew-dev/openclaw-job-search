@@ -114,8 +114,17 @@ def _truncate_messages(
     """Truncate message history to stay within token budget.
 
     Always preserves: system prompt (index 0), first user message (index 1),
-    and the last `keep_last` messages. Drops middle messages when over budget.
-    Returns a new list (does not mutate the original).
+    and as much of the recent tail as the budget allows. Returns a new list
+    (does not mutate the original).
+
+    2026-10-04: the tail used to be a fixed MESSAGE COUNT (`keep_last`), which
+    on a tool-heavy loop (~2 messages per step) kept only ~10 steps of history.
+    Every truncation therefore threw away ~45 steps of findings - including
+    which companies had already been checked - and the agent re-did them, which
+    rebuilt the same context and hit the step cap again. A tick ran 200 steps
+    for five hours and applied nothing. The tail is now chosen by TOKENS, so
+    findings survive whenever the budget allows. `keep_last` is a floor, not a
+    cap: when there is room, history is kept even if that exceeds keep_last.
     """
     if len(messages) <= 2:
         return list(messages)
@@ -124,30 +133,93 @@ def _truncate_messages(
     if current_tokens <= token_budget:
         return list(messages)
 
-    # Always keep system + first user message
+    # Always keep system + first user message.
     prefix = messages[:2]
-    # Keep the last keep_last messages (or fewer if not enough)
-    suffix = messages[-keep_last:] if len(messages) > keep_last else messages[2:]
-    # A kept suffix must not START with a tool message: its assistant parent
-    # (carrying tool_calls) may have been dropped with the middle section,
-    # and OpenAI rejects tool-first histories with a 400.
-    while suffix and suffix[0].get("role") == "tool":
-        suffix = suffix[1:]
-    # Drop everything in between
-    truncated = prefix + suffix
+    prefix_tokens = estimate_tokens_from_messages(prefix)
+    allowance = token_budget - prefix_tokens
+
+    # Walk backwards accumulating messages until the allowance is spent. Keeping
+    # whole messages (rather than slicing one) keeps every tool result paired
+    # with its assistant parent. `keep_last` is a floor: when the prefix alone
+    # already exceeds the budget there is nothing to gain by collapsing to it,
+    # and keeping a few recent messages preserves the tick's findings.
+    kept: list[dict[str, Any]] = []
+    kept_tokens = 0
+    for msg in reversed(messages[2:]):
+        cost = estimate_tokens_from_messages([msg])
+        if kept_tokens + cost > allowance and len(kept) >= keep_last:
+            break
+        kept.append(msg)
+        kept_tokens += cost
+        if kept_tokens >= allowance and len(kept) >= keep_last:
+            break
+    kept.reverse()
+
+    # Drop ORPHAN tool messages: a `tool` message is only valid if a kept
+    # assistant message announced its tool_call_id. Dropping the middle can
+    # separate the two, and OpenAI answers a tool-first / orphan-tool history
+    # with a 400. This is stronger than the old front-strip, which only caught
+    # the case where orphans landed at the very start of the kept window.
+    announced: set[str] = set()
+    pruned: list[dict[str, Any]] = []
+    for msg in kept:
+        role = msg.get("role")
+        if role == "assistant":
+            for tc in msg.get("tool_calls") or []:
+                call_id = tc.get("id") if isinstance(tc, dict) else None
+                if isinstance(call_id, str):
+                    announced.add(call_id)
+            pruned.append(msg)
+        elif role == "tool":
+            if msg.get("tool_call_id") in announced:
+                pruned.append(msg)
+            else:
+                log.info("Dropped orphan tool message %s (parent assistant dropped)",
+                         msg.get("tool_call_id"))
+        else:
+            pruned.append(msg)
+
+    truncated = prefix + pruned
 
     dropped = len(messages) - len(truncated)
     new_tokens = estimate_tokens_from_messages(truncated)
-    drop_start = 2  # always after system + first user
-    drop_end = len(messages) - keep_last
-    drop_roles = [m.get("role", "?") for m in messages[drop_start:drop_end]]
+    kept_roles = [m.get("role", "?") for m in pruned]
     log.info(
-        "Truncated messages: %d → %d (dropped %d [%s], ~%d → ~%d tokens)",
+        "Truncated messages: %d → %d (dropped %d, kept tail roles [%s], ~%d → ~%d tokens)",
         len(messages), len(truncated), dropped,
-        ",".join(drop_roles) if drop_roles else "none",
+        ",".join(kept_roles) if kept_roles else "none",
         current_tokens, new_tokens,
     )
     return truncated
+
+
+# Cap on a single tool result entering the context (chars). One discovery call
+# returns 20-60 listing items of ~200 chars, and the agent issues several per
+# step; uncapped, that alone exhausts the window within ~40 steps and forces the
+# truncation above, which is what cost the tick its findings.
+_TOOL_RESULT_CHAR_LIMIT = 4000
+
+
+def _cap_tool_result(result: Any, limit: int = _TOOL_RESULT_CHAR_LIMIT) -> str:
+    """Cap one tool result, preserving the HEAD and the TAIL.
+
+    Both ends matter. The head carries the payload the agent asked for (a
+    listing's first rows). The tail carries the end of shell output, where the
+    exit code lives - a submission is recorded only when `update_tracker.py
+    submitted` is followed by "exit=0" in the result, so truncating the tail
+    would silently stop counting real applications.
+    """
+    text = result if isinstance(result, str) else str(result)
+    if len(text) <= limit:
+        return text
+    head_len = int(limit * 0.7)
+    tail_len = limit - head_len
+    dropped = len(text) - head_len - tail_len
+    return (
+        f"{text[:head_len]}\n"
+        f"...[{dropped} chars truncated by campaign_agent to fit the context window]...\n"
+        f"{text[-tail_len:]}"
+    )
 
 
 # Safety fraction of token_budget applied before the context cap.
@@ -277,7 +349,11 @@ async def run_agent_turn(
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
-                "content": str(result),
+                # Capped before it enters the context (2026-10-04): one
+                # discovery listing dump was large enough to exhaust the window
+                # on its own, forcing truncation that erased the tick's findings.
+                # Head+tail, so an "exit=0" at the end still registers below.
+                "content": _cap_tool_result(result),
             })
 
             # A submission is recorded only when update_tracker.py submitted
