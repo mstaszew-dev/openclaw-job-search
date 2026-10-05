@@ -23,6 +23,7 @@ FIXES
      shell exit codes live at the end and a submission is detected from
      "exit=0" in the result.
 """
+import pytest
 
 from campaign_agent.main import _cap_tool_result, _truncate_messages
 from campaign_agent.session import estimate_tokens_from_messages
