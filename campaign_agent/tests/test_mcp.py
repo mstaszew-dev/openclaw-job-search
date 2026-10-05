@@ -706,3 +706,23 @@ class TestModalStateDismissHang:
             await pw.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
         assert pw.close.await_count == 1
         assert pw.connect.await_count == 1
+
+
+class TestRAGMCPEnv:
+    """The rag server resolves the campaign dir via RAG_CAMPAIGN; the MCP SDK
+    spawns with a filtered default env, so RAGMCP must forward it explicitly."""
+
+    def test_init_forwards_rag_campaign_from_campaign_dir(self):
+        mcp = RAGMCP("python", ["rag_server.py"], campaign_dir="/home/agent/job-apply")
+        assert mcp.params.env is not None
+        assert mcp.params.env["RAG_CAMPAIGN"] == "/home/agent/job-apply"
+
+    def test_init_env_holds_only_extra_vars(self):
+        # stdio_client merges params.env over get_default_environment() at
+        # spawn time, so the dict here only needs the extra variable.
+        mcp = RAGMCP("python", ["rag_server.py"], campaign_dir="/x")
+        assert mcp.params.env == {"RAG_CAMPAIGN": "/x"}
+
+    def test_init_without_campaign_dir_keeps_legacy_env_none(self):
+        mcp = RAGMCP("python", ["rag_server.py"])
+        assert mcp.params.env is None

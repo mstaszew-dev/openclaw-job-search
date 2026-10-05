@@ -19,8 +19,21 @@ CONNECT_TIMEOUT_S = 60.0
 class RAGMCP:
     """Manages a RAG MCP server subprocess via stdio."""
 
-    def __init__(self, command: str, args: list[str], wedge_restart_strikes: int = 3) -> None:
-        self.params = StdioServerParameters(command=command, args=args)
+    def __init__(
+        self,
+        command: str,
+        args: list[str],
+        campaign_dir: str | None = None,
+        wedge_restart_strikes: int = 3,
+    ) -> None:
+        # The MCP SDK spawns stdio servers with a filtered default env, so
+        # RAG_CAMPAIGN must be forwarded explicitly or rag_server.py falls
+        # back to its compiled-in Mac default path. stdio_client merges this
+        # dict over get_default_environment(), so PATH/HOME etc survive.
+        env: dict[str, str] | None = None
+        if campaign_dir is not None:
+            env = {"RAG_CAMPAIGN": str(campaign_dir)}
+        self.params = StdioServerParameters(command=command, args=args, env=env)
         self._session: ClientSession | None = None
         self._ctx_stack: list[Any] = []
         self.wedge_restart_strikes = wedge_restart_strikes

@@ -397,7 +397,7 @@ async def run_campaign(config: Config) -> None:
     from campaign_agent.rag_mcp import RAGMCP
 
     pw = PlaywrightMCP(config.playwright_command, config.playwright_args)
-    rag = RAGMCP(config.rag_command, config.rag_args)
+    rag = RAGMCP(config.rag_command, config.rag_args, campaign_dir=config.campaign_dir)
 
     # Separate try blocks: a Playwright connect failure must not leave the
     # independent RAG dedupe path dead all run (2026-09-18 audit).

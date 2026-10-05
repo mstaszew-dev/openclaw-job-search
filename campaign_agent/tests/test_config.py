@@ -296,3 +296,81 @@ class TestCdpUrlWiring:
         i = cfg.playwright_args.index("--cdp-endpoint")
         assert cfg.playwright_args[i + 1] == "http://localhost:9444"
         assert cfg.cdp_url == "http://localhost:9444"
+
+
+class TestConfigPathOverrides:
+    """Container relocation: every hardcoded path must be env-overridable."""
+
+    def test_env_override_tracker_path(self, monkeypatch):
+        monkeypatch.setenv("TRACKER_PATH", "/home/agent/job-apply/tracker.json")
+        cfg = Config.from_env()
+        assert cfg.tracker_path == "/home/agent/job-apply/tracker.json"
+
+    def test_env_override_campaign_dir(self, monkeypatch):
+        monkeypatch.setenv("CAMPAIGN_DIR", "/home/agent/job-apply")
+        cfg = Config.from_env()
+        assert cfg.campaign_dir == "/home/agent/job-apply"
+
+    def test_env_override_cv_paths(self, monkeypatch):
+        monkeypatch.setenv("CV_PATH", "/home/agent/job-apply/cv/cv.pdf")
+        monkeypatch.setenv("CV_PATH_PL", "/home/agent/job-apply/cv/cv-pl.pdf")
+        cfg = Config.from_env()
+        assert cfg.cv_path == "/home/agent/job-apply/cv/cv.pdf"
+        assert cfg.cv_path_pl == "/home/agent/job-apply/cv/cv-pl.pdf"
+
+    def test_env_override_playwright_output_dir(self, monkeypatch):
+        monkeypatch.setenv("PLAYWRIGHT_OUTPUT_DIR", "/home/agent/apps/out")
+        cfg = Config.from_env()
+        assert cfg.playwright_output_dir == "/home/agent/apps/out"
+
+    def test_env_override_tick_context_path(self, monkeypatch):
+        monkeypatch.setenv("TICK_CONTEXT_PATH", "/home/agent/apps/state/tick.md")
+        cfg = Config.from_env()
+        assert cfg.tick_context_path == "/home/agent/apps/state/tick.md"
+
+    def test_env_override_playwright_command(self, monkeypatch):
+        monkeypatch.setenv("PLAYWRIGHT_COMMAND", "/usr/bin/node")
+        cfg = Config.from_env()
+        assert cfg.playwright_command == "/usr/bin/node"
+
+    def test_env_override_playwright_mcp_entry_replaces_args0(self, monkeypatch):
+        monkeypatch.setenv("PLAYWRIGHT_MCP_ENTRY", "/home/agent/apps/tools/cli.js")
+        cfg = Config.from_env()
+        assert cfg.playwright_args[0] == "/home/agent/apps/tools/cli.js"
+        # The rest of the arg vector (cdp-endpoint, output-dir, ...) survives.
+        assert "--cdp-endpoint" in cfg.playwright_args
+        assert "--output-dir" in cfg.playwright_args
+
+    def test_env_override_rag_command(self, monkeypatch):
+        monkeypatch.setenv("RAG_COMMAND", "/home/agent/apps/rag/.venv/bin/python")
+        cfg = Config.from_env()
+        assert cfg.rag_command == "/home/agent/apps/rag/.venv/bin/python"
+
+    def test_env_override_rag_script_replaces_args0(self, monkeypatch):
+        monkeypatch.setenv("RAG_SCRIPT", "/home/agent/apps/rag/rag_server.py")
+        cfg = Config.from_env()
+        assert cfg.rag_args[0] == "/home/agent/apps/rag/rag_server.py"
+
+    def test_output_dir_arg_syncs_with_playwright_output_dir(self, monkeypatch):
+        # The --output-dir value inside playwright_args used to be a separate
+        # literal: overriding playwright_output_dir left the stale path in the
+        # MCP launch args (2026-10-04 audit finding).
+        out = "/home/agent/apps/openclaw-job-search/playwright-output"
+        monkeypatch.setenv("PLAYWRIGHT_OUTPUT_DIR", out)
+        cfg = Config.from_env()
+        i = cfg.playwright_args.index("--output-dir")
+        assert cfg.playwright_args[i + 1] == out
+
+    def test_output_dir_arg_syncs_from_overrides_file(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("PLAYWRIGHT_OUTPUT_DIR", raising=False)
+        overrides = tmp_path / "overrides.env"
+        out = "/home/agent/apps/openclaw-job-search/playwright-output"
+        overrides.write_text(f"PLAYWRIGHT_OUTPUT_DIR={out}\n")
+        cfg = Config.from_overrides(str(overrides))
+        i = cfg.playwright_args.index("--output-dir")
+        assert cfg.playwright_args[i + 1] == out
+
+    def test_defaults_keep_output_dir_arg_in_sync(self):
+        cfg = Config()
+        i = cfg.playwright_args.index("--output-dir")
+        assert cfg.playwright_args[i + 1] == cfg.playwright_output_dir

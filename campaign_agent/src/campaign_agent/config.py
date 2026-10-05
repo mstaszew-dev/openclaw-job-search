@@ -154,6 +154,7 @@ class Config:
         any CDP_URL override applied after construction via _apply_dict) and
         check the laptop window invariant."""
         self._sync_cdp_arg()
+        self._sync_playwright_output_dir()
         self._validate_context_window()
 
     def _validate_context_window(self) -> None:
@@ -230,6 +231,19 @@ class Config:
             "MSROUTER_MODEL": "msrouter_model",
             "MSROUTER_API_KEY": "msrouter_api_key",
             "CDP_URL": "cdp_url",
+            # Path overrides (container relocation, 2026-10-04): every
+            # hardcoded absolute path is settable so the app tree can live
+            # anywhere (e.g. /home/agent/... in the k3s pod). HOME-derived
+            # paths (session_dir, overrides_path) keep following $HOME.
+            # Defaults are unchanged, so the Mac deployment is unaffected.
+            "TRACKER_PATH": "tracker_path",
+            "CAMPAIGN_DIR": "campaign_dir",
+            "CV_PATH": "cv_path",
+            "CV_PATH_PL": "cv_path_pl",
+            "PLAYWRIGHT_OUTPUT_DIR": "playwright_output_dir",
+            "TICK_CONTEXT_PATH": "tick_context_path",
+            "PLAYWRIGHT_COMMAND": "playwright_command",
+            "RAG_COMMAND": "rag_command",
         }
         float_fields = {
             "INNER_SLEEP": "inner_sleep",
@@ -244,6 +258,13 @@ class Config:
             if d.get(key):
                 setattr(self, attr, d[key])
 
+        # Single-element launch-arg overrides (vectors stay otherwise intact;
+        # guarded for empty vectors - index 0 is the entry script by contract).
+        if d.get("PLAYWRIGHT_MCP_ENTRY") and self.playwright_args:
+            self.playwright_args[0] = d["PLAYWRIGHT_MCP_ENTRY"]
+        if d.get("RAG_SCRIPT") and self.rag_args:
+            self.rag_args[0] = d["RAG_SCRIPT"]
+
         for key, attr in float_fields.items():
             if d.get(key):
                 setattr(self, attr, float(d[key]))
@@ -255,10 +276,25 @@ class Config:
                 if company:
                     self.skip_companies.add(company)
         self._sync_cdp_arg()
+        self._sync_playwright_output_dir()
         # Overrides land after __post_init__, so re-check the ceiling:
         # MAX_CONTEXT_TOKENS is overridable and must stay within the laptop
         # model's trained window.
         self._validate_context_window()
+
+    def _sync_playwright_output_dir(self) -> None:
+        """Keep the --output-dir value inside playwright_args equal to
+        playwright_output_dir. The arg was a separate literal, so overriding
+        the field alone left a stale path in the MCP launch args."""
+        for i, a in enumerate(self.playwright_args):
+            if a == "--output-dir" and i + 1 < len(self.playwright_args):
+                if self.playwright_args[i + 1] != self.playwright_output_dir:
+                    logging.getLogger(__name__).debug(
+                        "playwright --output-dir rewired to %s",
+                        self.playwright_output_dir,
+                    )
+                self.playwright_args[i + 1] = self.playwright_output_dir
+                return
 
     @property
     def director_note(self) -> str:
