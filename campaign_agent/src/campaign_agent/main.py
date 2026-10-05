@@ -12,6 +12,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.
 import asyncio
 import json
 import logging
+import logging.handlers
+import signal
 import os
 import sys
 import time
@@ -184,7 +186,7 @@ async def run_agent_turn(
     llm: LLMClient,
     tools: ToolRouter,
     messages: list[dict[str, Any]],
-    max_steps: int = 200,
+    max_steps: int = 250,
     context_token_budget: int = 102400,
     in_place_retries: int = 5,
     in_place_sleep: float = 4.0,
@@ -312,6 +314,36 @@ async def run_agent_turn(
     if recorded_submission:
         return TickResult(success=True, reason="max_steps_after_submission", submitted=1)
     return TickResult(success=False, reason="max_steps_exceeded")
+
+
+def setup_logging(campaign_dir: str) -> str:
+    """Add a rotating file logger beside the tracker, return the log path.
+
+    Called from main() BEFORE the run starts, so crashes and Director SIGTERMs
+    are captured (see main()).
+
+    2026-10-05: the agent logged to stdout only, so every exit reason died with
+    the iTerm tab. The Director restarted the worker six times over two days and
+    not one termination cause was recoverable afterwards. A rotating file
+    handler in the campaign directory keeps the reasons (and everything else)
+    on disk; the Director's restart records now point at this file.
+    """
+    log_path = os.path.join(campaign_dir, "agent.log")
+    root = logging.getLogger()
+    # Idempotent: a repeated setup (tests, hot reload) must not double-log.
+    already = any(isinstance(h, logging.handlers.RotatingFileHandler)
+                  and getattr(h, "baseFilename", "") == os.path.abspath(log_path)
+                  for h in root.handlers)
+    if not already:
+        handler = logging.handlers.RotatingFileHandler(
+            log_path, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+        )
+        handler.setFormatter(logging.Formatter(
+            "[%(asctime)s] %(levelname)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"
+        ))
+        root.addHandler(handler)
+    root.setLevel(logging.INFO)
+    return log_path
 
 
 async def run_campaign(config: Config) -> None:
@@ -549,6 +581,7 @@ async def run_campaign(config: Config) -> None:
             await asyncio.sleep(2)  # brief pause between ticks
 
     finally:
+        log.info("Campaign agent stopped (last tracker write: see tracker.json updatedAt)")
         await pw.close()
         await rag.close()
 
@@ -586,7 +619,31 @@ def main() -> None:
     if args.model:
         config.msrouter_model = args.model
 
-    asyncio.run(run_campaign(config))
+    # File logging must exist BEFORE the run so crashes and SIGTERM land in it.
+    setup_logging(config.campaign_dir)
+
+    # Director-driven stops arrive as SIGTERM via the launcher; without this
+    # handler the termination reason died with the tab (the exact gap that
+    # motivated the file log). Log, restore the default disposition, re-send.
+    def _log_signal(signum: int, frame: Any) -> None:
+        logging.getLogger().critical(
+            "Received %s; campaign agent stopping",
+            signal.Signals(signum).name,
+        )
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    signal.signal(signal.SIGTERM, _log_signal)
+    signal.signal(signal.SIGINT, _log_signal)
+
+    try:
+        asyncio.run(run_campaign(config))
+    except Exception:
+        # An unhandled crash previously printed only to stderr, which dies with
+        # the tab. The file log must carry the traceback too, then re-raise so
+        # the exit code stays non-zero.
+        logging.getLogger().critical("Campaign agent crashed", exc_info=True)
+        raise
 
 
 if __name__ == "__main__":

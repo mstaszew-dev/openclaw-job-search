@@ -104,7 +104,7 @@ class Config:
     outer_max_ticks: int = 41600
 
     # Agent loop
-    max_steps: int = 200
+    max_steps: int = 250
     # Output token cap per LLM call: 1500 tokens is ~190s at the laptop
     # tail's ~8 tok/s decode, so a runaway generation cannot sit for many
     # minutes. Config-driven so the Director can retune without a code change.

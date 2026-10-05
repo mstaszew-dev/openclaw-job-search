@@ -45,8 +45,9 @@ class TestConfigDefaults:
         assert cfg.outer_backoff == 60
 
     def test_default_max_steps(self):
-        cfg = Config()
-        assert cfg.max_steps == 200
+        # 250 since 2026-10-05 (was 200): discovery-heavy ticks were hitting
+        # the cap and rotating without ever applying.
+        assert Config().max_steps == 250
 
     def test_default_llm_timeouts_cover_30min_laptop_tail(self):
         """The gateway's slowest walk must fit inside the client budget:

@@ -437,6 +437,8 @@ def test_main_cli_entry(tmp_path):
          patch.dict(os.environ, {"TERM_PROGRAM": "iTerm.app"}):
         mock_cfg = MagicMock()
         mock_cfg_cls.from_overrides.return_value = mock_cfg
+        # setup_logging writes agent.log under campaign_dir; give it a real dir.
+        mock_cfg.campaign_dir = str(tmp_path)
 
         with patch.object(sys, "argv", ["campaign_agent", "--config", overrides_path, "--model", "mst/free"]):
             main()
