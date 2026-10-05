@@ -316,8 +316,8 @@ async def run_agent_turn(
     return TickResult(success=False, reason="max_steps_exceeded")
 
 
-def setup_logging(campaign_dir: str) -> str:
-    """Add a rotating file logger beside the tracker, return the log path.
+def setup_logging(campaign_dir: str) -> str | None:
+    """Add a rotating file logger beside the tracker; return its path, or None.
 
     Called from main() BEFORE the run starts, so crashes and Director SIGTERMs
     are captured (see main()).
@@ -327,22 +327,33 @@ def setup_logging(campaign_dir: str) -> str:
     not one termination cause was recoverable afterwards. A rotating file
     handler in the campaign directory keeps the reasons (and everything else)
     on disk; the Director's restart records now point at this file.
+
+    Best-effort by design: if the directory cannot be created or written (fresh
+    clone, CI runner, read-only mount), return None and keep console logging
+    rather than killing the agent at startup with a FileNotFoundError from a
+    logging call (the CI failure this guards).
     """
-    log_path = os.path.join(campaign_dir, "agent.log")
     root = logging.getLogger()
-    # Idempotent: a repeated setup (tests, hot reload) must not double-log.
-    already = any(isinstance(h, logging.handlers.RotatingFileHandler)
-                  and getattr(h, "baseFilename", "") == os.path.abspath(log_path)
-                  for h in root.handlers)
-    if not already:
-        handler = logging.handlers.RotatingFileHandler(
-            log_path, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
-        )
-        handler.setFormatter(logging.Formatter(
-            "[%(asctime)s] %(levelname)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"
-        ))
-        root.addHandler(handler)
     root.setLevel(logging.INFO)
+    log_path = os.path.join(campaign_dir, "agent.log")
+    try:
+        os.makedirs(campaign_dir, exist_ok=True)
+        # Idempotent: a repeated setup (tests, hot reload) must not double-log.
+        already = any(isinstance(h, logging.handlers.RotatingFileHandler)
+                      and getattr(h, "baseFilename", "") == os.path.abspath(log_path)
+                      for h in root.handlers)
+        if not already:
+            handler = logging.handlers.RotatingFileHandler(
+                log_path, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+            )
+            handler.setFormatter(logging.Formatter(
+                "[%(asctime)s] %(levelname)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"
+            ))
+            root.addHandler(handler)
+    except OSError as exc:
+        root.warning("File logging unavailable at %s (%s); continuing on console only",
+                     log_path, exc)
+        return None
     return log_path
 
 

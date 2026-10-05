@@ -72,3 +72,20 @@ def test_setup_logging_is_called_from_main_before_the_run():
     setup_pos = src.index("setup_logging(")
     run_pos = src.index("asyncio.run(")
     assert setup_pos < run_pos
+
+
+# --- robustness: a missing campaign dir must not kill the agent --------------
+# CI (a fresh runner with no /Users/mst/Downloads/... tree) failed with
+# FileNotFoundError: agent.log, because RotatingFileHandler cannot create its
+# parent. The agent must degrade to console logging, not die at startup.
+
+def test_returns_none_and_does_not_raise_when_dir_cannot_be_created(tmp_path):
+    blocker = tmp_path / "afile"
+    blocker.write_text("not a directory")
+    impossible = blocker / "campaign"      # makedirs under a file -> OSError
+
+    result = setup_logging(str(impossible))
+
+    assert result is None
+    # Console logging still works, and the failure is itself visible.
+    logging.getLogger("agent-test").warning("still logging to the console")
