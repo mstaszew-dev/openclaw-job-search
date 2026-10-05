@@ -317,7 +317,7 @@ async def run_agent_turn(
 
 
 def setup_logging(campaign_dir: str) -> str | None:
-    """Add a rotating file logger beside the tracker; return its path, or None.
+    """Set up console + rotating file logging; return the file path, or None.
 
     Called from main() BEFORE the run starts, so crashes and Director SIGTERMs
     are captured (see main()).
@@ -335,6 +335,25 @@ def setup_logging(campaign_dir: str) -> str | None:
     """
     root = logging.getLogger()
     root.setLevel(logging.INFO)
+    fmt = logging.Formatter(
+        "[%(asctime)s] %(levelname)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"
+    )
+
+    # Console handler. This used to come from logging.basicConfig inside
+    # run_campaign, but basicConfig adds its StreamHandler only when the root
+    # logger has NO handlers - and the file handler below is installed first
+    # (from main()), so the console handler was silently never added and the
+    # iTerm tab went dark while agent.log filled up. Own both handlers here.
+    # Console keeps the short time-only datefmt the tab always showed; the
+    # file gets the full ISO stamp because it spans days.
+    if not any(getattr(h, "stream", None) is sys.stderr
+               for h in root.handlers):
+        console = logging.StreamHandler(sys.stderr)
+        console.setFormatter(logging.Formatter(
+            "[%(asctime)s] %(levelname)s %(message)s", datefmt="%H:%M:%S"
+        ))
+        root.addHandler(console)
+
     log_path = os.path.join(campaign_dir, "agent.log")
     try:
         os.makedirs(campaign_dir, exist_ok=True)
@@ -346,9 +365,7 @@ def setup_logging(campaign_dir: str) -> str | None:
             handler = logging.handlers.RotatingFileHandler(
                 log_path, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
             )
-            handler.setFormatter(logging.Formatter(
-                "[%(asctime)s] %(levelname)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"
-            ))
+            handler.setFormatter(fmt)
             root.addHandler(handler)
     except OSError as exc:
         root.warning("File logging unavailable at %s (%s); continuing on console only",
@@ -359,11 +376,6 @@ def setup_logging(campaign_dir: str) -> str | None:
 
 async def run_campaign(config: Config) -> None:
     """Main campaign loop: ticks until target reached."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="[%(asctime)s] %(levelname)s %(message)s",
-        datefmt="%H:%M:%S",
-    )
 
     tracker = Tracker(config.tracker_path)
     session = SessionManager(

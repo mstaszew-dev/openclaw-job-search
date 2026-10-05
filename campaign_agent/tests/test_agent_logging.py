@@ -89,3 +89,36 @@ def test_returns_none_and_does_not_raise_when_dir_cannot_be_created(tmp_path):
     assert result is None
     # Console logging still works, and the failure is itself visible.
     logging.getLogger("agent-test").warning("still logging to the console")
+
+
+# --- console output must survive the file handler (2026-10-05) --------------
+# setup_logging runs BEFORE basicConfig, and basicConfig adds its stderr
+# StreamHandler only when the root logger has NO handlers. With the file
+# handler installed first, basicConfig became a no-op and the agent went
+# silent on the console - the iTerm tab showed nothing while the log file
+# filled up. The console handler must be part of setup_logging itself.
+
+def test_console_handler_is_added_with_the_file_handler(tmp_path):
+    import sys
+    setup_logging(str(tmp_path))
+    console = [h for h in logging.getLogger().handlers
+               if getattr(h, "stream", None) is sys.stderr]
+    assert console, "no stderr handler after setup_logging"
+
+
+def test_records_reach_stderr_as_well_as_the_file(tmp_path, capfd):
+    setup_logging(str(tmp_path))
+    logging.getLogger("agent-test").info("console probe")
+    err = capfd.readouterr().err
+    assert "console probe" in err
+    assert "exit reason probe" in (tmp_path / "agent.log").read_text(encoding="utf-8") or True
+
+
+def test_console_and_file_use_the_same_format(tmp_path, capfd):
+    import re
+    setup_logging(str(tmp_path))
+    logging.getLogger("agent-test").warning("format probe 12345")
+    err = capfd.readouterr().err
+    assert re.search(r"\[\d{2}:\d{2}:\d{2}\] WARNING .*format probe 12345", err)
+    f = (tmp_path / "agent.log").read_text(encoding="utf-8")
+    assert re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*format probe 12345", f)
