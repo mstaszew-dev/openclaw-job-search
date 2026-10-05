@@ -66,6 +66,7 @@ def test_setup_logging_is_called_from_main_before_the_run():
     """main() must call setup_logging BEFORE asyncio.run, so crashes and
     Director SIGTERMs are captured from process start."""
     import inspect
+
     from campaign_agent import main as main_mod
     src = inspect.getsource(main_mod.main)
     setup_pos = src.index("setup_logging(")

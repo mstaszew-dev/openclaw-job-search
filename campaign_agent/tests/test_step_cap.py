@@ -5,10 +5,11 @@ applying; the owner asked for more headroom. Pinned behaviourally: a model
 that always answers with a tool call must be dispatched exactly 250 times
 before the turn ends with max_steps_exceeded.
 """
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from campaign_agent.llm import LLMClient, LLMResponse, ToolCall
+import pytest
+
+from campaign_agent.llm import LLMResponse, ToolCall
 from campaign_agent.main import run_agent_turn
 
 

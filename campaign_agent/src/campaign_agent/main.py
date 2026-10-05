@@ -13,8 +13,8 @@ import asyncio
 import json
 import logging
 import logging.handlers
-import signal
 import os
+import signal
 import sys
 import time
 from dataclasses import dataclass
