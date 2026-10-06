@@ -17,8 +17,9 @@ import os
 import signal
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from openai import AuthenticationError, PermissionDeniedError
 
@@ -299,8 +300,9 @@ async def run_agent_turn(
                     if on_submission is not None:
                         try:
                             await on_submission()
-                        except Exception as e:  # noqa: BLE001 - best effort
-                            log.warning("Post-submission hook failed (non-fatal): %s", e)
+                        except Exception as e:
+                            log.warning(
+                                "Post-submission hook failed (non-fatal): %s", e, exc_info=True)
 
         # Truncate if context is growing too large (prevents malformed JSON
         # from under-trained models choking on huge prompts). Single-pass
