@@ -155,22 +155,45 @@ def load_index(db_path: Path) -> tuple[np.ndarray, list[dict]]:
 _model = None  # StaticModel | None
 _matrix: np.ndarray | None = None
 _rows: list[dict] | None = None
+# mtime of index.db as of the last load; None = never loaded.
+_index_mtime: float | None = None
 
 
 def _ensure_loaded() -> None:
-    """Load the model + index into memory on first use (warm thereafter)."""
-    global _model, _matrix, _rows
-    if _model is not None:
-        return
-    if not DB.exists():
-        raise RuntimeError(
-            f"index not found at {DB}; run index_builder.py first "
-            f"(.venv/bin/python {ROOT}/index_builder.py)"
-        )
-    from model2vec import StaticModel  # imported lazily so tests can skip it
+    """Load the model once; re-read the matrix when index.db changes on disk.
 
-    _model = StaticModel.from_pretrained(MODEL)
+    The agent rebuilds index.db after every submission (campaign_agent
+    rag_index.py) and this server process outlives many submissions, so caching
+    the matrix for the life of the process made every rebuild invisible to
+    rag_search_apps: a freshly submitted company could not be found by its own
+    dedupe search (2026-10-07).
+
+    Only the matrix is re-read, never the model. The model is the expensive part
+    and is immutable for a given MODEL id.
+    """
+    global _model, _matrix, _rows, _index_mtime
+    if not DB.exists():
+        # Cold start with no index, or a rebuild that has not landed yet. A warm
+        # model keeps serving the rows already in memory instead of failing the
+        # query outright.
+        if _model is None:
+            raise RuntimeError(
+                f"index not found at {DB}; run index_builder.py first "
+                f"(.venv/bin/python {ROOT}/index_builder.py)"
+            )
+        return
+    if _model is None:
+        from model2vec import StaticModel  # imported lazily so tests can skip it
+
+        _model = StaticModel.from_pretrained(MODEL)
+        _index_mtime = None  # force the load below
+
+    mtime = DB.stat().st_mtime
+    if mtime == _index_mtime:
+        return
+
     _matrix, _rows = load_index(DB)
+    _index_mtime = mtime
     # Log load (the sink label is reported implicitly by where the line lands).
     _log(f"loaded {len(_rows)} chunks, dim {_matrix.shape[1]}")
     _warn_if_stale()

@@ -20,6 +20,24 @@ import pytest
 import index_builder as ib
 import rag_server
 
+
+# An mtime no real file will carry, so "already loaded" is unambiguous.
+_FUTURE_MTIME = float(2**40)
+
+
+def _bump_mtime(path: Path) -> None:
+    """Force a distinct mtime.
+
+    index_builder writes atomically via os.replace, but the filesystem can land
+    both writes in the same mtime tick, so the reload test needs a guaranteed
+    difference.
+    """
+    st = path.stat()
+    path.touch()
+    import os
+
+    os.utime(path, (st.st_atime + 10, st.st_mtime + 10))
+
 MODULE_PATH = Path(rag_server.__file__).resolve()
 
 
@@ -91,9 +109,13 @@ class TestEnsureLoaded:
             rag_server._ensure_loaded()
 
     def test_is_idempotent_once_loaded(self, monkeypatch):
-        """Once _model is set, _ensure_loaded returns without reloading."""
-        # Pretend already loaded.
+        """The MODEL stays warm: a warm model is never rebuilt from disk.
+
+        The index itself IS re-read when index.db changes (see the reload
+        tests), because the agent rebuilds it after each submission.
+        """
         monkeypatch.setattr(rag_server, "_model", object())
+        monkeypatch.setattr(rag_server, "_index_mtime", _FUTURE_MTIME)
         # Should not raise / not try to load the (nonexistent) index.
         rag_server._ensure_loaded()
 
@@ -142,6 +164,11 @@ class TestSearchWrapper:
         monkeypatch.setattr(rag_server, "_model", mock_model)
         monkeypatch.setattr(rag_server, "_matrix", matrix)
         monkeypatch.setattr(rag_server, "_rows", rows)
+        # "Loaded state" now includes the mtime of the index it was loaded
+        # from: without pinning both, _ensure_loaded would reload the real
+        # 256-dim index over this 64-dim fixture.
+        monkeypatch.setattr(rag_server, "DB", db)
+        monkeypatch.setattr(rag_server, "_index_mtime", db.stat().st_mtime)
 
         hits = rag_server._search("Senior Java Backend Engineer", "apps", 3)
 
@@ -660,3 +687,84 @@ class TestNullAppliedAt:
         assert "Senior Java Developer" in out
         assert "NoneType" not in out
         assert "TypeError" not in out
+
+
+class TestIndexReload:
+    """The agent rebuilds index.db after every submission, so the long-lived
+    rag_server process must pick the new index up. Before 2026-10-07 the matrix
+    was cached for the life of the process, which made every rebuild invisible
+    to rag_search_apps.
+    """
+
+    def _prime(self, monkeypatch, db, mock_model):
+        """Warm the model + index through _ensure_loaded, faking model2vec."""
+        requested = []
+
+        class FakeStaticModel:
+            @classmethod
+            def from_pretrained(cls, name):
+                requested.append(name)
+                return mock_model
+
+        fake_m2v = ModuleType("model2vec")
+        fake_m2v.StaticModel = FakeStaticModel
+        monkeypatch.setitem(sys.modules, "model2vec", fake_m2v)
+        monkeypatch.setattr(rag_server, "DB", db)
+        monkeypatch.setattr(rag_server, "_model", None)
+        monkeypatch.setattr(rag_server, "_matrix", None)
+        monkeypatch.setattr(rag_server, "_rows", None)
+        monkeypatch.setattr(rag_server, "_index_mtime", None)
+        rag_server._ensure_loaded()
+        return requested
+
+    def test_reloads_when_index_db_changes(
+        self, monkeypatch, tmp_campaign, mock_model, tmp_path
+    ):
+        db = tmp_path / "index.db"
+        ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+        requested = self._prime(monkeypatch, db, mock_model)
+        before = len(rag_server._rows)
+
+        # Rebuild with a corpus that has one more application, as the agent does.
+        tracker_path = tmp_campaign / "tracker.json"
+        tracker = json.loads(tracker_path.read_text())
+        tracker["applications"].append(dict(tracker["applications"][0], id="new-app"))
+        tracker_path.write_text(json.dumps(tracker))
+        ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+        _bump_mtime(db)
+
+        rag_server._ensure_loaded()
+
+        assert len(rag_server._rows) == before + 1
+        # The expensive model is NOT rebuilt.
+        assert requested == [rag_server.MODEL]
+
+    def test_does_not_reload_when_db_is_unchanged(
+        self, monkeypatch, tmp_campaign, mock_model, tmp_path
+    ):
+        db = tmp_path / "index.db"
+        ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+        self._prime(monkeypatch, db, mock_model)
+        rows = rag_server._rows
+
+        calls = []
+        real_load = rag_server.load_index
+        monkeypatch.setattr(
+            rag_server, "load_index", lambda p: (calls.append(p), real_load(p))[1]
+        )
+
+        rag_server._ensure_loaded()
+
+        assert calls == []
+        assert rag_server._rows is rows
+
+    def test_reload_survives_the_db_vanishing(
+        self, monkeypatch, tmp_campaign, mock_model, tmp_path
+    ):
+        """A rebuild that replaces index.db must not raise if it is briefly absent."""
+        db = tmp_path / "index.db"
+        ib.build(model=mock_model, campaign=tmp_campaign, db_path=db)
+        self._prime(monkeypatch, db, mock_model)
+        db.unlink()
+
+        rag_server._ensure_loaded()  # must not raise

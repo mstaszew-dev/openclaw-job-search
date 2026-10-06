@@ -146,6 +146,15 @@ class Config:
         "/Users/mst/ZCodeProject/openclaw-job-search/rag/rag_server.py",
     ])
 
+    # Rebuild the RAG dedupe index after each submission. Without it the index
+    # lags the tracker and freshly submitted companies are invisible to
+    # rag_search_apps, which is the exact case dedupe exists to catch.
+    rag_index_on_submit: bool = True
+    rag_index_script: str = "/Users/mst/ZCodeProject/openclaw-job-search/rag/index_builder.py"
+    # A full rebuild measures ~1s; the ceiling only exists so a wedged builder
+    # cannot stall the campaign turn.
+    rag_index_timeout_s: float = 120.0
+
     # Director overrides
     overrides_path: str = os.path.expanduser("~/.campaign-agent/director-overrides.env")
 

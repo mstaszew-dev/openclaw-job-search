@@ -827,3 +827,77 @@ class TestLLMContextBudget:
         # here would send cap+floor. No room for history means zero history.
         from campaign_agent.main import _llm_context_budget
         assert _llm_context_budget(128000, 61440, 99000) == 0
+
+
+class TestPostSubmissionHook:
+    """on_submission refreshes the RAG dedupe index after a recorded submission."""
+
+    @pytest.mark.asyncio
+    async def test_hook_runs_once_on_a_recorded_submission(self):
+        tools = MagicMock()
+        tools.schemas = []
+        tools.dispatch = AsyncMock(return_value="saved 1133/1200 exit=0")
+
+        mock_llm = MagicMock()
+        mock_llm.chat_async = AsyncMock(side_effect=[
+            LLMResponse(
+                content="",
+                tool_calls=[ToolCall(
+                    id="c1", name="exec",
+                    arguments={"command": "python3 update_tracker.py submitted '{\"id\":\"j1\"}'"},
+                )],
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(content="Submitted", tool_calls=[], finish_reason="stop"),
+        ])
+        mock_llm.model = "test"
+
+        hook = AsyncMock()
+        result = await run_agent_turn(mock_llm, tools, [], max_steps=5, on_submission=hook)
+
+        assert result.success is True
+        assert hook.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_hook_does_not_run_without_a_submission(self):
+        tools = MagicMock()
+        tools.schemas = []
+        tools.dispatch = AsyncMock(return_value="nothing recorded")
+
+        mock_llm = MagicMock()
+        mock_llm.chat_async = AsyncMock(side_effect=[
+            LLMResponse(content="No submission", tool_calls=[], finish_reason="stop"),
+        ])
+        mock_llm.model = "test"
+
+        hook = AsyncMock()
+        await run_agent_turn(mock_llm, tools, [], max_steps=5, on_submission=hook)
+
+        assert hook.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_a_failing_hook_does_not_discard_the_submission(self):
+        """A broken index refresh must never turn a real submission into a failed tick."""
+        tools = MagicMock()
+        tools.schemas = []
+        tools.dispatch = AsyncMock(return_value="saved 1133/1200 exit=0")
+
+        mock_llm = MagicMock()
+        mock_llm.chat_async = AsyncMock(side_effect=[
+            LLMResponse(
+                content="",
+                tool_calls=[ToolCall(
+                    id="c1", name="exec",
+                    arguments={"command": "python3 update_tracker.py submitted '{\"id\":\"j1\"}'"},
+                )],
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(content="Submitted", tool_calls=[], finish_reason="stop"),
+        ])
+        mock_llm.model = "test"
+
+        hook = AsyncMock(side_effect=RuntimeError("index builder exploded"))
+        result = await run_agent_turn(mock_llm, tools, [], max_steps=5, on_submission=hook)
+
+        assert result.success is True
+        assert result.submitted == 1

@@ -18,13 +18,14 @@ import signal
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from openai import AuthenticationError, PermissionDeniedError
 
 from campaign_agent.config import Config
 from campaign_agent.llm import LLMClient
 from campaign_agent.prompt import build_system_prompt, build_user_prompt
+from campaign_agent.rag_index import rebuild_index
 from campaign_agent.session import (
     SessionManager,
     TickContext,
@@ -190,6 +191,7 @@ async def run_agent_turn(
     context_token_budget: int = 102400,
     in_place_retries: int = 5,
     in_place_sleep: float = 4.0,
+    on_submission: Callable[[], Awaitable[None]] | None = None,
 ) -> TickResult:
     """
     Run one agent turn: LLM call → tool dispatch → repeat until done or max_steps.
@@ -197,6 +199,11 @@ async def run_agent_turn(
     Messages are truncated in-place when they exceed context_token_budget.
     Callers must pass the policy budget (run_campaign computes it via
     _llm_context_budget); the 102400 default predates the context cap.
+
+    on_submission is awaited once per recorded submission (used to refresh the
+    RAG dedupe index). It is best-effort: any exception it raises is logged and
+    swallowed, because a failed index refresh must not discard a real
+    submission or abort the turn.
 
     In-place retry: a gateway flap (connection error) or an empty completion
     must NOT discard the accumulated session (2026-09-14: a 21-minute turn
@@ -289,6 +296,11 @@ async def run_agent_turn(
                 if "update_tracker.py submitted" in command and "exit=0" in str(result):
                     recorded_submission = True
                     log.info("Submission recorded: %s", command[:120])
+                    if on_submission is not None:
+                        try:
+                            await on_submission()
+                        except Exception as e:  # noqa: BLE001 - best effort
+                            log.warning("Post-submission hook failed (non-fatal): %s", e)
 
         # Truncate if context is growing too large (prevents malformed JSON
         # from under-trained models choking on huge prompts). Single-pass
@@ -422,6 +434,22 @@ async def run_campaign(config: Config) -> None:
 
     tools = ToolRouter(playwright_client=pw, rag_client=rag, default_cwd=config.campaign_dir)
 
+    # Refresh the RAG dedupe index after every recorded submission, so a company
+    # just applied to is searchable for the rest of the tick. Runs in the rag
+    # venv (model2vec lives there) and is best-effort by construction.
+    async def rag_refresh() -> None:
+        if not config.rag_index_on_submit:
+            return
+        ok = await rebuild_index(
+            config.rag_command,
+            config.rag_index_script,
+            timeout_s=config.rag_index_timeout_s,
+        )
+        if not ok:
+            log.warning(
+                "RAG index still stale after a submission; dedupe search cannot "
+                "see it until the next successful rebuild")
+
     # Startup browser health check: a wedged MCP CDP session passes connect()
     # but times out on every page-level tool (2026-09-15, 6h silent zero
     # throughput). Fail loudly here instead of discovering it mid-tick.
@@ -504,6 +532,7 @@ async def run_campaign(config: Config) -> None:
                 result = await run_agent_turn(
                     llm, tools, messages, config.max_steps,
                     context_token_budget=ctx_budget,
+                    on_submission=rag_refresh,
                 )
                 elapsed = time.time() - t0
 
