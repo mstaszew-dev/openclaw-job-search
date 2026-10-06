@@ -7,7 +7,10 @@ submitted after the last manual build was invisible to dedupe search.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+import time
+from pathlib import Path
 
 import pytest
 
@@ -54,3 +57,38 @@ def test_rebuild_does_not_raise_on_a_crashing_child() -> None:
 def test_rebuild_handles_a_nonpositive_timeout(kwargs: dict[str, float]) -> None:
     ok = asyncio.run(rebuild_index(sys.executable, "-c", "", **kwargs))
     assert ok is False
+
+
+def test_cancellation_propagates_and_leaves_no_child(tmp_path: Path) -> None:
+    """Cancelling the rebuild must kill the child and re-raise CancelledError.
+
+    Shutdown cancels the campaign turn; an orphaned index_builder would keep
+    running unsupervised, and swallowing the cancellation would make the task
+    uncancellable.
+    """
+    pid_file = tmp_path / "child.pid"
+    code = (
+        "import os,time,pathlib;"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()));"
+        "time.sleep(30)"
+    )
+
+    async def run() -> None:
+        task = asyncio.create_task(rebuild_index(sys.executable, "-c", code, timeout_s=60))
+        # Let the child actually spawn before cancelling.
+        for _ in range(100):
+            if pid_file.exists():
+                break
+            await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run())
+
+    child_pid = int(pid_file.read_text())
+    # Reaped, not merely signalled: an unreaped zombie still answers signal 0.
+    with pytest.raises(ProcessLookupError):
+        for _ in range(50):
+            os.kill(child_pid, 0)
+            time.sleep(0.05)

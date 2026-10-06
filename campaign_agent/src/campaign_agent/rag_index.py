@@ -18,6 +18,7 @@ the subprocess rather than an import.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 log = logging.getLogger(__name__)
@@ -77,12 +78,12 @@ async def rebuild_index(
 
 
 async def _kill(proc: asyncio.subprocess.Process) -> None:
-    """Kill a child and reap it, ignoring a race where it already exited."""
-    try:
+    """SIGKILL a child and reap it. A no-op when it already exited.
+
+    The suppress covers the race where it exits between the timeout firing and
+    the signal landing; the unconditional wait is what actually prevents a
+    zombie.
+    """
+    with contextlib.suppress(ProcessLookupError):
         proc.kill()
-    except ProcessLookupError:
-        return
-    try:
-        await proc.wait()
-    except asyncio.CancelledError:
-        raise
+    await proc.wait()
