@@ -24,9 +24,10 @@ class ImportWriterIT {
     private fun fixture(name: String): String =
         javaClass.classLoader.getResource(name)!!.readText()
 
-    /** Both tests share the container; each starts from a clean schema. */
+    /** Both tests share the container; migrate (idempotent) then start clean. */
     @org.junit.jupiter.api.BeforeEach
-    fun truncate() {
+    fun migrateAndTruncate() {
+        migrate()
         withDb { c ->
             c.createStatement().use { st ->
                 st.execute("TRUNCATE applications, skips, blockers, events RESTART IDENTITY")
