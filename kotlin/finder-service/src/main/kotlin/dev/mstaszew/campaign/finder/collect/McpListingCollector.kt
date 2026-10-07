@@ -51,6 +51,14 @@ class McpListingCollector(
             mapper.createObjectNode().apply { put("url", pageUrl) },
             toolTimeout,
         )
+        // let the SPA settle its own canonical redirects before evaluating
+        runCatching {
+            client.callToolText(
+                "browser_wait_for",
+                mapper.createObjectNode().apply { put("time", 3) },
+                toolTimeout,
+            )
+        }
         val extracted = client.callToolText(
             "browser_evaluate",
             mapper.createObjectNode().apply {
