@@ -72,11 +72,34 @@ class McpListingCollector(
     internal fun parseForTest(text: String, source: String): List<CollectedListing> = parse(source, text)
 
     private fun parse(source: String, text: String): List<CollectedListing> {
-        val start = text.indexOf('[')
-        val end = text.lastIndexOf(']')
+        val arrayText = extractArrayText(text) ?: return emptyList()
+        val start = arrayText.indexOf('[')
+        val end = arrayText.lastIndexOf(']')
         if (start < 0 || end <= start) return emptyList()
-        val array: JsonNode = mapper.readTree(text.substring(start, end + 1))
+        val array: JsonNode = runCatching { mapper.readTree(arrayText.substring(start, end + 1)) }
+            .getOrNull() ?: return emptyList()
         return array.mapNotNull { toListing(source, it) }
+    }
+
+    /**
+     * MCP wraps the evaluate result as `### Result\n"<json>"\n### Ran
+     * Playwright code ...` - and the echoed code contains brackets of its own,
+     * so a blind bracket scan grabs the wrong region. Pull the Result segment,
+     * unwrap the JSON string node, and return the array text.
+     */
+    private fun extractArrayText(text: String): String? {
+        val resultIndex = text.indexOf("### Result")
+        if (resultIndex < 0) return text
+        val rest = text.substring(resultIndex + "### Result".length)
+        val nextSection = rest.indexOf("###")
+        val segment = (if (nextSection > 0) rest.substring(0, nextSection) else rest).trim()
+        if (segment.isEmpty()) return null
+        val node = runCatching { mapper.readTree(segment) }.getOrNull() ?: return segment
+        return when {
+            node.isTextual -> node.textValue()
+            node.isArray -> segment
+            else -> null
+        }
     }
 
     private fun toListing(source: String, n: JsonNode): CollectedListing? {
