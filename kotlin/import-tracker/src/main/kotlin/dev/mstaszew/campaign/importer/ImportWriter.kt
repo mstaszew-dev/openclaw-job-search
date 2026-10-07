@@ -21,8 +21,13 @@ data class ImportReport(
 /**
  * Idempotent JDBC writer: safe to re-run; rows already present are left alone.
  * Enum columns are written as their uppercase names to match EnumType.STRING.
+ * All jsonb-bound strings are sanitized: PostgreSQL rejects the NUL escape
+ * (\u0000), which the live tracker data contains.
  */
 class ImportWriter(private val connection: Connection) {
+
+    private fun jsonb(s: String?): String? =
+        s?.replace("\u0000", "")?.replace("\\u0000", "")
 
     fun importAll(model: TrackerModel, events: List<EventEntity>): ImportReport {
         connection.autoCommit = false
@@ -69,16 +74,16 @@ class ImportWriter(private val connection: Connection) {
             ps.setString(8, a.url)
             ps.setString(9, a.region)
             ps.setString(10, a.remotePolicy)
-            ps.setString(11, a.salary)
+            ps.setString(11, jsonb(a.salary))
             ps.setArray(12, a.stack.takeIf { it.isNotEmpty() }?.let(::textArray))
             ps.setString(13, a.applyMethod)
             ps.setString(14, a.ats)
             ps.setString(15, a.status.name)
             ps.setString(16, a.confirmationUrl)
             ps.setString(17, a.confirmationText)
-            ps.setString(18, a.evidence)
+            ps.setString(18, jsonb(a.evidence))
             ps.setTimestamp(19, a.appliedAt?.toTimestamp())
-            ps.setString(20, a.followUps)
+            ps.setString(20, jsonb(a.followUps))
             ps.setString(21, a.notes)
             return ps.executeUpdate() == 1
         }
@@ -111,7 +116,7 @@ class ImportWriter(private val connection: Connection) {
             ps.setString(++i, s.url)
             ps.setString(++i, s.region)
             ps.setString(++i, s.remotePolicy)
-            ps.setString(++i, s.salary)
+            ps.setString(++i, jsonb(s.salary))
             ps.setArray(++i, s.stack.takeIf { it.isNotEmpty() }?.let(::textArray))
             ps.setString(++i, s.detail)
             ps.setBoolean(++i, s.blockedRepeat)
@@ -165,7 +170,7 @@ class ImportWriter(private val connection: Connection) {
         connection.prepareStatement(sql).use { ps ->
             ps.setTimestamp(1, e.at.toTimestamp())
             ps.setString(2, e.action)
-            ps.setString(3, e.record)
+            ps.setString(3, jsonb(e.record))
             return ps.executeUpdate()
         }
     }

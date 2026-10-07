@@ -48,6 +48,7 @@ kubectl -n "$NS" rollout status statefulset/postgres --timeout=180s
 sleep 5
 
 log "import tracker.json + events.jsonl (idempotent)"
+kubectl -n "$NS" delete job tracker-import --ignore-not-found
 cat <<EOF | kubectl apply -f -
 apiVersion: batch/v1
 kind: Job
