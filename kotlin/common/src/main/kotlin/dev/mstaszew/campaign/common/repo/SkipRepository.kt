@@ -11,6 +11,9 @@ interface SkipRepository : JpaRepository<SkipEntity, Long> {
 
     fun findFirstByReasonAndUrl(reason: SkipReason, url: String): SkipEntity?
 
+    /** Existing auto-guard row for a company (updated in place on later blocks). */
+    fun findFirstByReasonAndCompanyKeyAndBlockedRepeatTrue(reason: SkipReason, companyKey: String): SkipEntity?
+
     fun findFirstByReasonAndSourceAndSourceJobId(
         reason: SkipReason,
         source: String,

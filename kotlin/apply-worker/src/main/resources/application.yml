@@ -22,6 +22,11 @@ worker:
   apply-mode: ${APPLY_MODE:shadow}   # shadow | live
   lease-seconds: ${LEASE_SECONDS:600}
   poll-interval-seconds: ${POLL_INTERVAL_SECONDS:30}
+  reaper-interval-seconds: ${REAPER_INTERVAL_SECONDS:60}
+  worker-id: ${WORKER_ID:worker-1}
+  msrouter-url: ${MSROUTER_URL:http://127.0.0.1:8787/v1}
+  msrouter-api-key: ${MSROUTER_API_KEY:}
+  msrouter-model: ${MSROUTER_MODEL:mst/free}
 
 management:
   endpoints:

@@ -61,4 +61,21 @@ interface ApplyTaskRepository : JpaRepository<ApplyTaskEntity, Long> {
 
     /** A listing gets at most one task ever; re-runs must not re-enqueue it. */
     fun existsByListingId(listingId: Long): Boolean
+
+    /** Heartbeat for a running claim; 0 means the lease was lost. */
+    @Transactional
+    @Modifying
+    @Query(
+        value = """
+            UPDATE apply_tasks
+               SET claim_expires_at = now() + make_interval(secs => :leaseSeconds)
+             WHERE id = :id AND state = 'CLAIMED' AND claimed_by = :worker
+        """,
+        nativeQuery = true,
+    )
+    fun extendLease(
+        @Param("id") id: Long,
+        @Param("worker") worker: String,
+        @Param("leaseSeconds") leaseSeconds: Int,
+    ): Int
 }
