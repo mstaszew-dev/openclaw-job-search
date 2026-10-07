@@ -146,12 +146,16 @@ class McpListingCollector(
                 const href = a.getAttribute('href') || '';
                 const id = href.split('/').filter(Boolean).pop() || '';
                 const lines = (a.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+                const uiNoise = /^(zapisz|zapis|zł|pln|zdaln|premia|bon)|^\d|\d[-–]\d|\/full\//i;
+                const titleLine = lines[0];
+                const company = lines.slice(1).find(l =>
+                    l.length > 1 && l !== titleLine && !uiNoise.test(l)) || '';
                 if (!id || seen.has(id) || lines.length === 0) return;
                 seen.set(id, {
                     remote: true,
                     id: id,
-                    title: lines[0].slice(0, 140),
-                    company: lines.slice(1).find(l => l.length > 1) || '',
+                    title: titleLine.slice(0, 140),
+                    company: company.slice(0, 120),
                     url: location.origin + href
                 });
             });
