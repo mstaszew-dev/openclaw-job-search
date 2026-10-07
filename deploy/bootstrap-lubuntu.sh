@@ -34,7 +34,9 @@ done
 log "namespace + db secret"
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 kubectl apply -f deploy/k8s/00-namespace.yaml
-DB_PASS="$(openssl rand -hex 16)"
+# persist the password: Postgres only reads POSTGRES_PASSWORD on first init
+DB_PASS="$(cat $DATA/.db-pass 2>/dev/null || openssl rand -hex 16)"
+echo -n "$DB_PASS" > $DATA/.db-pass && chmod 600 $DATA/.db-pass
 kubectl -n "$NS" create secret generic campaign-db --from-literal=password="$DB_PASS" --dry-run=client -o yaml | kubectl apply -f -
 
 log "deploy manifests"
@@ -46,6 +48,8 @@ kubectl apply -f deploy/k8s/api.yaml
 log "wait for postgres"
 kubectl -n "$NS" rollout status statefulset/postgres --timeout=180s
 sleep 5
+# sync the DB role to the secret (no-op when they already match)
+kubectl -n "$NS" exec postgres-0 -- psql -U campaign -d campaign -c "ALTER USER campaign WITH PASSWORD '$DB_PASS';"
 
 log "import tracker.json + events.jsonl (idempotent)"
 kubectl -n "$NS" delete job tracker-import --ignore-not-found
