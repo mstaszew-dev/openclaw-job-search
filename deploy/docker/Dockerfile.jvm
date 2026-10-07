@@ -14,7 +14,7 @@ WORKDIR /src
 COPY . .
 RUN ./gradlew :apply-worker:bootJar :import-tracker:installDist --no-daemon
 
-FROM ghcr.io/graalvm/graalvm-community:21
+FROM ghcr.io/graalvm/graalvm-community:21 AS worker
 RUN microdnf install -y curl xz \
  && curl -fsSL https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.xz \
     | tar -xJ --strip-components=1 -C /usr/local \
