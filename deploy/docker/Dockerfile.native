@@ -7,7 +7,7 @@
 FROM ghcr.io/graalvm/graalvm-community:21 AS build
 WORKDIR /src
 COPY . .
-RUN ./gradlew :finder-service:nativeCompile :campaign-api:nativeCompile --no-daemon
+RUN ./gradlew :finder-service:nativeCompile :campaign-api:nativeCompile --no-daemon --no-parallel
 
 FROM ghcr.io/graalvm/graalvm-community:21 AS common-runtime
 RUN microdnf install -y curl xz \

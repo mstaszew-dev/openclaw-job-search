@@ -6,6 +6,8 @@ graalvmNative {
     binaries {
         named("main") {
             buildArgs.add("-H:+ReportExceptionStackTraces")
+            // host has 7GB RAM: cap the image-builder JVM heap
+            buildArgs.add("-J-Xmx3g")
         }
     }
     // Spring Boot ships its own reachability configs; the community repository's
