@@ -20,11 +20,11 @@ git clone -b zcode/kotlin-distributed "$DATA/kotlin-dist.bundle" "$SRC"
 cd "$SRC"
 git log --oneline -1
 
-log "build images (native compile: 10-25 min first run)"
-docker build -f deploy/docker/Dockerfile.native --target finder -t localhost:5000/campaign-finder:v1 "$SRC/kotlin"
-docker build -f deploy/docker/Dockerfile.native --target api    -t localhost:5000/campaign-api:v1 "$SRC/kotlin"
-docker build -f deploy/docker/Dockerfile.jvm    --target worker -t localhost:5000/campaign-worker:v1 "$SRC/kotlin"
-docker build -f deploy/docker/Dockerfile.jvm    --target importer -t localhost:5000/campaign-importer:v1 "$SRC/kotlin"
+log "build images (JVM: fits the 7GB host; native moved to CI)"
+docker build -f deploy/docker/Dockerfile.jvm-services --target finder-jvm -t localhost:5000/campaign-finder:v1 "$SRC/kotlin"
+docker build -f deploy/docker/Dockerfile.jvm-services --target api-jvm    -t localhost:5000/campaign-api:v1 "$SRC/kotlin"
+docker build -f deploy/docker/Dockerfile.jvm    --target worker          -t localhost:5000/campaign-worker:v1 "$SRC/kotlin"
+docker build -f deploy/docker/Dockerfile.jvm    --target importer        -t localhost:5000/campaign-importer:v1 "$SRC/kotlin"
 
 log "import images into k3s containerd"
 for img in campaign-finder campaign-api campaign-worker campaign-importer; do

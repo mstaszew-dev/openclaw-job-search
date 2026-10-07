@@ -1,0 +1,18 @@
+# JVM targets for the 7GB lubuntu host: native-image cannot fit next to k3s +
+# the Chrome pod (twice froze the box). These stages produce the same service
+# images as Dockerfile.native but on the JVM. Native builds move to CI (amd64).
+# Targets: finder-jvm, api-jvm. `importer` and the worker live in Dockerfile.jvm.
+FROM ghcr.io/graalvm/graalvm-community:21 AS build
+WORKDIR /src
+COPY . .
+RUN ./gradlew :finder-service:bootJar :campaign-api:bootJar --no-daemon --no-parallel
+
+FROM eclipse-temurin:21-jre AS finder-jvm
+COPY --from=build /src/finder-service/build/libs/finder-service.jar /app/app.jar
+EXPOSE 8081
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
+
+FROM eclipse-temurin:21-jre AS api-jvm
+COPY --from=build /src/campaign-api/build/libs/campaign-api.jar /app/app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
