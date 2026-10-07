@@ -8,6 +8,10 @@ NS=campaign
 echo "=== pods ==="
 kubectl -n "$NS" get pods 2>&1
 
+echo "=== gateway (msrouter) ==="
+curl -s -m 6 http://localhost:30300/health/live || echo "GATEWAY DOWN - restart: ssh pod, cd ~/apps/msrouter && setsid env PORT=3000 MSROUTER_HEADLESS=1 DIRECTOR_INTERVAL_MINUTES=-1 DIRECTOR_AUTOSTART=false KAFKA_ENABLED=false VPN_ROTATION_INTERVAL_MINUTES=0 LAPTOP_ENABLED=false nohup node dist/main.js > /tmp/msrouter.log 2>&1 &"
+echo
+
 echo "=== pipeline stats ==="
 curl -s -m 8 http://localhost:30080/api/v1/stats || echo "API UNREACHABLE"
 echo
