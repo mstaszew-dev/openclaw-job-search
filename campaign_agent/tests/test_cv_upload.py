@@ -10,6 +10,8 @@ DOM.setFileInputFiles for drag-and-drop-only zones.
 from __future__ import annotations
 
 import asyncio
+import json
+import sys
 from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,6 +19,7 @@ import pytest
 
 from campaign_agent.cv_upload import (
     resolve_cv,
+    set_file_input_via_cdp,
     upload_cv,
     verify_cv,
 )
@@ -219,3 +222,140 @@ class TestUploadCvFallbackWiring:
         result = await upload_cv(client, "http://127.0.0.1:9222", str(cv))
         assert "CDP" in result
         assert seen["page_url"] == "https://justjoin.it/job/x/apply"
+
+
+class _FakeWs:
+    """Scripted websocket: replies by id, with optional event noise first."""
+
+    def __init__(self, replies, noise=0, recv_sleep=None):
+        self.replies = list(replies)
+        self.noise_left = noise
+        self.recv_sleep = recv_sleep
+        self.sent = []
+        self.closed = False
+
+    async def send(self, raw):
+        self.sent.append(json.loads(raw))
+
+    async def recv(self):
+        if self.recv_sleep is not None:
+            await asyncio.sleep(self.recv_sleep)
+        if self.noise_left > 0:
+            self.noise_left -= 1
+            return json.dumps({"method": "Page.frameStartedLoading"})
+        return json.dumps(self.replies.pop(0))
+
+    async def close(self):
+        self.closed = True
+
+
+class TestSetFileInputViaCdp:
+    """Real coverage for the CDP fallback (was always monkeypatched away, which
+    dropped CI coverage below the gate and hid the wrong-tab bug)."""
+
+    TARGETS: ClassVar[list[dict]] = [
+        {"type": "page", "url": "https://mail.google.com/"},
+        {"type": "page", "url": "https://justjoin.it/apply",
+         "webSocketDebuggerUrl": "ws://x"},
+    ]
+
+    def _install(self, monkeypatch, ws):
+        fake_mod = MagicMock()
+        fake_mod.connect = AsyncMock(return_value=ws)
+        monkeypatch.setitem(sys.modules, "websockets", fake_mod)
+        monkeypatch.setattr(
+            "campaign_agent.cv_upload.json_loads_url", lambda url: self.TARGETS
+        )
+        return fake_mod
+
+    async def test_sets_file_on_the_matched_tab(self, monkeypatch):
+        ws = _FakeWs(
+            replies=[
+                {"id": 1, "result": {"root": {"nodeId": 1}}},
+                {"id": 2, "result": {"nodeId": 7}},
+                {"id": 3, "result": {}},
+                {"id": 4, "result": {"attributes": []}},
+            ],
+            noise=1,  # event frames must be skipped by the id-matching loop
+        )
+        self._install(monkeypatch, ws)
+        out = await set_file_input_via_cdp(
+            "http://127.0.0.1:9222", "/cv/pl.pdf", "input[type=file]",
+            page_url="https://justjoin.it/apply",
+        )
+        assert out.startswith("via CDP")
+        methods = [s["method"] for s in ws.sent]
+        assert methods == [
+            "DOM.getDocument", "DOM.querySelector",
+            "DOM.setFileInputFiles", "DOM.getAttributes",
+        ]
+        assert ws.sent[2]["params"]["files"] == ["/cv/pl.pdf"]
+        assert ws.closed
+
+    async def test_no_matching_tab_is_an_error_not_a_guess(self, monkeypatch):
+        ws = _FakeWs(replies=[])
+        self._install(monkeypatch, ws)
+        out = await set_file_input_via_cdp(
+            "http://127.0.0.1:9222", "/cv/pl.pdf", "input[type=file]",
+            page_url="https://unknown.example/",
+        )
+        assert out.startswith("Error")
+        assert "no page target" in out or "no matching" in out
+
+    async def test_input_not_found_is_an_error(self, monkeypatch):
+        ws = _FakeWs(
+            replies=[
+                {"id": 1, "result": {"root": {"nodeId": 1}}},
+                {"id": 2, "result": {"nodeId": 0}},
+            ]
+        )
+        self._install(monkeypatch, ws)
+        out = await set_file_input_via_cdp(
+            "http://127.0.0.1:9222", "/cv/pl.pdf", "input[type=file]",
+            page_url="https://justjoin.it/apply",
+        )
+        assert out.startswith("Error") and "input[type=file]" in out
+
+    async def test_websocket_error_degrades_to_error_string(self, monkeypatch):
+        fake_mod = MagicMock()
+        fake_mod.connect = AsyncMock(side_effect=OSError("boom"))
+        monkeypatch.setitem(sys.modules, "websockets", fake_mod)
+        monkeypatch.setattr(
+            "campaign_agent.cv_upload.json_loads_url", lambda url: self.TARGETS
+        )
+        out = await set_file_input_via_cdp(
+            "http://127.0.0.1:9222", "/cv/pl.pdf", "input[type=file]",
+            page_url="https://justjoin.it/apply",
+        )
+        assert out.startswith("Error") and "OSError" in out
+
+    async def test_cancellation_propagates_and_closes_socket(self, monkeypatch):
+        ws = _FakeWs(
+            replies=[
+                {"id": 1, "result": {"root": {"nodeId": 1}}},
+            ]
+        )
+        real_recv = ws.recv
+
+        async def recv_then_cancel():
+            if not ws.sent or ws.sent[-1]["method"] == "DOM.getDocument":
+                # second command: cancel mid-wait
+                raise asyncio.CancelledError()
+            return await real_recv()
+
+        ws.recv = recv_then_cancel
+        self._install(monkeypatch, ws)
+        with pytest.raises(asyncio.CancelledError):
+            await set_file_input_via_cdp(
+                "http://127.0.0.1:9222", "/cv/pl.pdf", "input[type=file]",
+                page_url="https://justjoin.it/apply",
+            )
+        assert ws.closed
+
+    async def test_missing_websockets_degrades_to_error(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "websockets", None)
+        out = await set_file_input_via_cdp(
+            "http://127.0.0.1:9222", "/cv/pl.pdf", "input[type=file]",
+            page_url="https://justjoin.it/apply",
+        )
+        assert out.startswith("Error") and "websockets" in out
