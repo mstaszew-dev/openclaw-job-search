@@ -1,18 +1,26 @@
 # JVM targets for the 7GB lubuntu host: native-image cannot fit next to k3s +
-# the Chrome pod (twice froze the box). These stages produce the same service
-# images as Dockerfile.native but on the JVM. Native builds move to CI (amd64).
-# Targets: finder-jvm, api-jvm. `importer` and the worker live in Dockerfile.jvm.
+# the Chrome pod. Same service images as Dockerfile.native but on the JVM.
+# Both services need node + @playwright/mcp (they drive the shared Chrome via
+# the MCP stdio client), so the runtime base installs a pinned node tarball.
 FROM ghcr.io/graalvm/graalvm-community:21 AS build
 WORKDIR /src
 COPY . .
 RUN ./gradlew :finder-service:bootJar :campaign-api:bootJar --no-daemon --no-parallel
 
-FROM eclipse-temurin:21-jre AS finder-jvm
+FROM ghcr.io/graalvm/graalvm-community:21 AS node-base
+RUN microdnf install -y curl xz \
+ && curl -fsSL https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.xz \
+    | tar -xJ --strip-components=1 -C /usr/local \
+ && node --version \
+ && npm install -g @playwright/mcp@latest \
+ && microdnf clean all
+
+FROM node-base AS finder-jvm
 COPY --from=build /src/finder-service/build/libs/finder-service.jar /app/app.jar
 EXPOSE 8081
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
 
-FROM eclipse-temurin:21-jre AS api-jvm
+FROM node-base AS api-jvm
 COPY --from=build /src/campaign-api/build/libs/campaign-api.jar /app/app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
