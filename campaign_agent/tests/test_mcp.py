@@ -785,3 +785,59 @@ class TestTeardownSurvivesExceptionGroups:
         await rag.close()  # must not raise
         assert rag._session is None
         assert rag._ctx_stack == []
+
+
+class TestExtractTextsErrorNormalization:
+    """playwright-mcp 0.0.78 formats server-side errors as "### Error\\n..." -
+    callers test startswith("Error"), so isError results must be normalized
+    here or a refused call reads as success (2026-10-07 review)."""
+
+    def test_iserror_object_with_prefix_stripped(self):
+        from campaign_agent.playwright_mcp import _extract_texts
+
+        result = MagicMock()
+        result.isError = True
+        result.content = [MagicMock(text="### Error\nNo file chooser visible")]
+        out = _extract_texts(result)
+        assert out.startswith("Error: ")
+        assert "No file chooser visible" in out
+
+    def test_iserror_without_the_prefix_keeps_the_body(self):
+        from campaign_agent.playwright_mcp import _extract_texts
+
+        result = MagicMock()
+        result.isError = True
+        result.content = [MagicMock(text="tool crashed")]
+        assert _extract_texts(result) == "Error: tool crashed"
+
+    def test_iserror_dict_shape(self):
+        from campaign_agent.playwright_mcp import _extract_texts
+
+        result = {"isError": True, "content": [{"text": "### Error\nboom"}]}
+        assert _extract_texts(result) == "Error: boom"
+
+    def test_iserror_with_empty_content(self):
+        from campaign_agent.playwright_mcp import _extract_texts
+
+        result = MagicMock()
+        result.isError = True
+        result.content = []
+        assert _extract_texts(result).startswith("Error:")
+
+    def test_success_result_untouched(self):
+        from campaign_agent.playwright_mcp import _extract_texts
+
+        result = MagicMock()
+        result.isError = False
+        result.content = [MagicMock(text="uploaded 1 file")]
+        assert _extract_texts(result) == "uploaded 1 file"
+
+    def test_mock_without_iserror_attr_is_not_an_error(self):
+        # MagicMock auto-creates attributes; the check must require a real
+        # True so mocked successes cannot be misread (caught in test-mock form
+        # on 2026-10-07).
+        from campaign_agent.playwright_mcp import _extract_texts
+
+        result = MagicMock()  # isError attribute is a Mock, not True
+        result.content = [MagicMock(text="fine")]
+        assert _extract_texts(result) == "fine"

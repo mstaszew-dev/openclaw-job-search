@@ -359,3 +359,66 @@ class TestSetFileInputViaCdp:
             page_url="https://justjoin.it/apply",
         )
         assert out.startswith("Error") and "websockets" in out
+
+
+class TestVerifyCvEdgeBranches:
+    def test_path_resolving_to_a_directory_is_rejected(self, tmp_path):
+        err = verify_cv(str(tmp_path))
+        assert err is not None and "not found" in err
+
+
+class TestCdpReReadFailure:
+    async def test_getattributes_without_result_is_an_error(self, monkeypatch):
+        ws = _FakeWs(
+            replies=[
+                {"id": 1, "result": {"root": {"nodeId": 1}}},
+                {"id": 2, "result": {"nodeId": 7}},
+                {"id": 3, "result": {}},
+                {"id": 4},  # protocol error reply: no result key
+            ]
+        )
+        fake_mod = MagicMock()
+        fake_mod.connect = AsyncMock(return_value=ws)
+        monkeypatch.setitem(sys.modules, "websockets", fake_mod)
+        monkeypatch.setattr(
+            "campaign_agent.cv_upload.json_loads_url",
+            lambda url: [
+                {"type": "page", "url": "https://x.example/",
+                 "webSocketDebuggerUrl": "ws://x"},
+            ],
+        )
+        out = await set_file_input_via_cdp(
+            "http://127.0.0.1:9222", "/cv.pdf", "input[type=file]",
+            page_url="https://x.example/",
+        )
+        assert out.startswith("Error") and "re-read" in out
+
+    async def test_close_failure_is_swallowed(self, monkeypatch):
+        ws = _FakeWs(
+            replies=[
+                {"id": 1, "result": {"root": {"nodeId": 1}}},
+                {"id": 2, "result": {"nodeId": 7}},
+                {"id": 3, "result": {}},
+                {"id": 4, "result": {"attributes": []}},
+            ]
+        )
+
+        async def bad_close():
+            raise OSError("already closed")
+
+        ws.close = bad_close
+        fake_mod = MagicMock()
+        fake_mod.connect = AsyncMock(return_value=ws)
+        monkeypatch.setitem(sys.modules, "websockets", fake_mod)
+        monkeypatch.setattr(
+            "campaign_agent.cv_upload.json_loads_url",
+            lambda url: [
+                {"type": "page", "url": "https://x.example/",
+                 "webSocketDebuggerUrl": "ws://x"},
+            ],
+        )
+        out = await set_file_input_via_cdp(
+            "http://127.0.0.1:9222", "/cv.pdf", "input[type=file]",
+            page_url="https://x.example/",
+        )
+        assert out.startswith("via CDP")
