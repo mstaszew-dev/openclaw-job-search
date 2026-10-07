@@ -706,3 +706,82 @@ class TestModalStateDismissHang:
             await pw.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
         assert pw.close.await_count == 1
         assert pw.connect.await_count == 1
+
+
+class TestTeardownSurvivesExceptionGroups:
+    """2026-10-07 crash loop: a wedged browser_tabs probe made mcp's
+    stdio_client cleanup raise BaseExceptionGroup (anyio wraps GeneratorExit,
+    a BaseException). `except Exception` does not catch BaseExceptionGroup, so
+    the teardown escaped close(), killed the worker, and the Director respawned
+    it into a 5-minute crash loop that also leaked the MCP subprocesses.
+    Teardown must be best-effort against BaseException too.
+    """
+
+    @pytest.mark.asyncio
+    async def test_close_swallows_base_exception_group(self):
+        pw = PlaywrightMCP("node", [])
+        bad_ctx = MagicMock()
+        bad_ctx.__aexit__ = AsyncMock(
+            side_effect=BaseExceptionGroup("unhandled errors in a TaskGroup",
+                                           [GeneratorExit()])
+        )
+        pw._session = MagicMock()
+        pw._ctx_stack = [bad_ctx]
+        await pw.close()  # must not raise
+        assert pw._session is None
+        assert pw._ctx_stack == []
+
+    @pytest.mark.asyncio
+    async def test_close_still_exits_later_ctxs_after_a_fatal_first_one(self):
+        pw = PlaywrightMCP("node", [])
+        fatal = MagicMock()
+        fatal.__aexit__ = AsyncMock(side_effect=BaseExceptionGroup("tg", [GeneratorExit()]))
+        healthy = MagicMock()
+        healthy.__aexit__ = AsyncMock(return_value=None)
+        pw._session = MagicMock()
+        pw._ctx_stack = [fatal, healthy]
+        await pw.close()
+        healthy.__aexit__.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_connect_unwind_swallows_base_exception_group(self):
+        """connect()'s failure unwind must survive the same teardown error."""
+        pw = PlaywrightMCP("node", [])
+        with patch("campaign_agent.playwright_mcp.stdio_client") as sc:
+            bad_ctx = MagicMock()
+            bad_ctx.__aenter__ = AsyncMock(
+                side_effect=BaseExceptionGroup("tg", [GeneratorExit()])
+            )
+            bad_ctx.__aexit__ = AsyncMock(
+                side_effect=BaseExceptionGroup("tg2", [GeneratorExit()])
+            )
+            sc.return_value = bad_ctx
+            with pytest.raises(BaseExceptionGroup):
+                await pw.connect()  # the ORIGINAL error still propagates
+        assert pw._session is None
+        assert pw._ctx_stack == []
+
+    @pytest.mark.asyncio
+    async def test_close_does_not_swallow_cancellation(self):
+        """Shutdown must still propagate: CancelledError is not a teardown error."""
+        pw = PlaywrightMCP("node", [])
+        slow_ctx = MagicMock()
+        slow_ctx.__aexit__ = AsyncMock(side_effect=asyncio.CancelledError())
+        pw._session = MagicMock()
+        pw._ctx_stack = [slow_ctx]
+        with pytest.raises(asyncio.CancelledError):
+            await pw.close()
+
+    @pytest.mark.asyncio
+    async def test_rag_close_swallows_base_exception_group(self):
+        """The RAG client shares the teardown path; same crash-loop exposure."""
+        rag = RAGMCP("python", [])
+        bad_ctx = MagicMock()
+        bad_ctx.__aexit__ = AsyncMock(
+            side_effect=BaseExceptionGroup("tg", [GeneratorExit()])
+        )
+        rag._session = MagicMock()
+        rag._ctx_stack = [bad_ctx]
+        await rag.close()  # must not raise
+        assert rag._session is None
+        assert rag._ctx_stack == []

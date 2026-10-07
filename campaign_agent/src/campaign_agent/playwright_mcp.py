@@ -11,6 +11,8 @@ from typing import Any
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from campaign_agent.mcp_teardown import exit_ctx_quietly as _exit_ctx_quietly
+
 log = logging.getLogger(__name__)
 
 # MCP startup deadline: initialize() has no internal timeout in mcp 2.x
@@ -70,10 +72,7 @@ class PlaywrightMCP:
         except BaseException:
             self._session = None
             for ctx in reversed(self._ctx_stack):
-                try:
-                    await ctx.__aexit__(None, None, None)
-                except Exception:
-                    pass
+                await _exit_ctx_quietly(ctx)
             self._ctx_stack = []
             raise
         log.info("Playwright MCP connected")
@@ -210,10 +209,7 @@ class PlaywrightMCP:
         """Close the MCP session and subprocess."""
         # Exit in reverse order
         for ctx in reversed(self._ctx_stack):
-            try:
-                await ctx.__aexit__(None, None, None)
-            except Exception:
-                pass
+            await _exit_ctx_quietly(ctx)
         self._ctx_stack = []
         self._session = None
         log.info("Playwright MCP disconnected")
