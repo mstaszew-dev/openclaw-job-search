@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: apply-worker
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/campaign}
+    username: ${DB_USER:campaign}
+    password: ${DB_PASSWORD:campaign}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    locations: classpath:db/migration
+
+server:
+  port: ${PORT:8082}
+  shutdown: graceful
+
+worker:
+  apply-mode: ${APPLY_MODE:shadow}   # shadow | live
+  lease-seconds: ${LEASE_SECONDS:600}
+  poll-interval-seconds: ${POLL_INTERVAL_SECONDS:30}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

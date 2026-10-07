@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: finder-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/campaign}
+    username: ${DB_USER:campaign}
+    password: ${DB_PASSWORD:campaign}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    locations: classpath:db/migration
+
+server:
+  port: ${PORT:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
