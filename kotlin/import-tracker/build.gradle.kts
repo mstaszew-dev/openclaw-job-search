@@ -4,9 +4,15 @@ plugins {
 }
 
 dependencies {
-    implementation(platform(libs.spring.boot.bom))
+    implementation(project(":common"))
     implementation(libs.jackson.module.kotlin)
     implementation(libs.postgresql)
+
+    testImplementation(platform(libs.testcontainers.bom))
+    testImplementation(libs.testcontainers.postgresql)
+    testImplementation(libs.testcontainers.junit.jupiter)
+    testImplementation(libs.flyway.core)
+    testImplementation(libs.flyway.postgresql)
 }
 
 application {
