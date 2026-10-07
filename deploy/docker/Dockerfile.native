@@ -1,0 +1,22 @@
+# Native-image build (finder-service, campaign-api). Run on the lubuntu host
+# (amd64, has docker + k3s).
+# Runtime keeps node + @playwright/mcp: both services drive the shared Chrome
+# through the Playwright MCP stdio client.
+FROM ghcr.io/graalvm/graalvm-community:21 AS build
+WORKDIR /src
+COPY . .
+RUN ./gradlew :finder-service:nativeCompile :campaign-api:nativeCompile --no-daemon
+
+FROM ghcr.io/graalvm/graalvm-community:21 AS common-runtime
+RUN microdnf install -y nodejs20 && microdnf clean all
+COPY --from=build /usr/local/lib/node_modules/@playwright/mcp /opt/playwright-mcp
+
+FROM common-runtime AS finder
+COPY --from=build /src/finder-service/build/native/nativeCompile/finder-service /app/finder-service
+EXPOSE 8081
+ENTRYPOINT ["/app/finder-service"]
+
+FROM common-runtime AS api
+COPY --from=build /src/campaign-api/build/native/nativeCompile/campaign-api /app/campaign-api
+EXPOSE 8080
+ENTRYPOINT ["/app/campaign-api"]

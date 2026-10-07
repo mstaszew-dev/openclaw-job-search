@@ -1,0 +1,45 @@
+# Postgres 16 with a local-path PV under /home/mstro/k3s-pod-data/postgres.
+# pg_trgm is created by Flyway (V1) - the postgres superuser role is fine here.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: campaign
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_DB
+              value: campaign
+            - name: POSTGRES_USER
+              value: campaign
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: campaign-db, key: password } }
+          ports: [{ containerPort: 5432 }]
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "campaign"] }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          hostPath: { path: /home/mstro/k3s-pod-data/postgres, type: DirectoryOrCreate }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: campaign
+spec:
+  selector: { app: postgres }
+  ports: [{ port: 5432, targetPort: 5432 }]

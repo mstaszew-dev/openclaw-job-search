@@ -1,0 +1,45 @@
+# apply-worker: ONE replica (shares the single logged-in Chrome via CDP).
+# APPLY_MODE=shadow is the safe default; cutover flips it to live.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apply-worker
+  namespace: campaign
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: { maxUnavailable: 1, maxSurge: 0 }   # never two workers
+  selector:
+    matchLabels: { app: apply-worker }
+  template:
+    metadata:
+      labels: { app: apply-worker }
+    spec:
+      terminationGracePeriodSeconds: 90
+      containers:
+        - name: worker
+          image: localhost:5000/campaign-worker:v1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_URL
+              value: jdbc:postgresql://postgres.campaign.svc.cluster.local:5432/campaign
+            - name: DB_USER
+              value: campaign
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: campaign-db, key: password } }
+            - name: APPLY_MODE
+              value: "shadow"          # shadow | live (cutover flips this)
+            - name: MSROUTER_URL
+              value: http://lubuntu-agent-nodeport.default.svc.cluster.local:30300/v1
+            - name: WORKER_MCP_COMMAND
+              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://lubuntu-agent-nodeport.default.svc.cluster.local:30922
+            - name: WORKER_ID
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          ports: [{ containerPort: 8082 }]
+          readinessProbe:
+            httpGet: { path: /actuator/health, port: 8082 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: { memory: 768Mi, cpu: 250m }
+            limits: { memory: 1536Mi, cpu: "1" }

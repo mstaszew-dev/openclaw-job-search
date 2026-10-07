@@ -1,0 +1,49 @@
+# finder: discovery + dedup + scoring + enqueue (native image, JVM fallback
+# during first bring-up: swap the image tag once nativeCompile is proven).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finder
+  namespace: campaign
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: finder }
+  template:
+    metadata:
+      labels: { app: finder }
+    spec:
+      containers:
+        - name: finder
+          image: localhost:5000/campaign-finder:v1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_URL
+              value: jdbc:postgresql://postgres.campaign.svc.cluster.local:5432/campaign
+            - name: DB_USER
+              value: campaign
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: campaign-db, key: password } }
+            - name: MSROUTER_URL
+              value: http://lubuntu-agent-nodeport.default.svc.cluster.local:30300/v1
+            - name: FINDER_MCP_COMMAND
+              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://lubuntu-agent-nodeport.default.svc.cluster.local:30922
+            - name: FINDER_RUN_INTERVAL_SECONDS
+              value: "900"
+          ports: [{ containerPort: 8081 }]
+          readinessProbe:
+            httpGet: { path: /actuator/health, port: 8081 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: { memory: 256Mi, cpu: 100m }
+            limits: { memory: 512Mi, cpu: 500m }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finder
+  namespace: campaign
+spec:
+  selector: { app: finder }
+  ports: [{ port: 8081, targetPort: 8081 }]

@@ -1,0 +1,17 @@
+# apply-worker runs on the JVM (GraalVM JDK): the LLM loop and the MCP stdio
+# child process iterate faster with JIT, and node/@playwright/mcp must exist in
+# the runtime image anyway. Native images for the worker are a later pass.
+FROM ghcr.io/graalvm/graalvm-community:21 AS build
+RUN microdnf install -y nodejs20 && microdnf clean all
+RUN npm install -g @playwright/mcp@latest
+WORKDIR /src
+COPY . .
+RUN ./gradlew :apply-worker:bootJar --no-daemon
+
+FROM ghcr.io/graalvm/graalvm-community:21
+RUN microdnf install -y nodejs20 && microdnf clean all
+COPY --from=build /usr/local/lib/node_modules/@playwright/mcp /opt/playwright-mcp
+COPY --from=build /src/apply-worker/build/libs/apply-worker.jar /app/worker.jar
+# the worker drives the SHARED lubuntu Chrome over CDP; node runs the MCP client
+ENV WORKER_MCP_COMMAND="node /opt/playwright-mcp/cli.js --cdp-endpoint http://lubuntu-agent-nodeport.default.svc.cluster.local:30922"
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/worker.jar"]

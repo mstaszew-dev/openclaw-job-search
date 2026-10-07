@@ -1,0 +1,46 @@
+# campaign-api: stats/queue/applications; NodePort 30080 on the laptop LAN.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: campaign-api
+  namespace: campaign
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: campaign-api }
+  template:
+    metadata:
+      labels: { app: campaign-api }
+    spec:
+      containers:
+        - name: api
+          image: localhost:5000/campaign-api:v1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_URL
+              value: jdbc:postgresql://postgres.campaign.svc.cluster.local:5432/campaign
+            - name: DB_USER
+              value: campaign
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: campaign-db, key: password } }
+          ports: [{ containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /actuator/health, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { memory: 256Mi, cpu: 100m }
+            limits: { memory: 512Mi, cpu: 500m }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: campaign-api
+  namespace: campaign
+spec:
+  type: NodePort
+  selector: { app: campaign-api }
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080
