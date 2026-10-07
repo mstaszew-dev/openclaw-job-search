@@ -8,6 +8,11 @@ graalvmNative {
             buildArgs.add("-H:+ReportExceptionStackTraces")
         }
     }
+    // Spring Boot ships its own reachability configs; the community repository's
+    // schema can be newer than the pinned GraalVM and fails nativeCompile.
+    metadataRepository {
+        enabled = false
+    }
 }
 
 // The community reachability-metadata repository is optional (Spring Boot ships
