@@ -11,9 +11,9 @@ import java.time.Duration
 
 /**
  * Harvests listings by driving the shared Chrome (CDP) through the Playwright
- * MCP server: navigate to the board's remote-search page for one stack, then
- * browser_evaluate a per-board extraction script that reads the listing JSON
- * the SPA already loaded. One board+stack per call; failures of a single
+ * MCP server: navigate to the board's remote-search page for one stack, let
+ * the SPA settle, then browser_evaluate a per-board DOM extraction that reads
+ * the rendered job cards. One board+stack per call; failures of a single
  * combination are logged and skipped so one bad page never blocks the run.
  */
 class McpListingCollector(
@@ -69,7 +69,6 @@ class McpListingCollector(
         return parse(source, extracted)
     }
 
-    /** Test-visible wrapper around the text extraction used by [collect]. */
     internal fun parseForTest(text: String, source: String): List<CollectedListing> = parse(source, text)
 
     private fun parse(source: String, text: String): List<CollectedListing> {
@@ -85,7 +84,7 @@ class McpListingCollector(
         val url = n.path("url").asText("")
         val company = n.path("company").asText("")
         val title = n.path("title").asText("")
-        // fail closed: a page section without an explicit remote flag is skipped
+        // fail closed: a card without an explicit remote flag is skipped
         val remote = n.path("remote").asBoolean(false)
         if (jobId.isBlank() || url.isBlank() || title.isBlank() || !remote) return null
         return CollectedListing(
@@ -117,61 +116,35 @@ class McpListingCollector(
             else -> throw IllegalArgumentException("unknown board source: $source")
         }
 
+        private val CARD_SCRIPT = """(function(){
+            const selector = __SELECTOR__;
+            const seen = new Map();
+            document.querySelectorAll(selector).forEach(a => {
+                const href = a.getAttribute('href') || '';
+                const id = href.split('/').filter(Boolean).pop() || '';
+                const lines = (a.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+                if (!id || seen.has(id) || lines.length === 0) return;
+                seen.set(id, {
+                    remote: true,
+                    id: id,
+                    title: lines[0].slice(0, 140),
+                    company: lines.slice(1).find(l => l.length > 1) || '',
+                    url: location.origin + href
+                });
+            });
+            return JSON.stringify([...seen.values()]);
+        })()"""
+
         /**
-         * Extraction scripts run in page context and return a JSON array
-         * string. They read the SPA's own state (__NEXT_DATA__ / embedded
-         * JSON), so no brittle CSS selectors; they are best-effort and a
-         * board redesign degrades to an empty batch, never a crash.
+         * DOM-based extraction: the boards no longer ship listing JSON in
+         * __NEXT_DATA__; job cards are plain links (href carries the id slug,
+         * card text carries title + company). Returns a JSON array string.
+         * Best-effort: a board redesign degrades to an empty batch.
          */
         fun extractionScript(source: String): String = when (source) {
-            "nofluffjobs" -> """(() => {
-                const el = document.getElementById('__NEXT_DATA__');
-                if (!el) return '[]';
-                const data = JSON.parse(el.textContent);
-                const jobs = (data?.props?.pageProps?.jobs) || [];
-                return JSON.stringify(jobs.map(j => ({
-                    remote: true,
-                    id: String(j.id || ''),
-                    title: j.name || '',
-                    company: (j.company && j.company.name) || '',
-                    url: 'https://nofluffjobs.com/pl/job/' + (j.url || j.id || ''),
-                    salaryMin: j.salary && j.salary.from,
-                    salaryMax: j.salary && j.salary.to,
-                    stack: (j.skills || []).map(s => s.name).filter(Boolean)
-                })));
-            })()"""
-            "justjoin" -> """(() => {
-                const el = document.getElementById('__NEXT_DATA__');
-                if (!el) return '[]';
-                const data = JSON.parse(el.textContent);
-                const jobs = (data?.props?.pageProps?.offers) || [];
-                return JSON.stringify(jobs.map(j => ({
-                    remote: true,
-                    id: String(j.id || j.slug || ''),
-                    title: j.title || '',
-                    company: (j.company && j.company.name) || '',
-                    url: 'https://justjoin.it/offers/' + (j.id || j.slug || ''),
-                    salaryMin: j.employment_types && j.employment_types[0] && j.employment_types[0].from,
-                    salaryMax: j.employment_types && j.employment_types[0] && j.employment_types[0].to,
-                    stack: ((j.skills || [])).map(s => s.name).filter(Boolean)
-                })));
-            })()"""
-            "theprotocol" -> """(() => {
-                const el = document.querySelector('script#__NEXT_DATA__, script[type="application/json"]');
-                if (!el) return '[]';
-                const data = JSON.parse(el.textContent);
-                const jobs = (data?.props?.pageProps?.offers) || (data?.props?.pageProps?.dehydratedState?.queries?.[0]?.state?.data?.offers) || [];
-                return JSON.stringify(jobs.map(j => ({
-                    remote: true,
-                    id: String(j.id || j.offerId || ''),
-                    title: j.name || j.title || '',
-                    company: (j.company && j.company.name) || '',
-                    url: 'https://theprotocol.it/praca/' + (j.url || j.id || ''),
-                    salaryMin: j.employmentTypes && j.employmentTypes[0] && j.employmentTypes[0].salaryFrom,
-                    salaryMax: j.employmentTypes && j.employmentTypes[0] && j.employmentTypes[0].salaryTo,
-                    stack: ((j.skills || [])).map(s => s.name).filter(Boolean)
-                })));
-            })()"""
+            "nofluffjobs" -> CARD_SCRIPT.replace("__SELECTOR__", "'a[href*=\"/pl/job/\"]'")
+            "justjoin" -> CARD_SCRIPT.replace("__SELECTOR__", "'a[href*=\"/offers/\"]'")
+            "theprotocol" -> CARD_SCRIPT.replace("__SELECTOR__", "'a[href*=\"/praca/\"]'")
             else -> throw IllegalArgumentException("unknown board source: $source")
         }
     }
