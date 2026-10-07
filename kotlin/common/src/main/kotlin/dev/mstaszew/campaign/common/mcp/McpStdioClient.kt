@@ -31,7 +31,12 @@ class McpStdioClient(
 
     private val process: Process
     private val writer: BufferedWriter
-    private val lines = LinkedBlockingQueue<String?>()
+    private val lines = LinkedBlockingQueue<String>()
+
+    companion object {
+        /** LinkedBlockingQueue rejects nulls: EOF is signaled with this marker. */
+        private const val EOF_MARKER = "\u0000__mcp_eof__"
+    }
     private val nextRequestId = AtomicLong(1)
     var started: Boolean = false
         private set
@@ -51,7 +56,7 @@ class McpStdioClient(
                 // closing: stop feeding
             } finally {
                 runCatching { reader.close() }
-                lines.put(null as String?) // EOF sentinel
+                lines.put(EOF_MARKER)
             }
         }, "mcp-stdio-reader").apply {
             isDaemon = true
@@ -121,6 +126,7 @@ class McpStdioClient(
             if (remaining <= 0) throw McpClientException("timed out waiting for response to $method")
             val line = lines.poll(remaining, TimeUnit.NANOSECONDS)
                 ?: throw McpClientException("timed out or server died waiting for $method")
+            if (line == EOF_MARKER) throw McpClientException("server closed stdout while waiting for $method")
             if (line.isBlank()) continue
             val node = mapper.readTree(line)
             if (node.has("method")) continue // server-initiated request/notification; ignored
