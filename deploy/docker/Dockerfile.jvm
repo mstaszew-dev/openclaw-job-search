@@ -23,7 +23,7 @@ RUN microdnf install -y curl xz \
 COPY --from=build /usr/local/lib/node_modules/@playwright/mcp /opt/playwright-mcp
 COPY --from=build /src/apply-worker/build/libs/apply-worker.jar /app/worker.jar
 # the worker drives the SHARED lubuntu Chrome over CDP; node runs the MCP client
-ENV WORKER_MCP_COMMAND="node /opt/playwright-mcp/cli.js --cdp-endpoint http://lubuntu-agent.default.svc.cluster.local:9222"
+ENV WORKER_MCP_COMMAND="node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922"
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/worker.jar"]
 
 FROM eclipse-temurin:21-jre AS importer

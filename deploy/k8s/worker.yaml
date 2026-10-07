@@ -32,7 +32,7 @@ spec:
             - name: MSROUTER_URL
               value: http://lubuntu-agent.default.svc.cluster.local:3000/v1
             - name: WORKER_MCP_COMMAND
-              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://lubuntu-agent.default.svc.cluster.local:9222
+              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922
             - name: WORKER_ID
               valueFrom: { fieldRef: { fieldPath: metadata.name } }
           ports: [{ containerPort: 8082 }]

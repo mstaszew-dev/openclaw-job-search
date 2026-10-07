@@ -27,7 +27,7 @@ spec:
             - name: MSROUTER_URL
               value: http://lubuntu-agent.default.svc.cluster.local:3000/v1
             - name: FINDER_MCP_COMMAND
-              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://lubuntu-agent.default.svc.cluster.local:9222
+              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922
             - name: FINDER_RUN_INTERVAL_SECONDS
               value: "900"
           ports: [{ containerPort: 8081 }]
