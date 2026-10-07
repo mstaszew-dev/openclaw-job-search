@@ -12,6 +12,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Protocol
 
+from campaign_agent.cv_upload import resolve_cv, upload_cv
+
 log = logging.getLogger(__name__)
 
 # Default timeout for Playwright MCP tool calls (seconds)
@@ -125,6 +127,39 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {"paths": {"type": "array", "items": {"type": "string"}}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "upload_cv",
+            "description": (
+                "Upload the campaign CV to the application form on the current "
+                "page. Verifies the CV file, clicks the upload control, fills "
+                "the file chooser, and falls back to CDP setFileInputFiles for "
+                "drag-and-drop-only zones. Returns the uploaded filename for "
+                "the tracker evidence. Prefer this over browser_file_upload: "
+                "do NOT copy the CV with cp or guess paths."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": (
+                            "Ref/selector of the Upload CV button or dropzone "
+                            "to click first (omit if a chooser is already open)"
+                        ),
+                    },
+                    "css_input": {
+                        "type": "string",
+                        "description": (
+                            "CSS selector of the <input type=file> for the CDP "
+                            "fallback (default input[type=file])"
+                        ),
+                    },
+                },
             },
         },
     },
@@ -316,10 +351,18 @@ class ToolRouter:
         playwright_client: MCPClient | None = None,
         rag_client: MCPClient | None = None,
         default_cwd: str | None = None,
+        cv_paths: tuple[str, str] | None = None,
+        cdp_url: str = "http://127.0.0.1:9222",
     ) -> None:
         self.playwright = playwright_client
         self.rag = rag_client
         self.default_cwd = default_cwd
+        # (base, pl) CV paths; the PL variant wins when it verifies.
+        self.cv_paths = cv_paths or (
+            "/Users/mst/Downloads/job-search/job-apply/cv/michael-staszewski-cv.pdf",
+            "/Users/mst/Downloads/job-search/job-apply/cv/michael-staszewski-cv-pl.pdf",
+        )
+        self.cdp_url = cdp_url
 
     @property
     def schemas(self) -> list[dict[str, Any]]:
@@ -351,6 +394,23 @@ class ToolRouter:
 
         if name == "read":
             return read_file(args.get("path", ""), self.default_cwd)
+
+        if name == "upload_cv":
+            if self.playwright is None:
+                return "Error: Playwright MCP not available"
+            cv = resolve_cv(self.cv_paths[0], self.cv_paths[1])
+            try:
+                return await upload_cv(
+                    self.playwright,
+                    self.cdp_url,
+                    cv,
+                    selector=args.get("selector"),
+                    css_input=args.get("css_input", "input[type=file]"),
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                return f"Error: upload_cv failed: {e}"
 
         if name in PLAYWRIGHT_TOOLS:
             if self.playwright is None:

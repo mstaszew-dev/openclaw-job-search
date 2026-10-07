@@ -48,13 +48,14 @@ class TestUserPrompt:
         prompt = build_user_prompt(cfg, session_context="", token_info="")
         assert cfg.campaign_dir in prompt
 
-    def test_includes_cv_path(self):
-        """The model must know the exact absolute PL CV path for uploads (it is a
-        regular file in the campaign cv/ dir, not a symlink). PL-only campaign:
-        the IL CV path must not leak into the prompt."""
+    def test_directs_cv_upload_through_the_tool(self):
+        """Since 2026-10-07 the prompt must NOT carry a raw CV path: the model
+        was guessing paths and staging copies with cp. It must name the
+        upload_cv tool instead; the tool owns the canonical path."""
         cfg = Config()
         prompt = build_user_prompt(cfg, session_context="", token_info="")
-        assert cfg.cv_path_pl in prompt
+        assert "upload_cv" in prompt
+        assert cfg.cv_path_pl not in prompt
         assert cfg.cv_path not in prompt
 
     def test_includes_playwright_output_dir(self):

@@ -4,3 +4,4 @@
 # future 3.x doesn't flow into CI unannounced (2026-09-18 audit).
 openai>=2,<3
 mcp>=2,<3
+websockets>=13,<18  # cv_upload CDP fallback (DOM.setFileInputFiles)

@@ -19,11 +19,13 @@ import sys
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from openai import AuthenticationError, PermissionDeniedError
 
 from campaign_agent.config import Config
+from campaign_agent.cv_upload import resolve_cv, verify_cv
 from campaign_agent.llm import LLMClient
 from campaign_agent.prompt import build_system_prompt, build_user_prompt
 from campaign_agent.rag_index import rebuild_index
@@ -85,6 +87,22 @@ def classify_failure(text: str) -> str:
     if any(p in text_lower for p in ["couldn't generate", "empty response", "no content"]):
         return "transient"
     return "fatal"
+
+
+def _startup_cv_check(config: Config) -> None:
+    """Verify the CV files at worker start; log size and resolved path.
+
+    Non-fatal by design (a missing CV degrades uploads, not the campaign),
+    but the ERROR line makes the state visible at startup instead of
+    mid-application, and confirms which path upload_cv will use.
+    """
+    chosen = resolve_cv(config.cv_path, config.cv_path_pl)
+    err = verify_cv(chosen)
+    if err is not None:
+        log.error("CV check FAILED: %s (upload_cv will refuse until fixed)", err)
+        return
+    p = Path(chosen).resolve()
+    log.info("CV OK: %s (%d bytes)", p, p.stat().st_size)
 
 
 async def _probe_browser(pw: Any, timeout: float = 30.0) -> bool:
@@ -434,7 +452,13 @@ async def run_campaign(config: Config) -> None:
             log.error("%s MCP connection failed: %s", label, e)
     log.info("MCP clients up (failures above degrade that client only)")
 
-    tools = ToolRouter(playwright_client=pw, rag_client=rag, default_cwd=config.campaign_dir)
+    tools = ToolRouter(
+        playwright_client=pw,
+        rag_client=rag,
+        default_cwd=config.campaign_dir,
+        cv_paths=(config.cv_path, config.cv_path_pl),
+        cdp_url=config.cdp_url,
+    )
 
     # Refresh the RAG dedupe index after every recorded submission, so a company
     # just applied to is searchable for the rest of the tick. Runs in the rag
@@ -462,6 +486,12 @@ async def run_campaign(config: Config) -> None:
             "Browser unhealthy at startup; browser tools may fail "
             "(the per-tool wedge watchdog keeps retrying)"
         )
+
+    # Startup CV check: a missing/empty CV is discovered mid-application
+    # otherwise, after the whole form was filled (2026-10-07: the model was
+    # also guessing wrong paths and staging copies with cp). Announce the
+    # verified file once so every later upload_cv uses one known-good path.
+    _startup_cv_check(config)
 
     system_prompt = build_system_prompt(config)
     tick = 0

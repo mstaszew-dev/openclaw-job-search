@@ -1,6 +1,6 @@
 """Tests for ToolRouter — tool schemas, exec dispatch, routing logic."""
 import subprocess
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -419,3 +419,50 @@ class TestExecTimeoutPathCap:
         assert "timed out after 2s" in out
         assert len(out) <= 20100
         assert "truncated" in out
+
+
+class TestUploadCvDispatch:
+    """upload_cv routes through the router with config-pinned CV paths."""
+
+    @pytest.mark.asyncio
+    async def test_dispatches_with_pl_cv_when_it_verifies(self, tmp_path):
+        base = tmp_path / "cv.pdf"
+        base.write_bytes(b"%PDF-base")
+        pl = tmp_path / "cv-pl.pdf"
+        pl.write_bytes(b"%PDF-pl")
+        client = MagicMock()
+        client.call_tool = AsyncMock(return_value="uploaded 1 file")
+
+        router = ToolRouter(
+            playwright_client=client,
+            cv_paths=(str(base), str(pl)),
+        )
+        result = await router.dispatch(
+            "upload_cv", {"selector": "#up"}
+        )
+
+        assert not result.startswith("Error")
+        calls = [c.args for c in client.call_tool.await_args_list]
+        # click first, then upload with the PL path
+        assert calls[0][0] == "browser_click"
+        assert calls[1][0] == "browser_file_upload"
+        assert calls[1][1]["paths"] == [str(pl)]
+
+    @pytest.mark.asyncio
+    async def test_no_playwright_client_is_an_error(self):
+        router = ToolRouter(playwright_client=None)
+        result = await router.dispatch("upload_cv", {})
+        assert result.startswith("Error: Playwright MCP not available")
+
+    @pytest.mark.asyncio
+    async def test_missing_cv_is_rejected_without_browser_calls(self, tmp_path):
+        client = MagicMock()
+        client.call_tool = AsyncMock()
+        router = ToolRouter(
+            playwright_client=client,
+            cv_paths=(str(tmp_path / "a.pdf"), str(tmp_path / "b.pdf")),
+        )
+        result = await router.dispatch("upload_cv", {})
+        assert result.startswith("Error")
+        assert "not found" in result
+        client.call_tool.assert_not_awaited()

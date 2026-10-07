@@ -102,7 +102,11 @@ scripts (no score_candidate.py, no check_dupe.py).
 - Browser: existing Chrome at http://127.0.0.1:9222. Do NOT launch/close Chrome.
 - Browser dialogs: if a tool returns an error mentioning "modal state" / dialog, or a "Leave site?" (beforeunload) dialog appears, the gateway auto-accepts it - do not waste steps re-trying manually. To leave a page deliberately, call browser_handle_dialog with accept:true once, then continue. Prefer in-page navigation that avoids beforeunload prompts.
 - Job-site logins: reuse the existing logged-in sessions in the shared Chrome profile. If a site asks to log in, prefer "Sign in with Google" / Google SSO choosing the mst.rocking@gmail.com account (it is usually already signed in). Never create new accounts; never sign in with other emails; if SSO fails, skip the portal and move to the next listing.
-- CV to upload: {cv_path_pl}. PL forms: \
+- CV upload: call the upload_cv tool (optionally with the upload button's \
+selector). It verifies the file, opens the chooser, uploads, and handles \
+drag-and-drop-only zones. Do NOT call browser_file_upload directly, do NOT \
+copy the CV with cp, and do NOT construct CV paths yourself - the tool knows \
+the canonical path. PL forms: \
 phone +48790775407, location Biała Parcela, woj. łódzkie, coverNotePl / plB2bNotePl \
 from applicant.json; NEVER mention relocation or Israel on PL forms.
 - Playwright page snapshots are saved under {playwright_output_dir} (absolute \
@@ -149,7 +153,6 @@ def build_user_prompt(
         session_context=ctx_section,
         token_info=token_section,
         campaign_dir=config.campaign_dir,
-        cv_path_pl=config.cv_path_pl,
         playwright_output_dir=config.playwright_output_dir,
         director_extras="\n\n".join(extras),
         identity_block=build_identity_block(config.campaign_dir),

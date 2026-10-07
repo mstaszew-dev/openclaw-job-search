@@ -104,7 +104,9 @@ class TestPromptPolicy:
 
     def test_pl_uses_polish_cv_and_pl_form_data(self):
         p = _prompt()
-        assert "michael-staszewski-cv-pl.pdf" in p
+        # The CV filename lives in the upload_cv tool, not the prompt; the
+        # prompt must direct the model to the tool (2026-10-07).
+        assert "upload_cv" in p
         assert "+48790775407" in p
         assert "Biała Parcela" in p
         assert "coverNotePl" in p
@@ -126,7 +128,9 @@ class TestPromptPolicy:
         cfg = Config()
         p = _prompt()
         assert cfg.cv_path not in p, "IL CV path still referenced by a PL-only prompt"
-        assert cfg.cv_path_pl in p
+        assert cfg.cv_path_pl not in p, (
+            "raw CV path in the prompt invites path-guessing; upload_cv owns it")
+        assert "upload_cv" in p
 
     def test_work_order_pl_only(self):
         p = _prompt()

@@ -20,13 +20,40 @@ CONNECT_TIMEOUT_S = 60.0
 
 
 def _extract_texts(result: Any) -> str:
-    """Pull text out of an MCP CallToolResult (objects or dicts)."""
+    """Pull text out of an MCP CallToolResult (objects or dicts).
+
+    Server-side tool failures arrive as isError=True content formatted
+    "### Error\\n<message>" (playwright-mcp 0.0.78 formatError), but callers
+    test with startswith("Error"). Normalize here so an isError result is
+    always recognizable as an error string: without this a refused call
+    (e.g. "No file chooser visible") read as SUCCESS and was about to be
+    logged as submission evidence (2026-10-07 review).
+    """
+    # `is True` (not truthiness): a mock or a partially-shaped result must
+    # not be misread as an error, and a real isError is always a bool.
+    if getattr(result, "isError", None) is True or (
+        isinstance(result, dict) and result.get("isError") is True
+    ):
+        body = _content_texts(result).strip()
+        for prefix in ("### Error\n", "### Error"):
+            if body.startswith(prefix):
+                body = body[len(prefix):].strip()
+                break
+        return f"Error: {body}" if body else "Error: (empty error content)"
+    return _content_texts(result)
+
+
+def _content_texts(result: Any) -> str:
+    content = getattr(result, "content", None)
+    if content is None and isinstance(result, dict):
+        content = result.get("content")
     texts = []
-    for content in result.content:
-        if hasattr(content, "text"):
-            texts.append(content.text)
-        elif isinstance(content, dict) and "text" in content:
-            texts.append(content["text"])
+    for item in content or []:
+        text = getattr(item, "text", None)
+        if text is None and isinstance(item, dict):
+            text = item.get("text")
+        if text is not None:
+            texts.append(text)
     return "\n".join(texts) if texts else str(result)
 
 # Consecutive browser-tool failures that indicate a WEDGED MCP CDP session
