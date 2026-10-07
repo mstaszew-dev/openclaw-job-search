@@ -7,4 +7,6 @@ interface BlockerRepository : JpaRepository<BlockerEntity, Long> {
 
     /** Repeat-block guard input: prior blocks for the same company. */
     fun countByCompanyKeyAndResolvedFalse(companyKey: String): Long
+
+    fun countByResolvedFalse(): Long
 }

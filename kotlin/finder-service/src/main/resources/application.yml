@@ -20,3 +20,16 @@ management:
     web:
       exposure:
         include: health,info
+
+finder:
+  run-interval-seconds: ${FINDER_RUN_INTERVAL_SECONDS:900}
+  cv-profile-path: ${CV_PROFILE_PATH:}
+  msrouter-url: ${MSROUTER_URL:http://127.0.0.1:8787/v1}
+  msrouter-api-key: ${MSROUTER_API_KEY:}
+  msrouter-model: ${MSROUTER_MODEL:mst/free}
+  browser-cdp-url: ${BROWSER_CDP_URL:http://127.0.0.1:9222}
+  mcp-command: ${FINDER_MCP_COMMAND:node @playwright/mcp/cli.js --cdp-endpoint http://127.0.0.1:9222}
+  collect-stacks: ${FINDER_COLLECT_STACKS:java,kotlin,php,node,react}
+
+finder.policy:
+  pln-b2b-floor: ${POLICY_PLN_B2B_FLOOR:15000}

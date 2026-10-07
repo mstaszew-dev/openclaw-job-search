@@ -58,4 +58,7 @@ interface ApplyTaskRepository : JpaRepository<ApplyTaskEntity, Long> {
     fun countByState(state: TaskState): Long
 
     fun findByStateOrderByPriorityDescIdAsc(state: TaskState): List<ApplyTaskEntity>
+
+    /** A listing gets at most one task ever; re-runs must not re-enqueue it. */
+    fun existsByListingId(listingId: Long): Boolean
 }
