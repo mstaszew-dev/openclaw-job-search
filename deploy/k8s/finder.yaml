@@ -25,9 +25,9 @@ spec:
             - name: DB_PASSWORD
               valueFrom: { secretKeyRef: { name: campaign-db, key: password } }
             - name: MSROUTER_URL
-              value: http://lubuntu-agent-nodeport.default.svc.cluster.local:30300/v1
+              value: http://lubuntu-agent.default.svc.cluster.local:3000/v1
             - name: FINDER_MCP_COMMAND
-              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://lubuntu-agent-nodeport.default.svc.cluster.local:30922
+              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://lubuntu-agent.default.svc.cluster.local:9222
             - name: FINDER_RUN_INTERVAL_SECONDS
               value: "900"
           ports: [{ containerPort: 8081 }]
