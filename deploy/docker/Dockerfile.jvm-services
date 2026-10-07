@@ -13,6 +13,7 @@ RUN microdnf install -y curl xz \
     | tar -xJ --strip-components=1 -C /usr/local \
  && node --version \
  && npm install -g @playwright/mcp@latest \
+ && ln -s /usr/local/lib/node_modules/@playwright/mcp /opt/playwright-mcp \
  && microdnf clean all
 
 FROM node-base AS finder-jvm
