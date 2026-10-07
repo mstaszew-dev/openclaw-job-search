@@ -31,7 +31,7 @@ spec:
       containers:
         - name: import
           image: localhost:5000/campaign-importer:v1
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           args: ["/data/tracker.json", "/data/events.jsonl"]
           env:
             - name: DB_URL
