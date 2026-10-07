@@ -2,15 +2,24 @@
 # child process iterate faster with JIT, and node/@playwright/mcp must exist in
 # the runtime image anyway. Native images for the worker are a later pass.
 # Also builds the import-tracker CLI (stage `importer`).
+# Base repos have no nodejs20 package: pinned node from the official tarball.
 FROM ghcr.io/graalvm/graalvm-community:21 AS build
-RUN microdnf install -y nodejs20 && microdnf clean all
-RUN npm install -g @playwright/mcp@latest
+RUN microdnf install -y curl xz \
+ && curl -fsSL https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.xz \
+    | tar -xJ --strip-components=1 -C /usr/local \
+ && node --version \
+ && npm install -g @playwright/mcp@latest \
+ && microdnf clean all
 WORKDIR /src
 COPY . .
 RUN ./gradlew :apply-worker:bootJar :import-tracker:installDist --no-daemon
 
 FROM ghcr.io/graalvm/graalvm-community:21
-RUN microdnf install -y nodejs20 && microdnf clean all
+RUN microdnf install -y curl xz \
+ && curl -fsSL https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.xz \
+    | tar -xJ --strip-components=1 -C /usr/local \
+ && node --version \
+ && microdnf clean all
 COPY --from=build /usr/local/lib/node_modules/@playwright/mcp /opt/playwright-mcp
 COPY --from=build /src/apply-worker/build/libs/apply-worker.jar /app/worker.jar
 # the worker drives the SHARED lubuntu Chrome over CDP; node runs the MCP client
