@@ -1,5 +1,8 @@
 # Deploy runbook (lubuntu k3s)
 #
+# Host access (single-node k3s, lubuntu, user mstro): ssh -p 2222
+# mstro@<laptop-ip> (same password as the pod's agent user). Host sshd does
+# NOT auto-start after a reboot - start it before remote ops.
 # Prereqs (once, on the lubuntu host as a user with k3s + docker):
 #   export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 #   kubectl apply -f deploy/k8s/00-namespace.yaml
