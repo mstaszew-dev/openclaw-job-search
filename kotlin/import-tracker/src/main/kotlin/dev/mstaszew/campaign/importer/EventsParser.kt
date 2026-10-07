@@ -14,10 +14,13 @@ class EventsParser(private val mapper: ObjectMapper) {
             .filter(String::isNotEmpty)
             .map { line ->
                 val n = mapper.readTree(line)
+                val record = n.path("record")
                 EventEntity(
                     at = n.path("at").asText(null)?.let(::parseInstant) ?: Instant.now(),
                     action = n.path("action").asText("unknown"),
-                    record = n.path("record").toString(),
+                    // live ledger has record-less lines; jsonb rejects empty input
+                    record = if (record.isMissingNode || record.isNull || record.toString() == "\"\"") "{}"
+                    else record.toString().replace("\u0000", "").replace("\\u0000", ""),
                 )
             }
             .toList()
