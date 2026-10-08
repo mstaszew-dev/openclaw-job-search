@@ -11,6 +11,9 @@ interface SkipRepository : JpaRepository<SkipEntity, Long> {
 
     fun findFirstByReasonAndUrl(reason: SkipReason, url: String): SkipEntity?
 
+    /** Finder re-runs must not record the same ineligibility skip twice. */
+    fun existsByListingIdAndReason(listingId: Long, reason: SkipReason): Boolean
+
     /** Existing auto-guard row for a company (updated in place on later blocks). */
     fun findFirstByReasonAndCompanyKeyAndBlockedRepeatTrue(reason: SkipReason, companyKey: String): SkipEntity?
 

@@ -157,6 +157,7 @@ class FinderPipeline(
             IneligibilityReason.SALARY_BELOW_FLOOR -> SkipReason.SALARY
             else -> SkipReason.FILTER
         }
+        if (skips.existsByListingIdAndReason(listing.id, reason)) return
         skips.save(
             SkipEntity(
                 reason = reason,
