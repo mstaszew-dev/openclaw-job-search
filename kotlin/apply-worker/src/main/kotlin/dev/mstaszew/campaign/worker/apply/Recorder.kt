@@ -7,14 +7,15 @@ import dev.mstaszew.campaign.common.domain.ApplicationStatus
 import dev.mstaszew.campaign.common.domain.BlockerEntity
 import dev.mstaszew.campaign.common.domain.EventEntity
 import dev.mstaszew.campaign.common.domain.JobListingEntity
+import dev.mstaszew.campaign.common.domain.JobStateDocument
+import dev.mstaszew.campaign.common.domain.JobStatus
 import dev.mstaszew.campaign.common.domain.SkipEntity
 import dev.mstaszew.campaign.common.domain.SkipReason
-import dev.mstaszew.campaign.common.domain.TaskState
 import dev.mstaszew.campaign.common.repo.ApplicationRepository
-import dev.mstaszew.campaign.common.repo.ApplyTaskRepository
 import dev.mstaszew.campaign.common.repo.BlockerRepository
 import dev.mstaszew.campaign.common.repo.EventRepository
 import dev.mstaszew.campaign.common.repo.JobListingRepository
+import dev.mstaszew.campaign.common.repo.JobStateRepository
 import dev.mstaszew.campaign.common.repo.SkipRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -24,49 +25,42 @@ import java.time.Instant
 /**
  * Ports update_tracker.py: the single-transaction recorder. Every recorded
  * outcome writes its application/skip/blocker row, the append-only event, and
- * the task-state change atomically. All writes are guarded by lease ownership
- * (state=CLAIMED, claimed_by=this worker, lease not expired): a stale agent
- * whose task was reaped and re-claimed can no longer write.
+ * the job_state bookkeeping atomically.
+ *
+ * There is no lease guard here any more, and none is needed. The old
+ * ownsLease check existed so a reaped task's stale agent could not write; Kafka
+ * removes the reap entirely. The guard that replaces it is stronger and
+ * cheaper: the application row is written with a single-document $setOnInsert
+ * upsert keyed on _id, so a redelivered message for an already-applied job
+ * matches the existing document and changes nothing at all.
  */
 @Service
 class Recorder(
     private val applications: ApplicationRepository,
-    private val tasks: ApplyTaskRepository,
+    private val jobState: JobStateRepository,
     private val skips: SkipRepository,
     private val blockers: BlockerRepository,
     private val events: EventRepository,
     private val listings: JobListingRepository,
     private val mapper: ObjectMapper,
-    @org.springframework.beans.factory.annotation.Value("\${worker.worker-id:worker-1}")
-    private val workerId: String,
 ) {
 
     private val log = LoggerFactory.getLogger(Recorder::class.java)
 
     data class Evidence(val confirmationUrl: String?, val confirmationText: String?, val ats: String?)
 
-    /** True when the caller still owns the claim on this task. */
-    private fun ownsLease(taskId: Long): Boolean =
-        tasks.findById(taskId)
-            .map { it.claimedBy == workerId && (it.claimExpiresAt == null || it.claimExpiresAt!!.isAfter(Instant.now())) }
-            .orElse(false)
-
     @Transactional
     fun recordSubmitted(
         listing: JobListingEntity,
-        taskId: Long,
+        jobId: String,
         evidence: Evidence,
         applyMethod: String = "portal",
     ): Boolean {
-        if (!ownsLease(taskId)) {
-            log.warn("task {}: lease lost, dropping submitted record", taskId)
-            return false
-        }
         val verdict = SubmissionVerifier.evaluate(evidence.confirmationUrl, evidence.confirmationText)
         val status = if (verdict.valid) ApplicationStatus.SUBMITTED else ApplicationStatus.ATTEMPTED
-        applications.save(
+        val inserted = applications.insertIfAbsent(
             ApplicationEntity(
-                id = "${listing.source}:${listing.sourceJobId}",
+                id = jobId,
                 source = listing.source,
                 sourceJobId = listing.sourceJobId,
                 company = listing.company,
@@ -82,30 +76,30 @@ class Recorder(
                 status = status,
                 confirmationUrl = evidence.confirmationUrl,
                 confirmationText = evidence.confirmationText,
-                evidence = mapper.writeValueAsString(
-                    mapper.createObjectNode().apply {
-                        put("type", "portal_confirmation")
-                        put("verdict", verdict.reason)
-                        put("valid", verdict.valid)
-                    },
-                ),
+                evidence = mapper.createObjectNode().apply {
+                    put("type", "portal_confirmation")
+                    put("verdict", verdict.reason)
+                    put("valid", verdict.valid)
+                },
                 appliedAt = Instant.now(),
             ),
         )
-        events.save(event("submitted", listing, mapOf("status" to status.name.lowercase(), "verdict" to verdict.reason)))
-        tasks.findById(taskId).ifPresent {
-            it.transitionTo(if (status == ApplicationStatus.SUBMITTED) TaskState.SUBMITTED else TaskState.ATTEMPTED)
-            tasks.save(it)
+        if (!inserted) {
+            // Redelivery: the first outcome stands. Writing the event again
+            // would double-count in the ledger, so stop here.
+            log.info("application {} already recorded; ignoring redelivery", jobId)
+            return false
         }
+        events.save(event("submitted", listing, mapOf("status" to status.name.lowercase(), "verdict" to verdict.reason)))
+        markJobState(
+            jobId,
+            if (status == ApplicationStatus.SUBMITTED) JobStatus.SUBMITTED else JobStatus.ATTEMPTED,
+        )
         return true
     }
 
     @Transactional
-    fun recordSkippedDuplicate(listing: JobListingEntity, taskId: Long, detail: String) {
-        if (!ownsLease(taskId)) {
-            log.warn("task {}: lease lost, dropping duplicate skip", taskId)
-            return
-        }
+    fun recordSkippedDuplicate(listing: JobListingEntity, jobId: String, detail: String) {
         skips.save(
             SkipEntity(
                 reason = SkipReason.DUPLICATE,
@@ -120,10 +114,7 @@ class Recorder(
             ),
         )
         events.save(event("skippedDuplicate", listing, mapOf("detail" to detail)))
-        tasks.findById(taskId).ifPresent {
-            it.transitionTo(TaskState.SKIPPED_DUPLICATE)
-            tasks.save(it)
-        }
+        markJobState(jobId, JobStatus.SKIPPED_DUPLICATE)
     }
 
     /**
@@ -135,11 +126,7 @@ class Recorder(
      * deviation from the Python all-blocks count).
      */
     @Transactional
-    fun recordBlocked(listing: JobListingEntity, taskId: Long, reason: String, detail: String) {
-        if (!ownsLease(taskId)) {
-            log.warn("task {}: lease lost, dropping blocker", taskId)
-            return
-        }
+    fun recordBlocked(listing: JobListingEntity, jobId: String, reason: String, detail: String) {
         blockers.save(
             BlockerEntity(
                 source = listing.source,
@@ -185,21 +172,40 @@ class Recorder(
                 )
             }
         }
-        tasks.findById(taskId).ifPresent {
-            it.transitionTo(TaskState.BLOCKED)
-            tasks.save(it)
+        markJobState(jobId, JobStatus.FAILED, "blocked: $reason")
+    }
+
+    private fun markJobState(jobId: String, status: JobStatus, lastError: String? = null) {
+        val existing = jobState.findById(jobId).orElse(null)
+        if (existing == null) {
+            // The finder's row can legitimately be absent (imported backlog,
+            // manual replay); bookkeeping must never fail the real work.
+            val split = jobId.split(':', limit = 2)
+            jobState.save(
+                JobStateDocument(
+                    id = jobId,
+                    source = split.getOrElse(0) { "" },
+                    sourceJobId = split.getOrElse(1) { jobId },
+                    status = status,
+                    lastError = lastError,
+                ),
+            )
+            return
         }
+        jobState.save(existing.apply {
+            this.status = status
+            if (lastError != null) this.lastError = lastError
+            touch()
+        })
     }
 
     private fun event(action: String, listing: JobListingEntity, fields: Map<String, String>) =
         EventEntity(
             action = action,
-            record = mapper.writeValueAsString(
-                mapper.createObjectNode().apply {
-                    put("id", "${listing.source}:${listing.sourceJobId}")
-                    put("company", listing.company)
-                    fields.forEach { (k, v) -> put(k, v) }
-                },
-            ),
+            record = mapper.createObjectNode().apply {
+                put("id", "${listing.source}:${listing.sourceJobId}")
+                put("company", listing.company)
+                fields.forEach { (k, v) -> put(k, v) }
+            },
         )
 }
