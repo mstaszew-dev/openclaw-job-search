@@ -28,7 +28,26 @@ object KafkaBroker {
             .withStartupTimeout(Duration.ofMinutes(3))
     }
 
-    val bootstrapServers: String get() = container.bootstrapServers
+    /**
+     * Starts the broker on first touch.
+     *
+     * `@Testcontainers` only starts containers declared as `@Container` fields on
+     * the test class; this is a shared singleton reached through
+     * `@DynamicPropertySource`, so nothing else starts it. `getBootstrapServers()`
+     * reads a mapped port and throws "Mapped port can only be obtained after the
+     * container is started" unless we start it ourselves. Kept lazy so a machine
+     * without Docker never touches it and the tests self-skip.
+     */
+    private val started: Boolean by lazy {
+        container.start()
+        true
+    }
+
+    val bootstrapServers: String
+        get() {
+            started
+            return container.bootstrapServers
+        }
 
     /** Creates topics up front so a test does not depend on auto-creation. */
     fun ensureTopics(vararg names: String) {
