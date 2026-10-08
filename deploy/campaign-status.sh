@@ -5,7 +5,9 @@ set -uo pipefail
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 NS=campaign
 PASS=$(kubectl -n $NS get secret campaign-mongo -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)
-MONGOSHELL() { kubectl -n "$NS" exec mongo-0 -- mongosh -u campaign -p "$PASS" --quiet --eval "$1"; }
+# mongosh defaults the eval context to db "test" when no db is given; every
+# writer lands in "campaign", so pin the context per call
+MONGOSHELL() { kubectl -n "$NS" exec mongo-0 -- mongosh -u campaign -p "$PASS" --quiet --eval "db = db.getSiblingDB('campaign'); $1"; }
 
 echo "=== pods ==="
 kubectl -n "$NS" get pods 2>&1

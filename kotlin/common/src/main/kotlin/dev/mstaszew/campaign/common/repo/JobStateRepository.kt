@@ -2,6 +2,8 @@ package dev.mstaszew.campaign.common.repo
 
 import dev.mstaszew.campaign.common.domain.JobStateDocument
 import dev.mstaszew.campaign.common.domain.JobStatus
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.data.mongodb.repository.MongoRepository
 
 /**
@@ -13,6 +15,9 @@ interface JobStateRepository :
     JobStateRepositoryCustom {
 
     fun countByStatus(status: JobStatus): Long
+
+    /** Sorted by updatedAt: the ledger is "what happened lately", not a heap. */
+    fun findByStatusOrderByUpdatedAtDesc(status: JobStatus, page: Pageable): Page<JobStateDocument>
 }
 
 interface JobStateRepositoryCustom {

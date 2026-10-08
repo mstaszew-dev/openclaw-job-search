@@ -31,6 +31,12 @@ spec:
               valueFrom: { secretKeyRef: { name: campaign-mongo, key: password } }
             - name: MONGO_URI
               value: mongodb://campaign:$(MONGO_PASSWORD)@mongo.campaign.svc.cluster.local:27017/campaign?authSource=admin
+            # sent as the bearer token to the gateway when the msrouter env
+            # file sets GATEWAY_TOKEN (bootstrap copies it to gateway-token);
+            # absent otherwise, so in-cluster calls 401 by surprise never happen
+            - name: MSROUTER_API_KEY
+              valueFrom:
+                secretKeyRef: { name: campaign-msrouter, key: gateway-token, optional: true }
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: kafka.campaign.svc.cluster.local:9092
             - name: APPLY_MODE

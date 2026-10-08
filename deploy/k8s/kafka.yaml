@@ -16,6 +16,11 @@ spec:
     metadata:
       labels: { app: kafka }
     spec:
+      securityContext:
+        # the image runs as non-root appuser (uid 1000); kubelet creates the
+        # hostPath dir as root:root, and directory group-write is what the
+        # storage format needs
+        fsGroup: 1000
       containers:
         - name: kafka
           image: apache/kafka:3.7.1
@@ -25,9 +30,20 @@ spec:
               value: "1"
             - name: KAFKA_PROCESS_ROLES
               value: broker,controller
-            # single voter: 1@(own node) on the controller listener
+            # single voter on the loopback controller listener. Pointing the
+            # voter at the ClusterIP deadlocks the first bring-up: service
+            # endpoints appear only when the pod is Ready, and readiness only
+            # happens after broker registration, which itself needs the voter.
+            # Scale past 1 replica and this needs a redesign (headless svc +
+            # distinct voter ids per pod), not just a URL change.
             - name: KAFKA_CONTROLLER_QUORUM_VOTERS
-              value: 1@kafka.campaign.svc.cluster.local:29093
+              value: 1@localhost:29093
+            # The image builds server.properties from env only and does not
+            # inherit the packaged defaults, so without this the data lands
+            # in /tmp/kafka-logs inside the container and everything (topics,
+            # __consumer_offsets) is lost on the first restart.
+            - name: KAFKA_LOG_DIRS
+              value: /var/lib/kafka/data
             - name: KAFKA_CONTROLLER_LISTENER_NAMES
               value: CONTROLLER
             - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
@@ -125,6 +141,7 @@ spec:
                   break
                 fi
                 echo "waiting for broker ($i)"; sleep 5
+                if [ "$i" = 40 ]; then echo "broker never came up" >&2; exit 1; fi
               done
               /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka.campaign.svc.cluster.local:9092 --create \
                 --if-not-exists --partitions 3 --replication-factor 1 --topic campaign.jobs

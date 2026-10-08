@@ -5,8 +5,8 @@
 #   sudo bash /home/mstro/k3s-pod-data/agent-home/campaign-data/bootstrap.sh
 #
 # Stack: MongoDB 7 (rs0) + Kafka 3.7 (KRaft) + 4 JVM services + msrouter.
-# Postgres is gone: delete postgres.yaml, keep its data dir on disk until M8
-# verification passes, then reclaim the space.
+# The postgres statefulset is scaled down and deleted; keep its data dir on
+# disk until M8 verification passes, then reclaim the space.
 set -euo pipefail
 
 DATA=/home/mstro/k3s-pod-data/agent-home/campaign-data
@@ -28,9 +28,13 @@ docker build -f deploy/docker/Dockerfile.jvm    --target worker -t localhost:500
 docker build -f deploy/docker/Dockerfile.jvm    --target importer -t localhost:5000/campaign-importer:v1 "$SRC/kotlin"
 
 log "build msrouter image from its own clone (k3s-headless branch)"
-git -C "$MSROUTER_SRC" fetch origin zcode-headless 2>/dev/null || true
-git -C "$MSROUTER_SRC" checkout k3s-headless
-# dist/ and node_modules/ are already built in that clone; no credentials used
+git -C "$MSROUTER_SRC" fetch origin k3s-headless
+git -C "$MSROUTER_SRC" checkout -B k3s-headless origin/k3s-headless
+# dist/ and node_modules/ are built in that clone but NOT committed: a fresh
+# clone without a build would produce an image that dies at MODULE_NOT_FOUND
+test -d "$MSROUTER_SRC/dist" && test -d "$MSROUTER_SRC/node_modules" \
+  || { echo "dist/ or node_modules/ missing in $MSROUTER_SRC; run npm ci && npm run build there first" >&2; exit 1; }
+# no credentials used at build time
 docker build -f "$SRC/deploy/docker/Dockerfile.msrouter" -t localhost:5000/msrouter:k3s-headless-v1 "$MSROUTER_SRC"
 
 log "import images into k3s containerd"
@@ -58,7 +62,8 @@ kubectl -n "$NS" create secret generic campaign-mongo \
 
 # Kafka KRaft needs a stable cluster id or the storage format changes on every
 # restart and the no-op second boot fails.
-KAFKA_ID="$(cat $DATA/.kafka-cluster-id 2>/dev/null || echo CLUSTER-$(openssl rand -hex 10 | tr 'a-f' 'A-F'))"
+# 22-char base64url id, the canonical kafka-storage shape
+KAFKA_ID="$(cat $DATA/.kafka-cluster-id 2>/dev/null || openssl rand -base64 16 | tr '+/' '-_' | tr -d '=' | head -c 22)"
 echo -n "$KAFKA_ID" > $DATA/.kafka-cluster-id
 kubectl -n "$NS" create secret generic campaign-kafka \
   --from-literal=cluster-id="$KAFKA_ID" \
@@ -67,16 +72,26 @@ kubectl -n "$NS" create secret generic campaign-kafka \
 # PROVIDER KEYS: the gateway's .env file (from the Mac msrouter checkout)
 # becomes a Secret, so the keys stop sitting in the persistent home dir.
 if [ -f $DATA/msrouter.env ]; then
+  # If the gateway requires bearer auth on the Mac (GATEWAY_TOKEN), expose it
+  # as gateway-token too: finder/worker read it via optional secretKeyRef and
+  # send it to the gateway. Without it in-cluster callers would 401 silently.
+  EXTRA_ARGS=()
+  if grep -q '^GATEWAY_TOKEN=' $DATA/msrouter.env; then
+    KEY_VAL="$(grep '^GATEWAY_TOKEN=' $DATA/msrouter.env | cut -d= -f2-)"
+    EXTRA_ARGS+=(--from-literal=gateway-token="$KEY_VAL")
+  fi
   kubectl -n "$NS" create secret generic campaign-msrouter \
-    --from-env-file=$DATA/msrouter.env --dry-run=client -o yaml | kubectl apply -f -
+    --from-env-file=$DATA/msrouter.env "${EXTRA_ARGS[@]}" --dry-run=client -o yaml | kubectl apply -f -
 else
   echo "MISSING $DATA/msrouter.env - create it from the Mac msrouter .env before deploying" >&2
   exit 1
 fi
 
-log "old postgres deployment is replaced, not deleted"
-kubectl -n "$NS" scale deploy/finder deploy/apply-worker deploy/campaign-api --all --replicas=0 --ignore-not-found
-kubectl -n "$NS" delete statefulset postgres --ignore-not-found 2>/dev/null && echo "postgres statefulset deleted (data dir /home/mstro/k3s-pod-data/postgres kept for M8)" || true
+log "old postgres deployment is scaled down and removed"
+# kubectl scale has no --ignore-not-found flag; failure must not abort here
+kubectl -n "$NS" scale deploy --all --replicas=0 2>/dev/null || true
+kubectl -n "$NS" delete statefulset postgres --ignore-not-found 2>/dev/null \
+  && echo "postgres statefulset deleted (data dir /home/mstro/k3s-pod-data/postgres kept for M8)" || true
 
 log "deploy manifests"
 kubectl apply -f deploy/k8s/mongodb.yaml

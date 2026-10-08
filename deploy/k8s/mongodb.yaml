@@ -21,6 +21,10 @@ spec:
     metadata:
       labels: { app: mongo }
     spec:
+      securityContext:
+        # mongod runs as uid 999 (mongodb); without a group it cannot read the
+        # root-owned 0400 keyfile and crash-loops on the very first boot
+        fsGroup: 999
       containers:
         - name: mongo
           image: mongo:7
@@ -116,7 +120,7 @@ spec:
               # wait for the member to actually take over
               for i in $(seq 1 60); do
                 if mongosh -u campaign -p "$MONGO_PASSWORD" --host mongo.campaign.svc.cluster.local --quiet \
-                    --eval 'db.hello().isWritablePrimary' 2>/dev/null | grep -q true; then
+                    --eval 'db.hello().isWritablePrimary' | grep -q true; then
                   echo "rs0 has a primary"
                   exit 0
                 fi

@@ -19,7 +19,7 @@ RUN microdnf install -y curl xz \
 FROM node-base AS finder-jvm
 COPY --from=build /src/finder-service/build/libs/finder-service.jar /app/app.jar
 EXPOSE 8081
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=60", "-jar", "/app/app.jar"]
 
 FROM node-base AS api-jvm
 COPY --from=build /src/campaign-api/build/libs/campaign-api.jar /app/app.jar

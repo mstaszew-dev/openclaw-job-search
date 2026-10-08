@@ -2,6 +2,7 @@ package dev.mstaszew.campaign.api
 
 import dev.mstaszew.campaign.api.error.ApiExceptionHandler
 import dev.mstaszew.campaign.api.error.NotFoundException
+import io.mockk.every
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
@@ -94,6 +95,60 @@ class ApplicationControllerTest {
         mvc.get("/api/v1/applications/nope").andExpect {
             status { isNotFound() }
             jsonPath("$.title") { value("Not Found") }
+        }
+    }
+}
+
+
+@WebMvcTest(JobStateController::class)
+@Import(ApiExceptionHandler::class, JobStateControllerTest.Stubs::class)
+class JobStateControllerTest {
+
+    @Autowired
+    lateinit var mvc: MockMvc
+
+    @TestConfiguration
+    class Stubs {
+        @Bean
+        fun jobState() = io.mockk.mockk<dev.mstaszew.campaign.common.repo.JobStateRepository> {
+            every {
+                findByStatusOrderByUpdatedAtDesc(
+                    dev.mstaszew.campaign.common.domain.JobStatus.SHADOW_RELEASED,
+                    any(),
+                )
+            } returns org.springframework.data.domain.PageImpl(
+                listOf(
+                    dev.mstaszew.campaign.common.domain.JobStateDocument(
+                        id = "justjoin:jj-9",
+                        source = "justjoin",
+                        sourceJobId = "jj-9",
+                        status = dev.mstaszew.campaign.common.domain.JobStatus.SHADOW_RELEASED,
+                        attempts = 1,
+                    ),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `jobs lists job_state views by status`() {
+        mvc.get("/api/v1/jobs") {
+            param("status", "SHADOW_RELEASED")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.count") { value(1) }
+            jsonPath("$.jobs[0].id") { value("justjoin:jj-9") }
+            jsonPath("$.jobs[0].status") { value("SHADOW_RELEASED") }
+            jsonPath("$.jobs[0].attempts") { value(1) }
+        }
+    }
+
+    @Test
+    fun `an unknown status filter is a 400`() {
+        mvc.get("/api/v1/jobs") {
+            param("status", "NOT_A_STATUS")
+        }.andExpect {
+            status { isBadRequest() }
         }
     }
 }
