@@ -48,8 +48,9 @@ class DedupService(
             ?: CompanyKeyNormalizer.normalize(candidate.company)
         val url = UrlNormalizer.normalize(candidate.url)
 
-        // id + url against applications
-        applications.findFirstByIdOrUrl(candidate.id, url)?.let { app ->
+        // id + url against applications. A candidate with no URL contributes no URL
+        // branch: passing "" would match every URL-less application ever stored.
+        applications.findFirstByIdOrUrl(candidate.id, url.takeIf { it.isNotBlank() })?.let { app ->
             val matchedOn = if (app.id == candidate.id) MatchedOn.ID else MatchedOn.URL
             return DuplicateDecision(true, matchedOn, app.id)
         }

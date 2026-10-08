@@ -27,8 +27,13 @@ interface ApplicationRepository :
  */
 interface ApplicationRepositoryCustom {
 
-    /** Dedup check 1 + 3: exact id or normalized URL match (any age). */
-    fun findFirstByIdOrUrl(idValue: String, urlValue: String): ApplicationEntity?
+    /**
+     * Dedup check 1 + 3: exact id or normalized URL match (any age).
+     *
+     * Pass null for [urlValue] when the candidate has no URL. The empty string
+     * is not equivalent: it matches every application stored without one.
+     */
+    fun findFirstByIdOrUrl(idValue: String, urlValue: String?): ApplicationEntity?
 
     /**
      * Dedup check 2: company match. The caller must exclude non-company

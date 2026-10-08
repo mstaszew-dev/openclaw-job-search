@@ -54,6 +54,23 @@ class DedupServiceTest {
     }
 
     @Test
+    fun `a candidate with no url never matches on the empty url`() {
+        // UrlNormalizer normalizes a missing url to "", and "" is a stored
+        // value: an application imported without a url. Matching on it would
+        // report every later url-less job as a duplicate.
+        every { applications.findFirstByIdOrUrl(any(), null) } returns null
+        every { applications.findFirstByCompanyKey(any()) } returns null
+        every { skips.findFirstByReasonAndCompanyKey(any(), any()) } returns null
+        every { skips.findFirstByReasonAndUrl(any(), any()) } returns null
+        every { skips.findFirstByReasonAndSourceAndSourceJobId(any(), any(), any()) } returns null
+
+        val decision = service.check(Candidate("justjoin", "9", "Other Co", url = null))
+
+        assertThat(decision.duplicate).isFalse()
+        verify { applications.findFirstByIdOrUrl("justjoin:9", null) }
+    }
+
+    @Test
     fun `matches application by company key`() {
         every { applications.findFirstByIdOrUrl(any(), any()) } returns null
         every { applications.findFirstByCompanyKey("google") } returns app("justjoin:1", companyKey = "google")

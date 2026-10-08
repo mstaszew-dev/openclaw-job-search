@@ -47,6 +47,7 @@ class WorkerLoopTest {
         every { save(any<JobStateDocument>()) } answers { firstArg() }
         every { findById(any<String>()) } returns Optional.empty()
         every { beginAttempt(any()) } returns 1
+        every { markInFlight(any()) } returns Unit
     }
     private val dedup = mockk<DedupService>()
     private val recorder = mockk<Recorder>(relaxed = true)
@@ -159,6 +160,39 @@ class WorkerLoopTest {
         verify(exactly = 0) { browserAgent.run(any(), any(), any(), any(), any()) }
         verify { recorder.recordSkippedDuplicate(any(), any(), match { it.startsWith("dedupe:") }) }
         assertThat(ack.count).isEqualTo(1)
+    }
+
+    /**
+     * job_state must agree with the applications row. The Recorder files
+     * ATTEMPTED when the confirmation evidence does not verify, so writing an
+     * unconditional SUBMITTED here left the ledger saying one thing and the
+     * bookkeeping another.
+     */
+    @Test
+    fun `live mode records ATTEMPTED when the confirmation does not verify`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Submitted(confirmationUrl = null, confirmationText = null, ats = null)
+
+        loop("live").onMessage(job, ack)
+
+        verify { jobState.save(match { it.id == "justjoin:jj-1" && it.status == JobStatus.ATTEMPTED }) }
+        verify(exactly = 0) { jobState.save(match { it.status == JobStatus.SUBMITTED }) }
+    }
+
+    @Test
+    fun `live mode records SUBMITTED when the confirmation verifies`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Submitted(
+                confirmationUrl = "https://recruitee.com/accepted",
+                confirmationText = null,
+                ats = "recruitee",
+            )
+
+        loop("live").onMessage(job, ack)
+
+        verify { jobState.save(match { it.id == "justjoin:jj-1" && it.status == JobStatus.SUBMITTED }) }
     }
 
     /**

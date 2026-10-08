@@ -7,7 +7,7 @@ import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
+import org.springframework.boot.autoconfigure.kafka.KafkaProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
@@ -16,8 +16,11 @@ import org.springframework.kafka.core.DefaultKafkaProducerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.core.ProducerFactory
 import org.springframework.kafka.listener.ContainerProperties
+import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.kafka.support.serializer.JsonDeserializer
 import org.springframework.kafka.support.serializer.JsonSerializer
+import org.springframework.util.backoff.FixedBackOff
+import org.springframework.util.backoff.FixedBackOff.UNLIMITED_ATTEMPTS
 
 /**
  * Producer and consumer wiring for the campaign pipeline.
@@ -35,7 +38,9 @@ import org.springframework.kafka.support.serializer.JsonSerializer
  *   one. Getting this wrong is silent and expensive: the broker evicts the
  *   consumer mid-apply and redelivers the message while it is still running,
  *   so two agents drive the same employer at once. It is asserted against the
- *   agent constants in KafkaWiringTest so it cannot silently drift.
+ *   real BrowserAgent constants in apply-worker's PollBudgetTest so it cannot
+ *   silently drift; this module cannot depend on the worker, so the numbers are
+ *   mirrored below and checked against the originals there.
  *
  * Type headers are disabled on both sides and the application's ObjectMapper is
  * handed to the serializer instances explicitly, so JobMessage carries an
@@ -45,56 +50,93 @@ import org.springframework.kafka.support.serializer.JsonSerializer
 @Configuration(proxyBeanMethods = false)
 class KafkaWiring {
 
+    /** Type headers off, so JobMessage is deserialised as JobMessage. */
+    private fun valueSerializer(mapper: ObjectMapper): JsonSerializer<Any> =
+        JsonSerializer<Any>(mapper).apply {
+            noTypeInfo()
+        }
+
+    private fun valueDeserializer(mapper: ObjectMapper): JsonDeserializer<JobMessage> =
+        JsonDeserializer(JobMessage::class.java, mapper, false)
+
     @Bean
     fun campaignProducerFactory(
-        @Value("\${spring.kafka.bootstrap-servers}") bootstrapServers: String,
+        properties: KafkaProperties,
         kafkaObjectMapper: ObjectMapper,
     ): ProducerFactory<String, Any> =
         DefaultKafkaProducerFactory(
-            mapOf<String, Any>(
-                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to bootstrapServers,
-                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
-                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to JsonSerializer<Any>(kafkaObjectMapper),
-                JsonSerializer.ADD_TYPE_INFO_HEADERS to false,
-            ),
+            // Bound from spring.kafka.* first so the timeouts in the application
+            // yamls actually reach the producer, then overridden by the lines
+            // this class owns. A hand-built map that ignores the bound properties
+            // silently ran on the Kafka defaults instead.
+            properties.buildProducerProperties(null).apply {
+                put(
+                    // Only the key serializer goes in the config map. Kafka's
+                    // AbstractConfig accepts a Class or a class NAME for a
+                    // *_CLASS_CONFIG key and nothing else, so a pre-configured
+                    // JsonSerializer instance has to be handed to the factory
+                    // constructor instead; putting the instance in the map fails
+                    // at producer creation with "Expected a Class instance or
+                    // class name".
+                    ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                    StringSerializer::class.java,
+                )
+            },
+            StringSerializer(),
+            valueSerializer(kafkaObjectMapper),
         )
 
     @Bean
-    @ConditionalOnMissingBean(name = ["kafkaTemplate"])
     fun campaignKafkaTemplate(producerFactory: ProducerFactory<String, Any>): KafkaTemplate<String, Any> =
         KafkaTemplate(producerFactory)
 
     @Bean
-    @ConditionalOnMissingBean(AdminClient::class)
     fun campaignAdminClient(
         @Value("\${spring.kafka.bootstrap-servers}") bootstrapServers: String,
     ): AdminClient = ConsumerLagProbe.createAdmin(bootstrapServers)
 
     @Bean("applyKafkaListenerContainerFactory")
     fun applyKafkaListenerContainerFactory(
-        @Value("\${spring.kafka.bootstrap-servers}") bootstrapServers: String,
+        properties: KafkaProperties,
         kafkaObjectMapper: ObjectMapper,
-    ): ConcurrentKafkaListenerContainerFactory<String, Any> {
-        val factory = ConcurrentKafkaListenerContainerFactory<String, Any>()
+    ): ConcurrentKafkaListenerContainerFactory<String, JobMessage> {
+        val factory = ConcurrentKafkaListenerContainerFactory<String, JobMessage>()
         factory.consumerFactory = DefaultKafkaConsumerFactory(
-            mapOf<String, Any>(
-                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to bootstrapServers,
-                ConsumerConfig.GROUP_ID_CONFIG to Topics.APPLY_GROUP,
-                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
-                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to
-                    JsonDeserializer(JobMessage::class.java, kafkaObjectMapper, false),
-                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
-                ConsumerConfig.MAX_POLL_RECORDS_CONFIG to 1,
-                ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG to MAX_POLL_INTERVAL_MS,
-                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest",
-            ),
-        )
+            properties.buildConsumerProperties(null).apply {
+                put(ConsumerConfig.GROUP_ID_CONFIG, Topics.APPLY_GROUP)
+                put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer::class.java)
+                put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false)
+                put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1)
+                put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, MAX_POLL_INTERVAL_MS)
+                put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
+            },
+            StringDeserializer(),
+            valueDeserializer(kafkaObjectMapper),
+        ).apply {
+            // Keep the JsonDeserializer exactly as built above. Left on,
+            // Spring re-configures it from the consumer properties, which no
+            // longer carry the target type or the mapper.
+            setConfigureDeserializers(false)
+        }
         factory.setConcurrency(1)
         factory.containerProperties.ackMode = ContainerProperties.AckMode.MANUAL_IMMEDIATE
+        // WorkerLoop dead-letters on job_state.attempts itself and handles every
+        // exception it raises, so the recoverer here is a backstop that must not
+        // fire at all. Left unset, the container's implicit DefaultErrorHandler
+        // retries ten times and then LOGS AND SKIPS, committing the offset for a
+        // message whose outcome was never recorded: a silent job loss. Unlimited
+        // attempts makes the handler propagate instead, and the offset stays
+        // uncommitted for the broker to redeliver.
+        factory.setCommonErrorHandler(
+            DefaultErrorHandler(FixedBackOff(REDELIVERY_BACKOFF_MS, UNLIMITED_ATTEMPTS)),
+        )
         return factory
     }
 
     companion object {
+        /** Short pause between container-driven redeliveries of an unexpected throw. */
+        const val REDELIVERY_BACKOFF_MS = 1_000L
+
         /**
          * Worst case of one apply: MAX_STEPS iterations, each of which waits up
          * to STEP_TIMEOUT on the model and then up to TOOL_TIMEOUT on
@@ -103,7 +145,7 @@ class KafkaWiring {
          *
          * The constants live in BrowserAgent (apply-worker), which this module
          * cannot depend on, so they are duplicated here as numbers and the
-         * relationship between the two is pinned by KafkaWiringTest.
+         * relationship between the two is pinned by PollBudgetTest.
          */
         const val MAX_POLL_INTERVAL_MS = 5_820_000
 

@@ -1,5 +1,6 @@
 package dev.mstaszew.campaign.common.repo
 
+import dev.mstaszew.campaign.common.domain.JobStateDocument
 import dev.mstaszew.campaign.common.domain.JobStatus
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
@@ -52,6 +53,7 @@ class JobStateRepositoryIT {
     @Test
     fun `first attempt creates the row and counts one`() {
         assertThat(jobState.beginAttempt(seed())).isEqualTo(1)
+        jobState.markInFlight("justjoin:1")
         val doc = jobState.findById("justjoin:1").orElseThrow()
         assertThat(doc.status).isEqualTo(JobStatus.IN_FLIGHT)
         assertThat(doc.source).isEqualTo("justjoin")
@@ -70,6 +72,33 @@ class JobStateRepositoryIT {
         // real one, and the finder may have scored differently since.
         assertThat(doc.score).isEqualTo(80)
         assertThat(doc.scoreReason).isEqualTo("kotlin")
+    }
+
+    /**
+     * A crash between the Mongo write and the offset commit redelivers the
+     * message. Flipping the row back to IN_FLIGHT would relabel an already
+     * submitted job, so the attempt is counted but the outcome is kept.
+     */
+    @Test
+    fun `markInFlight does not reopen a terminal job`() {
+        jobState.beginAttempt(seed())
+        jobState.save(
+            JobStateDocument(
+                id = "justjoin:1",
+                source = "justjoin",
+                sourceJobId = "1",
+                status = JobStatus.SUBMITTED,
+                attempts = 1,
+            ),
+        )
+
+        val attempt = jobState.beginAttempt(seed())
+        jobState.markInFlight("justjoin:1")
+
+        val doc = jobState.findById("justjoin:1").orElseThrow()
+        assertThat(attempt).isEqualTo(2)
+        assertThat(doc.attempts).isEqualTo(2)
+        assertThat(doc.status).isEqualTo(JobStatus.SUBMITTED)
     }
 
     @Test

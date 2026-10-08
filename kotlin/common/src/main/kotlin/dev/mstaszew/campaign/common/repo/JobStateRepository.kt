@@ -18,8 +18,8 @@ interface JobStateRepository :
 interface JobStateRepositoryCustom {
 
     /**
-     * Atomically bumps the attempt counter and marks the job IN_FLIGHT,
-     * creating the row on first sight, and returns the new count.
+     * Atomically bumps the attempt counter, creating the row on first sight,
+     * and returns the new count. Status is not touched.
      *
      * An atomic $inc rather than read-increment-save on purpose. A rebalance
      * can briefly have the outgoing and incoming partition owner both running
@@ -29,6 +29,12 @@ interface JobStateRepositoryCustom {
      * forever instead of reaching the DLQ.
      */
     fun beginAttempt(job: AttemptSeed): Int
+
+    /**
+     * Sets IN_FLIGHT unless the job is already terminal. Call after
+     * [beginAttempt], once the counter is safely in place.
+     */
+    fun markInFlight(id: String)
 }
 
 /** The fields written on first insert; later attempts only bump the counter. */

@@ -49,9 +49,9 @@ import java.util.concurrent.TimeUnit
  * - Failure is handled by NOT committing and returning, letting the broker
  *   redeliver. job_state.attempts bounds how long that can go on; once the
  *   bound is hit the message goes to campaign.jobs.dlq and we DO commit.
- * - max.poll.interval.ms (45 min) must stay above the worst-case agent loop
- *   (25 steps x 90s ~= 37 min) or a long apply gets the consumer evicted and
- *   redelivered while it is still running.
+ * - max.poll.interval.ms (97 min) must stay above the worst-case agent loop
+ *   (25 steps x (90s model + 120s Playwright) = 87.5 min) or a long apply gets
+ *   the consumer evicted and redelivered while it is still running.
  */
 @Component
 @EnableConfigurationProperties(WorkerProperties::class)
@@ -91,15 +91,25 @@ class WorkerLoop(
                 // send followed by a commit loses the message from BOTH topics
                 // if the DLQ broker is briefly unreachable, and job_state would
                 // still read DEAD, so the loss would be invisible.
-                val deadLettered = runCatching {
+                val deadLettered = try {
                     kafka.send(Topics.JOBS_DLQ, job.companyKey, DeadLetter(job, attempt, message, Instant.now()))
                         .get(DLQ_SEND_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    null
+                } catch (e: InterruptedException) {
+                    // Shutdown, or the poll-interval watchdog. runCatching would
+                    // swallow the interrupt flag and leave the consumer running
+                    // a message it can no longer finish.
+                    Thread.currentThread().interrupt()
+                    log.error("interrupted while dead-lettering job {}; leaving the offset uncommitted", job.id)
+                    return
+                } catch (e: Exception) {
+                    e
                 }
-                if (deadLettered.isFailure) {
+                if (deadLettered != null) {
                     log.error(
                         "job {} exhausted but the dead-letter write failed; leaving the offset uncommitted",
                         job.id,
-                        deadLettered.exceptionOrNull(),
+                        deadLettered,
                     )
                     return
                 }
@@ -117,8 +127,8 @@ class WorkerLoop(
      * is the only bound on redelivery, so it has to be one atomic upsert rather
      * than a read-modify-save that a rebalance could interleave.
      */
-    private fun recordAttempt(job: JobMessage): Int =
-        jobState.beginAttempt(
+    private fun recordAttempt(job: JobMessage): Int {
+        val attempt = jobState.beginAttempt(
             AttemptSeed(
                 id = job.id,
                 source = job.source,
@@ -129,6 +139,11 @@ class WorkerLoop(
                 maxAttempts = props.maxAttempts,
             ),
         )
+        // After the increment, never before: a redelivery of an already
+        // finished job must still count as an attempt.
+        jobState.markInFlight(job.id)
+        return attempt
+    }
 
     private fun failJob(job: JobMessage, message: String) {
         tx.executeWithoutResult {
@@ -242,12 +257,14 @@ class WorkerLoop(
         )
         when (result) {
             is ApplyResult.Submitted -> {
-                markTerminal(job, JobStatus.SUBMITTED)
-                log.info(
-                    "job {}: recorded (valid={})",
-                    job.id,
-                    SubmissionVerifier.evaluate(result.confirmationUrl, result.confirmationText).valid,
-                )
+                // Same verdict the Recorder computed, recomputed here because
+                // the two must not diverge. Marking this branch SUBMITTED
+                // unconditionally wrote SUBMITTED into job_state while the
+                // applications row said ATTEMPTED for a submission whose
+                // confirmation evidence did not verify.
+                val verdict = SubmissionVerifier.evaluate(result.confirmationUrl, result.confirmationText)
+                markTerminal(job, if (verdict.valid) JobStatus.SUBMITTED else JobStatus.ATTEMPTED)
+                log.info("job {}: recorded (valid={})", job.id, verdict.valid)
             }
             is ApplyResult.DuplicateNow -> recorder.recordSkippedDuplicate(listing, job.id, result.detail)
             is ApplyResult.Blocked -> recorder.recordBlocked(listing, job.id, result.reason, result.detail)

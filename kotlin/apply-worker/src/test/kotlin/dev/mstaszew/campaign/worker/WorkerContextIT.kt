@@ -9,7 +9,14 @@ import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.junit.jupiter.Testcontainers
 
 @Testcontainers(disabledWithoutDocker = true)
-@SpringBootTest
+@SpringBootTest(
+    // Boot the real WorkerLoop, but not its listener. The Kafka broker is a
+    // JVM-wide singleton, so a running consumer here would join the
+    // apply-workers group alongside DoubleApplyGuardIT and steal the messages
+    // that test publishes, against a different database. This test is about
+    // wiring, not about consuming.
+    properties = ["spring.kafka.listener.auto-startup=false"],
+)
 class WorkerContextIT {
 
     companion object {

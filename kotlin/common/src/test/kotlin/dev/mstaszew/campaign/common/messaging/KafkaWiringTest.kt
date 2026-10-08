@@ -11,6 +11,10 @@ import org.junit.jupiter.api.Test
  * two browser agents submit to the same employer. Too high and a genuinely
  * dead consumer is never replaced.
  *
+ * The cross-module check (against the real BrowserAgent constants) lives in
+ * apply-worker as PollBudgetTest, because `common` cannot see the worker. What
+ * is pinned here is only the margin arithmetic on the mirrored numbers.
+ *
  * Pure arithmetic, so it runs without Docker.
  */
 class KafkaWiringTest {

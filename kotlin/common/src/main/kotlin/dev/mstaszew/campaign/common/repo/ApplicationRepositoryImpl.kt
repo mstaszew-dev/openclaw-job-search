@@ -11,13 +11,24 @@ class ApplicationRepositoryImpl(
     private val mongo: MongoTemplate,
 ) : ApplicationRepositoryCustom {
 
-    override fun findFirstByIdOrUrl(idValue: String, urlValue: String): ApplicationEntity? =
+    /**
+     * A null [urlValue] drops the URL branch instead of matching it. An empty
+     * string would match every application stored without a URL, which turns
+     * one such row into a permanent false "duplicate" for every URL-less job
+     * afterwards. Callers normalize a missing URL to null for exactly this
+     * reason.
+     */
+    override fun findFirstByIdOrUrl(idValue: String, urlValue: String?): ApplicationEntity? =
         mongo.findOne(
             Query.query(
-                Criteria().orOperator(
-                    Criteria.where("_id").`is`(idValue),
-                    Criteria.where("url").`is`(urlValue),
-                ),
+                if (urlValue == null) {
+                    Criteria.where("_id").`is`(idValue)
+                } else {
+                    Criteria().orOperator(
+                        Criteria.where("_id").`is`(idValue),
+                        Criteria.where("url").`is`(urlValue),
+                    )
+                },
             ).with(SORT_BY_ID),
             ApplicationEntity::class.java,
         )
