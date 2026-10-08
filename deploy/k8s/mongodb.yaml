@@ -25,6 +25,18 @@ spec:
       # itself re-owns its data dir as mongodb (uid 999) on every start; the
       # only hard requirement left is the keyfile, handled by the init
       # container below.
+      initContainers:
+        - name: keyfile-perms
+          image: mongo:7
+          imagePullPolicy: IfNotPresent
+          # mongod requires the keyfile to carry no group/other access bits
+          # ("permissions on /etc/mongo/keyfile are too open" otherwise), so
+          # kubelet's group-read fixing of secret mounts cannot serve it: the
+          # file is copied to an emptyDir and given exact ownership/mode here.
+          command: ["sh", "-c", "cp /keyfile-src/keyfile /keyfile/keyfile && chown 999:999 /keyfile/keyfile && chmod 0400 /keyfile/keyfile"]
+          volumeMounts:
+            - { name: keyfile-src, mountPath: /keyfile-src, readOnly: true }
+            - { name: keyfile, mountPath: /keyfile }
       containers:
         - name: mongo
           image: mongo:7
