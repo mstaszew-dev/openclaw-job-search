@@ -1,15 +1,16 @@
 package dev.mstaszew.campaign.importer
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mongodb.client.MongoClient
+import com.mongodb.client.MongoClients
 import java.nio.file.Path
-import java.sql.DriverManager
 import kotlin.system.exitProcess
 
 /**
  * One-time (idempotent) importer of the live Python campaign state into the
- * distributed system's Postgres. Run before enabling workers:
+ * distributed system's MongoDB. Run before enabling workers:
  *
- *   DB_URL=... DB_USER=... DB_PASSWORD=... \
+ *   MONGO_URI=mongodb://mongo:27017/campaign \
  *     ./gradlew :import-tracker:run --args="<tracker.json> [events.jsonl]"
  */
 fun main(args: Array<String>) {
@@ -24,9 +25,8 @@ fun main(args: Array<String>) {
         exitProcess(2)
     }
 
-    val dbUrl = System.getenv("DB_URL") ?: "jdbc:postgresql://localhost:5432/campaign"
-    val dbUser = System.getenv("DB_USER") ?: "campaign"
-    val dbPassword = System.getenv("DB_PASSWORD") ?: "campaign"
+    val uri = System.getenv("MONGO_URI")
+        ?: "mongodb://127.0.0.1:27017/campaign?directConnection=true"
 
     val mapper = ObjectMapper()
     val model = TrackerParser(mapper).parse(trackerPath.toFile().readText())
@@ -35,8 +35,8 @@ fun main(args: Array<String>) {
         ?.let { EventsParser(mapper).parse(it.toFile().readText()) }
         ?: emptyList()
 
-    DriverManager.getConnection(dbUrl, dbUser, dbPassword).use { connection ->
-        val report = ImportWriter(connection).importAll(model, events)
+    MongoClients.create(uri).use { client: MongoClient ->
+        val report = ImportWriter(client.getDatabase("campaign")).importAll(model, events)
         model.warnings.forEach { System.err.println("WARNING: $it") }
         println(
             """

@@ -14,7 +14,7 @@ class EventsParserTest {
 
         assertThat(events).hasSize(2)
         assertThat(events[0].action).isEqualTo("submitted")
-        assertThat(events[0].record).contains("nofluffjobs:aaa-1")
+        assertThat(events[0].record.toString()).contains("nofluffjobs:aaa-1")
         assertThat(events[1].action).isEqualTo("skippedDuplicate")
     }
 

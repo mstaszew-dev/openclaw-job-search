@@ -18,9 +18,12 @@ class EventsParser(private val mapper: ObjectMapper) {
                 EventEntity(
                     at = n.path("at").asText(null)?.let(::parseInstant) ?: Instant.now(),
                     action = n.path("action").asText("unknown"),
-                    // live ledger has record-less lines; jsonb rejects empty input
-                    record = if (record.isMissingNode || record.isNull || record.toString() == "\"\"") "{}"
-                    else record.toString().replace("\u0000", "").replace("\\u0000", ""),
+                    // The live ledger has record-less lines. BSON stores an
+                    // empty subdocument fine, so unlike jsonb there is nothing
+                    // to reject and no NUL escape to scrub: a BSON string may
+                    // contain U+0000, which is why the old sanitize step for
+                    // jsonb is gone rather than merely relocated.
+                    record = if (record.isMissingNode || record.isNull) mapper.createObjectNode() else record,
                 )
             }
             .toList()

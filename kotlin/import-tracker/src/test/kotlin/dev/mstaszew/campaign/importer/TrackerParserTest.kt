@@ -24,10 +24,10 @@ class TrackerParserTest {
         assertThat(first.companyKey).isEqualTo("funds-tech")
         assertThat(first.url).isEqualTo("https://nofluffjobs.com/pl/job/java-developer-funds-tech")
         assertThat(first.status).isEqualTo(ApplicationStatus.SUBMITTED)
-        assertThat(first.salary).contains("15000")
+        assertThat(first.salary?.path("min")?.asInt()).isEqualTo(15000)
         assertThat(first.stack).containsExactly("java", "spring")
         assertThat(first.appliedAt).isNotNull
-        assertThat(first.evidence).contains("portal_confirmation")
+        assertThat(first.evidence?.path("type")?.asText()).isEqualTo("portal_confirmation")
     }
 
     @Test
@@ -61,8 +61,8 @@ class TrackerParserTest {
         assertThat(second.url).isEqualTo("https://justjoin.it/offers/kotlin-dev?jobid=ab12")
         assertThat(second.stack).containsExactly("kotlin")
         assertThat(second.status).isEqualTo(ApplicationStatus.ATTEMPTED)
-        assertThat(second.salary).contains("15000")
-        assertThat(second.evidence).contains("gmail_auto_reply")
+        assertThat(second.salary?.asText()).isEqualTo("15000 - 18000 PLN B2B")
+        assertThat(second.evidence?.asText()).isEqualTo("gmail_auto_reply")
     }
 
     @Test
