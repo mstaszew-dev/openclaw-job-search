@@ -29,7 +29,10 @@ class FinderConfig {
     )
 
     @Bean
-    fun cvScorer(llmClient: LlmClient) = CvScorer(llmClient)
+    fun cvScorer(llmClient: LlmClient, props: FinderProperties): CvScorer {
+        CvScorer.logPausedState(props.scoringEnabled)
+        return CvScorer(llmClient, scoringEnabled = props.scoringEnabled)
+    }
 
     /** Opens (and closes) a fresh MCP server process per discovery run. */
     @Bean

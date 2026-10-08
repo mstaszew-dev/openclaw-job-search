@@ -30,6 +30,8 @@ finder:
   msrouter-url: ${MSROUTER_URL:http://127.0.0.1:8787/v1}
   msrouter-api-key: ${MSROUTER_API_KEY:}
   msrouter-model: ${MSROUTER_MODEL:mst/free}
+  # false = collect and produce, but never call the gateway. Costs no tokens.
+  scoring-enabled: ${FINDER_SCORING_ENABLED:true}
   browser-cdp-url: ${BROWSER_CDP_URL:http://127.0.0.1:9222}
   mcp-command: ${FINDER_MCP_COMMAND:node @playwright/mcp/cli.js --cdp-endpoint http://127.0.0.1:9222}
   collect-stacks: ${FINDER_COLLECT_STACKS:java,kotlin,php,node,react}

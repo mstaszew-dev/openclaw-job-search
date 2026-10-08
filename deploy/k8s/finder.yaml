@@ -33,6 +33,10 @@ spec:
               value: kafka.campaign.svc.cluster.local:9092
             - name: MSROUTER_URL
               value: http://msrouter.campaign.svc.cluster.local:3000/v1
+            # Gateway is paused (msrouter replicas 0 in msrouter.yaml): collect
+            # and produce as usual, but score with the fallback and spend nothing.
+            - name: FINDER_SCORING_ENABLED
+              value: "false"
             - name: FINDER_MCP_COMMAND
               value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922
             - name: FINDER_RUN_INTERVAL_SECONDS

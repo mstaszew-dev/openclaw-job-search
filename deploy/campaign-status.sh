@@ -13,8 +13,15 @@ echo "=== pods ==="
 kubectl -n "$NS" get pods 2>&1
 
 echo "=== gateway (msrouter) ==="
-IP=$(kubectl -n "$NS" get svc msrouter -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
-curl -s -m 6 "http://$IP:3000/health/ready" || echo "GATEWAY DOWN - restart: kubectl -n $NS rollout restart deploy/msrouter"
+REPLICAS=$(kubectl -n "$NS" get deploy msrouter -o jsonpath='{.spec.replicas}' 2>/dev/null)
+if [ "${REPLICAS:-unknown}" = "0" ]; then
+  # Intentional pause: msrouter.yaml pins replicas 0 and finder.yaml sets
+  # FINDER_SCORING_ENABLED=false. rollout restart would not bring it back.
+  echo "PAUSED (deploy/msrouter replicas=0) - CV scoring runs on the fallback score"
+else
+  IP=$(kubectl -n "$NS" get svc msrouter -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+  curl -s -m 6 "http://$IP:3000/health/ready" || echo "GATEWAY DOWN - restart: kubectl -n $NS rollout restart deploy/msrouter"
+fi
 echo
 
 echo "=== pipeline stats ==="

@@ -5,7 +5,6 @@ import dev.mstaszew.campaign.common.net.ChatMessage
 import dev.mstaszew.campaign.common.net.LlmClient
 import dev.mstaszew.campaign.common.net.LlmClientException
 import org.slf4j.LoggerFactory
-import org.springframework.stereotype.Component
 
 data class CvScore(val score: Int, val reason: String, val source: Source) {
     enum class Source { LLM, FALLBACK }
@@ -16,14 +15,35 @@ data class CvScore(val score: Int, val reason: String, val source: Source) {
  * chat call per candidate, JSON answer {score, reason}; score >= 60 queues the
  * candidate. Falls back to a neutral accept-with-reason when the gateway is
  * down so a bad LLM day degrades to volume, not to an empty pipeline.
+ *
+ * [scoringEnabled] is the operator kill switch: when false the scorer returns
+ * the same fallback score without touching the gateway, so a paused gateway
+ * spends nothing. Collection and enqueueing continue either way.
  */
-@Component
 class CvScorer(
     private val llm: LlmClient,
     private val mapper: ObjectMapper = ObjectMapper(),
+    private val scoringEnabled: Boolean = true,
 ) {
 
     fun score(
+        company: String,
+        roleTitle: String,
+        stack: List<String>,
+        salaryText: String?,
+        applicantCvProfile: String,
+    ): CvScore =
+        if (scoringEnabled) {
+            scoreWithFallback(company, roleTitle, stack, salaryText, applicantCvProfile)
+        } else {
+            CvScore(
+                FALLBACK_SCORE,
+                "scoring paused (FINDER_SCORING_ENABLED=false): $company / $roleTitle",
+                CvScore.Source.FALLBACK,
+            )
+        }
+
+    private fun scoreWithFallback(
         company: String,
         roleTitle: String,
         stack: List<String>,
@@ -36,7 +56,7 @@ class CvScorer(
         // LLM day degrades to volume (fallback tasks are priority-0), never
         // to an empty pipeline.
         log.warn("LLM scoring failed, enqueueing with fallback score: {}", e.message)
-        CvScore(70, "fallback (llm unavailable): ${e.message?.take(120)}", CvScore.Source.FALLBACK)
+        CvScore(FALLBACK_SCORE, "fallback (llm unavailable): ${e.message?.take(120)}", CvScore.Source.FALLBACK)
     }
 
     private fun scoreWithLlm(
@@ -87,6 +107,12 @@ class CvScorer(
     }
 
     companion object {
+        /** Neutral accept used both when the gateway is down and when scoring is paused. */
+        const val FALLBACK_SCORE = 70
         private val log = LoggerFactory.getLogger(CvScorer::class.java)
+
+        fun logPausedState(enabled: Boolean) {
+            if (!enabled) log.warn("CV scoring is paused (FINDER_SCORING_ENABLED=false): every candidate scores {}. No gateway tokens are spent.", FALLBACK_SCORE)
+        }
     }
 }
