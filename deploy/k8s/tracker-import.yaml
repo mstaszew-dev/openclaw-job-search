@@ -1,0 +1,36 @@
+# One-shot (idempotent) import of the Python campaign state into Mongo.
+# Replaces the inline Job that bootstrap-lubuntu.sh used to embed (and the
+# "rerun-import.sh" copy of it). Re-runnable after any data refresh.
+# MAPPED baseline this must reproduce: 1809 applications, 272 skips,
+# 102 blockers, 2621 events.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tracker-import
+  namespace: campaign
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: { app: tracker-import }
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: import
+          image: localhost:5000/campaign-importer:v1
+          imagePullPolicy: IfNotPresent
+          args: ["/data/tracker.json", "/data/events.jsonl"]
+          env:
+            - name: MONGO_PASSWORD
+              valueFrom: { secretKeyRef: { name: campaign-mongo, key: password } }
+            - name: MONGO_URI
+              value: mongodb://campaign:$(MONGO_PASSWORD)@mongo.campaign.svc.cluster.local:27017/campaign?authSource=admin
+          volumeMounts:
+            - { name: campaign-data, mountPath: /data, readOnly: true }
+          resources:
+            requests: { memory: 256Mi, cpu: 100m }
+            limits: { memory: 512Mi, cpu: 500m }
+      volumes:
+        - name: campaign-data
+          hostPath: { path: /home/mstro/k3s-pod-data/agent-home/campaign-data, type: Directory }

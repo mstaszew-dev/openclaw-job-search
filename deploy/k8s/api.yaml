@@ -1,4 +1,5 @@
-# campaign-api: stats/queue/applications; NodePort 30080 on the laptop LAN.
+# campaign-api: stats/applications/events over Mongo; NodePort 30080 on the
+# laptop LAN. job_state replaces the old queue endpoints: GET /api/v1/jobs.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,17 +18,22 @@ spec:
           image: localhost:5000/campaign-api:v1
           imagePullPolicy: IfNotPresent
           env:
-            - name: DB_URL
-              value: jdbc:postgresql://postgres.campaign.svc.cluster.local:5432/campaign
-            - name: DB_USER
-              value: campaign
-            - name: DB_PASSWORD
-              valueFrom: { secretKeyRef: { name: campaign-db, key: password } }
+            - name: MONGO_PASSWORD
+              valueFrom: { secretKeyRef: { name: campaign-mongo, key: password } }
+            - name: MONGO_URI
+              value: mongodb://campaign:$(MONGO_PASSWORD)@mongo.campaign.svc.cluster.local:27017/campaign?authSource=admin
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.campaign.svc.cluster.local:9092
           ports: [{ containerPort: 8080 }]
           readinessProbe:
-            httpGet: { path: /actuator/health, port: 8080 }
+            httpGet: { path: /actuator/health/readiness, port: 8080 }
             initialDelaySeconds: 10
             periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8080 }
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 5
           resources:
             requests: { memory: 256Mi, cpu: 100m }
             limits: { memory: 512Mi, cpu: 500m }

@@ -1,43 +1,46 @@
 # Deploy runbook (lubuntu k3s)
 #
+# Stack: MongoDB 7 (single-node replica set rs0) + Kafka 3.7 (KRaft, single
+# broker) + finder / apply-worker / campaign-api (JVM) + msrouter (its own pod).
+# Kafka owns delivery; Mongo owns bookkeeping and dedupe.
+#
 # Host access (single-node k3s, lubuntu, user mstro): ssh -p 2222
 # mstro@<laptop-ip> (same password as the pod's agent user). Host sshd does
 # NOT auto-start after a reboot - start it before remote ops.
+#
 # Prereqs (once, on the lubuntu host as a user with k3s + docker):
 #   export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 #   kubectl apply -f deploy/k8s/00-namespace.yaml
-#   # DB password secret (never committed):
-#   kubectl -n campaign create secret generic campaign-db \
-#     --from-literal=password='<generate-one>'
+#   # Secrets, generated once and kept under $DATA, plus the provider keys:
+#   cp <mac>/.env  $DATA/msrouter.env          # msrouter provider keys
+#   bash deploy/bootstrap-lubuntu.sh           # generates everything else
 #
-# Build + import images (branch zcode/kotlin-distributed checked out on the host):
-#   docker build -f deploy/docker/Dockerfile.native \
-#     --target finder -t localhost:5000/campaign-finder:v1 .
-#   docker build -f deploy/docker/Dockerfile.native \
-#     --target api   -t localhost:5000/campaign-api:v1 .
-#   docker build -f deploy/docker/Dockerfile.jvm    \
-#     -t localhost:5000/campaign-worker:v1 .
-#   for img in campaign-finder campaign-api campaign-worker; do
-#     echo <sudo-pass> | sudo -S bash -c \
-#       "docker save localhost:5000/$img:v1 | k3s ctr images import -"
-#   done
+# One-shot bootstrap (does all of the below):
+#   sudo bash /home/mstro/k3s-pod-data/agent-home/campaign-data/bootstrap.sh
 #
-# Deploy (shadow mode default):
-#   kubectl apply -f deploy/k8s/postgres.yaml
-#   kubectl apply -f deploy/k8s/finder.yaml
-#   kubectl apply -f deploy/k8s/worker.yaml
-#   kubectl apply -f deploy/k8s/api.yaml
+# Targeted changes afterwards:
+#   docker build -f deploy/docker/Dockerfile.jvm-services --target <finder-jvm|api-jvm> \
+#     -t localhost:5000/campaign-<name>:v1 kotlin/
+#   docker build -f deploy/docker/Dockerfile.jvm --target <worker|importer> \
+#     -t localhost:5000/campaign-<name>:v1 kotlin/
+#   docker build -f deploy/docker/Dockerfile.msrouter -t localhost:5000/msrouter:k3s-headless-v1 \
+#     /home/mstro/k3s-pod-data/agent-home/apps/msrouter   # k3s-headless branch
+#   docker save <img>:<tag> | k3s ctr images import -
+#   # :v1 / :k3s-headless-v1 never change tag: after every image rebuild run
+#   kubectl -n campaign rollout restart deploy/<name>
 #
-# Import the live tracker (idempotent; run after Postgres is ready):
-#   scp the live tracker.json + events.jsonl to the host, then:
-#   DB_URL='jdbc:postgresql://localhost:5432/campaign' \
-#   DB_USER=campaign DB_PASSWORD=... \
-#   ./gradlew :import-tracker:run --args="/tmp/tracker.json /tmp/events.jsonl"
-#   (port-forward first: kubectl -n campaign port-forward svc/postgres 5432:5432)
+# Nodes (not built here; pull from Docker Hub like postgres:16-alpine did):
+#   mongo:7, apache/kafka:3.7.1
+#
+# Import the live tracker (idempotent):
+#   scp the live tracker.json + events.jsonl to $DATA, then
+#   bash deploy/rerun-import.sh          # or: kubectl delete job tracker-import
+#                                        # kubectl apply -f deploy/k8s/tracker-import.yaml
 #
 # Verify:
-#   curl http://<laptop-ip>:30080/api/v1/stats      # submitted/queued/skips
-#   kubectl -n campaign logs deploy/finder  --tail=50
+#   curl http://<laptop-ip>:30080/api/v1/stats      # submitted/attempts/skips/blockers
+#   curl http://<laptop-ip>:30080/api/v1/jobs       # job_state (PENDING/IN_FLIGHT/terminal)
+#   bash deploy/campaign-status.sh                  # pods, lag, replica state, events
 #   kubectl -n campaign logs deploy/apply-worker --tail=50   # shadow releases
 #
 # Cutover (user-gated, separate decision; rollback = APPLY_MODE=shadow + restart):
@@ -48,8 +51,29 @@
 #
 # Coexistence notes:
 #   - The lubuntu-agent pod (default ns) keeps running Chrome/Xvfb/VNC; the
-#     finder and worker attach to its CDP on NodePort 30922 only.
-#   - msrouter on that pod serves the LLM gateway on NodePort 30300.
-#   - While APPLY_MODE=shadow, no application rows are written: workers claim,
-#     re-check dedup, and release. Safe next to the Mac campaign.
-#   - Postgres data lives in /home/mstro/k3s-pod-data/postgres (hostPath).
+#     finder and worker attach to its CDP on NodePort 30922 only. Chrome
+#     rejects a DNS Host header, so the CDP path stays on the node IP.
+#   - msrouter moved OFF lubuntu-agent into its own pod in namespace campaign
+#     (ClusterIP :3000); its gateway keys live in secret campaign-msrouter.
+#   - While APPLY_MODE=shadow, no browser opens and no application rows are
+#     written: the worker consumes, re-checks dedupe, records job_state, and
+#     commits. Safe next to the Mac campaign.
+#   - Mongo data lives in /home/mstro/k3s-pod-data/mongodb (root user campaign,
+#     keyfile from secret campaign-mongo). Kafka data in .../kafka.
+#   - Postgres data is retired in .../postgres; delete the dir only after M8
+#     verification against the 1809/272/102/2621 baseline passes.
+#
+# Diagnostics:
+#   - A mongod pod that is Ready but serves writes to nobody means the replica
+#     set never got a primary: check job/mongo-init logs (rs.initiate + a
+#     db.hello() wait), like the msrouter Kafka tooling documents.
+#   - Kafka "the port is open" is not readiness; probes run
+#     kafka-broker-api-versions.sh for a real metadata request.
+#   - Rising attempts + rebalance warnings in the worker log mean the poll
+#     interval budget was exceeded: check MAX_POLL_INTERVAL_MS vs the agent
+#     loop constants (pinned by PollBudgetTest).
+#   - The DLQ topic campaign.jobs.dlq holding a message means a job is dead
+#     (job_state.status=DEAD); inspect with
+#     kubectl -n campaign exec kafka-0 -- /opt/kafka/bin/kafka-console-consumer.sh \
+#       --bootstrap-server localhost:9092 --topic campaign.jobs.dlq --from-beginning \
+#       --max-messages 1

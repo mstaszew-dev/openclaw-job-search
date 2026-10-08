@@ -1,0 +1,133 @@
+# Kafka 3.7 KRaft, single node (broker + controller in one process) at 512MB
+# heap. Replaces the Postgres apply_tasks queue: the finder produces to
+# campaign.jobs keyed by companyKey, the worker consumes with
+# enable.auto.commit=false and commits only after the Mongo write.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: campaign
+spec:
+  serviceName: kafka
+  replicas: 1
+  selector:
+    matchLabels: { app: kafka }
+  template:
+    metadata:
+      labels: { app: kafka }
+    spec:
+      containers:
+        - name: kafka
+          image: apache/kafka:3.7.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KAFKA_NODE_ID
+              value: "1"
+            - name: KAFKA_PROCESS_ROLES
+              value: broker,controller
+            # single voter: 1@(own node) on the controller listener
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: 1@kafka.campaign.svc.cluster.local:29093
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: CONTROLLER
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+            - name: KAFKA_LISTENERS
+              value: PLAINTEXT://:9092,CONTROLLER://:29093
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: PLAINTEXT://kafka.campaign.svc.cluster.local:9092
+            # single-node cluster requires these "1" everywhere
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+              value: "0"
+            # 7GB host: Kafka + Mongo + Chrome + 3 JVMs must coexist
+            - name: KAFKA_HEAP_OPTS
+              value: -Xmx512m -Xms256m
+            - name: CLUSTER_ID
+              valueFrom: { secretKeyRef: { name: campaign-kafka, key: cluster-id } }
+          ports:
+            - { containerPort: 9092, name: plaintext }
+            - { containerPort: 29093, name: controller }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/kafka/data }
+          readinessProbe:
+            # the port being open is not readiness; the broker has to accept a
+            # real metadata request (same trap the msrouter docs warn about)
+            exec:
+              command:
+                - /opt/kafka/bin/kafka-broker-api-versions.sh
+                - --bootstrap-server
+                - localhost:9092
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 20
+          livenessProbe:
+            exec:
+              command:
+                - /opt/kafka/bin/kafka-broker-api-versions.sh
+                - --bootstrap-server
+                - localhost:9092
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: { memory: 768Mi, cpu: 100m }
+            limits: { memory: 1Gi, cpu: 500m }
+      volumes:
+        - name: data
+          hostPath: { path: /home/mstro/k3s-pod-data/kafka, type: DirectoryOrCreate }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: campaign
+spec:
+  selector: { app: kafka }
+  ports:
+    - { port: 9092, targetPort: 9092, name: plaintext }
+---
+# Topics are created by a Job, not left to auto-create: a typo in a listener
+# name otherwise becomes an eternal "topic exists" retry. The DLQ topic gets
+# fewer partitions because retry is in-process backoff; the DLQ is a parking
+# lot, not a work queue.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-init
+  namespace: campaign
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels: { app: kafka-init }
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kafka-init
+          image: apache/kafka:3.7.1
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              # wait for the broker to accept a metadata request
+              for i in $(seq 1 40); do
+                if /opt/kafka/bin/kafka-broker-api-versions.sh \
+                    --bootstrap-server kafka.campaign.svc.cluster.local:9092 >/dev/null 2>&1; then
+                  break
+                fi
+                echo "waiting for broker ($i)"; sleep 5
+              done
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka.campaign.svc.cluster.local:9092 --create \
+                --if-not-exists --partitions 3 --replication-factor 1 --topic campaign.jobs
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka.campaign.svc.cluster.local:9092 --create \
+                --if-not-exists --partitions 1 --replication-factor 1 --topic campaign.jobs.dlq
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka.campaign.svc.cluster.local:9092 --list

@@ -1,5 +1,8 @@
 # apply-worker: ONE replica (shares the single logged-in Chrome via CDP).
 # APPLY_MODE=shadow is the safe default; cutover flips it to live.
+#
+# Kafka owns delivery: consumes campaign.jobs, commits the offset only after
+# the Mongo write. job_state is bookkeeping, never a queue.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,25 +24,33 @@ spec:
           image: localhost:5000/campaign-worker:v1
           imagePullPolicy: IfNotPresent
           env:
-            - name: DB_URL
-              value: jdbc:postgresql://postgres.campaign.svc.cluster.local:5432/campaign
-            - name: DB_USER
-              value: campaign
-            - name: DB_PASSWORD
-              valueFrom: { secretKeyRef: { name: campaign-db, key: password } }
+            # authSource=admin: the user is the image entrypoint's root user,
+            # not a per-database one, and Mongo heads it there by default only
+            # in the shell, not in a driver URI.
+            - name: MONGO_PASSWORD
+              valueFrom: { secretKeyRef: { name: campaign-mongo, key: password } }
+            - name: MONGO_URI
+              value: mongodb://campaign:$(MONGO_PASSWORD)@mongo.campaign.svc.cluster.local:27017/campaign?authSource=admin
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.campaign.svc.cluster.local:9092
             - name: APPLY_MODE
               value: "shadow"          # shadow | live (cutover flips this)
             - name: MSROUTER_URL
-              value: http://lubuntu-agent.default.svc.cluster.local:3000/v1
+              value: http://msrouter.campaign.svc.cluster.local:3000/v1
             - name: WORKER_MCP_COMMAND
               value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922
             - name: WORKER_ID
               valueFrom: { fieldRef: { fieldPath: metadata.name } }
           ports: [{ containerPort: 8082 }]
           readinessProbe:
-            httpGet: { path: /actuator/health, port: 8082 }
+            httpGet: { path: /actuator/health/readiness, port: 8082 }
             initialDelaySeconds: 20
             periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8082 }
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 5
           resources:
             requests: { memory: 768Mi, cpu: 250m }
             limits: { memory: 1536Mi, cpu: "1" }

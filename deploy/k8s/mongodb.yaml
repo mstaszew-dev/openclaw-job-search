@@ -1,0 +1,126 @@
+# MongoDB 7 single-node replica set rs0, with auth. Multi-document
+# transactions (Recorder, markTerminal) need a replica set, not a standalone
+# mongod. Data in /home/mstro/k3s-pod-data/mongodb (hostPath).
+#
+# First init: the image's entrypoint creates the root user from
+# MONGO_INITDB_ROOT_* when the data dir is empty, then starts mongod with the
+# custom args (auth + keyfile). mongo-init then initiates the replica set;
+# INITIATING members accept the command but the pod only becomes READY when
+# db.hello() says isWritablePrimary, so order is guaranteed.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongo
+  namespace: campaign
+spec:
+  serviceName: mongo
+  replicas: 1
+  selector:
+    matchLabels: { app: mongo }
+  template:
+    metadata:
+      labels: { app: mongo }
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:7
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: campaign
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: campaign-mongo, key: password } }
+          args:
+            - --replSet
+            - rs0
+            - --bind_ip_all
+            - --keyFile
+            - /etc/mongo/keyfile
+          ports: [{ containerPort: 27017 }]
+          volumeMounts:
+            - { name: data, mountPath: /data/db }
+            - { name: keyfile, mountPath: /etc/mongo/keyfile, subPath: keyfile, readOnly: true }
+          livenessProbe:
+            exec:
+              # "the port is open" is not readiness; a replset member that
+              # never finishes its election must fail health too. See
+              # msrouter/src/director README k3s notes for that failure mode.
+              command: ["mongosh", "--quiet", "--eval", "db.hello().isWritablePrimary"]
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["mongosh", "--quiet", "--eval", "db.hello().isWritablePrimary"]
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 10
+          resources:
+            requests: { memory: 512Mi, cpu: 100m }
+            limits: { memory: 1Gi, cpu: 500m }
+          # WiredTiger default cache is half of (mem - 1G); keep it small so
+          # the 7GB host survives next to Chrome and the JVMs.
+      volumes:
+        - name: data
+          hostPath: { path: /home/mstro/k3s-pod-data/mongodb, type: DirectoryOrCreate }
+        - name: keyfile
+          secret:
+            secretName: campaign-mongo
+            items:
+              - key: keyfile
+                path: keyfile
+                mode: 0400
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+  namespace: campaign
+spec:
+  selector: { app: mongo }
+  ports: [{ port: 27017, targetPort: 27017 }]
+---
+# rs.initiate() returns before the member is elected, so the replica set is rs.initiate() returns before the member is
+# elected, and a SECONDARY serving writes makes every first transaction fail.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongo-init
+  namespace: campaign
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels: { app: mongo-init }
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: mongo:7
+          imagePullPolicy: IfNotPresent
+          # mongosh exits non-zero on failure; the Job retries until the
+          # pod's readiness gate says the member is ready.
+          env:
+            - name: MONGO_PASSWORD
+              valueFrom: { secretKeyRef: { name: campaign-mongo, key: password } }
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -uo pipefail
+              # idempotent: on a re-run the set is already initiated and this
+              # line must not fail the Job
+              mongosh -u campaign -p "$MONGO_PASSWORD" --host mongo.campaign.svc.cluster.local \
+                --eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongo.campaign.svc.cluster.local:27017"}]})' \
+                || echo "rs0 already initiated"
+              # wait for the member to actually take over
+              for i in $(seq 1 60); do
+                if mongosh -u campaign -p "$MONGO_PASSWORD" --host mongo.campaign.svc.cluster.local --quiet \
+                    --eval 'db.hello().isWritablePrimary' 2>/dev/null | grep -q true; then
+                  echo "rs0 has a primary"
+                  exit 0
+                fi
+                sleep 3
+              done
+              echo "rs0 never got a primary after 3 minutes" >&2
+              exit 1
