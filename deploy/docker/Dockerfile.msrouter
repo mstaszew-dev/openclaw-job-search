@@ -12,7 +12,6 @@
 # and the build needs no credentials. They are built in the clone, not
 # committed, so the caller must have run `npm ci && npm run build` there
 # first; bootstrap checks for both before building.
-RUN test -f dist/main.js || { echo "dist/main.js missing; npm run build in the msrouter checkout first" >&2; exit 1; }
 FROM node:22.19-bookworm-slim
 
 WORKDIR /app
@@ -20,6 +19,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY node_modules ./node_modules
 COPY dist ./dist
+
+# The clone ships dist/ built but untracked: a stray git clean or a fresh
+# clone would otherwise make a dead image that dies at MODULE_NOT_FOUND.
+RUN test -f dist/main.js || { echo "dist/main.js missing; npm run build in the msrouter checkout first" >&2; exit 1; }
 
 EXPOSE 3000
 CMD ["node", "dist/main.js"]
