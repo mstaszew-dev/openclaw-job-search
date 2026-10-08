@@ -1,6 +1,7 @@
 package dev.mstaszew.campaign.common
 
 import org.springframework.boot.SpringBootConfiguration
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 
 /**
  * Anchor for the slice tests in this module.
@@ -11,11 +12,12 @@ import org.springframework.boot.SpringBootConfiguration
  * Mongo slice tests in `common` boot; the other three modules have real
  * application classes and do not need this.
  *
- * Deliberately `@SpringBootConfiguration` and NOT `@SpringBootApplication`:
- * the latter component-scans `dev.mstaszew.campaign.common`, which would drag
- * `KafkaWiring` and its unsatisfied `spring.kafka.bootstrap-servers` placeholder
- * into every Mongo slice. The slice supplies the auto-configuration and the
- * repositories itself.
+ * Deliberately `@SpringBootConfiguration` + `@EnableAutoConfiguration` and NOT
+ * `@SpringBootApplication`: those two are exactly what `@SpringBootApplication`
+ * is, minus the component scan. The scan would pull `KafkaWiring` and its
+ * unsatisfied `spring.kafka.bootstrap-servers` placeholder into every Mongo
+ * slice. `@EnableAutoConfiguration` is not optional: without it the slice
+ * fails with "Unable to retrieve @EnableAutoConfiguration base packages".
  *
  * Test-only on purpose: it must never end up on a production classpath. Gradle's
  * test-fixtures plugin exports only `src/testFixtures`, so no other module sees
