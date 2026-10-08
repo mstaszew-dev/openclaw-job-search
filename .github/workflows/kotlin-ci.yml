@@ -33,6 +33,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       # Docker is available here, so the Testcontainers integration tests
-      # (claim/reaper/dedup/JSONB) actually run, unlike on the dev Mac.
+      # (Mongo replica set, Kafka broker, dedupe guards, BSON round-trips)
+      # actually run, unlike on the dev Mac.
       - name: Build and test
         run: ./gradlew build
