@@ -31,8 +31,8 @@ class DedupServiceTest {
     @Test
     fun `clear when nothing matches`() {
         val candidate = Candidate("nofluffjobs", "42", company = "New Co", companyKey = "new-co", url = "https://x.com/1")
-        every { applications.findFirstByIdOrUrlOrderById("nofluffjobs:42", "https://x.com/1") } returns null
-        every { applications.findFirstByCompanyKeyOrderById("new-co") } returns null
+        every { applications.findFirstByIdOrUrl("nofluffjobs:42", "https://x.com/1") } returns null
+        every { applications.findFirstByCompanyKey("new-co") } returns null
         every { skips.findFirstByReasonAndCompanyKey(SkipReason.DUPLICATE, "new-co") } returns null
         every { skips.findFirstByReasonAndUrl(SkipReason.DUPLICATE, "https://x.com/1") } returns null
         every { skips.findFirstByReasonAndSourceAndSourceJobId(SkipReason.DUPLICATE, "nofluffjobs", "42") } returns null
@@ -45,7 +45,7 @@ class DedupServiceTest {
 
     @Test
     fun `matches application by id`() {
-        every { applications.findFirstByIdOrUrlOrderById("nofluffjobs:42", any()) } returns app("nofluffjobs:42")
+        every { applications.findFirstByIdOrUrl("nofluffjobs:42", any()) } returns app("nofluffjobs:42")
 
         val decision = service.check(Candidate("nofluffjobs", "42", "Some Co"))
 
@@ -55,8 +55,8 @@ class DedupServiceTest {
 
     @Test
     fun `matches application by company key`() {
-        every { applications.findFirstByIdOrUrlOrderById(any(), any()) } returns null
-        every { applications.findFirstByCompanyKeyOrderById("google") } returns app("justjoin:1", companyKey = "google")
+        every { applications.findFirstByIdOrUrl(any(), any()) } returns null
+        every { applications.findFirstByCompanyKey("google") } returns app("justjoin:1", companyKey = "google")
 
         val decision = service.check(Candidate("justjoin", "9", "Google LLC", companyKey = "google"))
 
@@ -66,7 +66,7 @@ class DedupServiceTest {
 
     @Test
     fun `matches application by normalized url when ids differ`() {
-        every { applications.findFirstByIdOrUrlOrderById(any(), "https://x.com/old") } returns
+        every { applications.findFirstByIdOrUrl(any(), "https://x.com/old") } returns
             app("nofluffjobs:5", url = "https://x.com/old")
 
         val decision = service.check(Candidate("justjoin", "9", "Other Co", url = "https://x.com/old"))
@@ -77,11 +77,11 @@ class DedupServiceTest {
 
     @Test
     fun `matches duplicate skip by normalized url`() {
-        every { applications.findFirstByIdOrUrlOrderById(any(), "https://x.com/s") } returns null
-        every { applications.findFirstByCompanyKeyOrderById(any()) } returns null
+        every { applications.findFirstByIdOrUrl(any(), "https://x.com/s") } returns null
+        every { applications.findFirstByCompanyKey(any()) } returns null
         every { skips.findFirstByReasonAndCompanyKey(SkipReason.DUPLICATE, any()) } returns null
         every { skips.findFirstByReasonAndUrl(SkipReason.DUPLICATE, "https://x.com/s") } returns
-            SkipEntity(reason = SkipReason.DUPLICATE, url = "https://x.com/s", id = 11)
+            SkipEntity(reason = SkipReason.DUPLICATE, url = "https://x.com/s", id = "11")
 
         val decision = service.check(Candidate("theprotocol", "3", "Url Co", url = "https://x.com/s"))
 
@@ -91,11 +91,11 @@ class DedupServiceTest {
 
     @Test
     fun `matches duplicate skip by id`() {
-        every { applications.findFirstByIdOrUrlOrderById(any(), any()) } returns null
-        every { applications.findFirstByCompanyKeyOrderById(any()) } returns null
+        every { applications.findFirstByIdOrUrl(any(), any()) } returns null
+        every { applications.findFirstByCompanyKey(any()) } returns null
         every { skips.findFirstByReasonAndCompanyKey(SkipReason.DUPLICATE, any()) } returns null
         every { skips.findFirstByReasonAndSourceAndSourceJobId(SkipReason.DUPLICATE, "justjoin", "9") } returns
-            SkipEntity(reason = SkipReason.DUPLICATE, source = "justjoin", sourceJobId = "9", id = 12)
+            SkipEntity(reason = SkipReason.DUPLICATE, source = "justjoin", sourceJobId = "9", id = "12")
 
         val decision = service.check(Candidate("justjoin", "9", "Id Co"))
 
@@ -105,21 +105,21 @@ class DedupServiceTest {
 
     @Test
     fun `sentinel company keys never match by company`() {
-        every { applications.findFirstByIdOrUrlOrderById(any(), any()) } returns null
+        every { applications.findFirstByIdOrUrl(any(), any()) } returns null
         every { skips.findFirstByReasonAndSourceAndSourceJobId(SkipReason.DUPLICATE, "justjoin", "9") } returns null
 
         val decision = service.check(Candidate("justjoin", "9", "Confidential", companyKey = "confidential"))
 
         assertThat(decision.duplicate).isFalse()
-        verify(exactly = 0) { applications.findFirstByCompanyKeyOrderById(any()) }
+        verify(exactly = 0) { applications.findFirstByCompanyKey(any()) }
         verify(exactly = 0) { skips.findFirstByReasonAndCompanyKey(any(), any()) }
     }
 
     @Test
     fun `matches duplicate skip by company key (prior contact without application)`() {
-        every { applications.findFirstByIdOrUrlOrderById(any(), any()) } returns null
-        every { applications.findFirstByCompanyKeyOrderById("acme") } returns null
-        every { skips.findFirstByReasonAndCompanyKey(SkipReason.DUPLICATE, "acme") } returns SkipEntity(reason = SkipReason.DUPLICATE, companyKey = "acme", id = 7)
+        every { applications.findFirstByIdOrUrl(any(), any()) } returns null
+        every { applications.findFirstByCompanyKey("acme") } returns null
+        every { skips.findFirstByReasonAndCompanyKey(SkipReason.DUPLICATE, "acme") } returns SkipEntity(reason = SkipReason.DUPLICATE, companyKey = "acme", id = "7")
 
         val decision = service.check(Candidate("theprotocol", "5", "Acme Ltd", companyKey = "acme"))
 
@@ -129,23 +129,23 @@ class DedupServiceTest {
 
     @Test
     fun `computes company key when candidate has none`() {
-        every { applications.findFirstByIdOrUrlOrderById(any(), any()) } returns null
-        every { applications.findFirstByCompanyKeyOrderById("funds-tech") } returns app("nofluffjobs:1", companyKey = "funds-tech")
+        every { applications.findFirstByIdOrUrl(any(), any()) } returns null
+        every { applications.findFirstByCompanyKey("funds-tech") } returns app("nofluffjobs:1", companyKey = "funds-tech")
 
         val decision = service.check(Candidate("nofluffjobs", "77", "Funds-Tech Sp. z o.o."))
 
         assertThat(decision.duplicate).isTrue()
-        verify { applications.findFirstByCompanyKeyOrderById("funds-tech") }
+        verify { applications.findFirstByCompanyKey("funds-tech") }
     }
 
     @Test
     fun `blank company key is never used for matching`() {
-        every { applications.findFirstByIdOrUrlOrderById(any(), any()) } returns null
+        every { applications.findFirstByIdOrUrl(any(), any()) } returns null
         every { skips.findFirstByReasonAndSourceAndSourceJobId(SkipReason.DUPLICATE, "x", "1") } returns null
 
         val decision = service.check(Candidate("x", "1", ""))
 
         assertThat(decision.duplicate).isFalse()
-        verify(exactly = 0) { applications.findFirstByCompanyKeyOrderById(any()) }
+        verify(exactly = 0) { applications.findFirstByCompanyKey(any()) }
     }
 }
