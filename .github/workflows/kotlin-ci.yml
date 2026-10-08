@@ -5,10 +5,15 @@ on:
     branches: ['**']
     paths:
       - 'kotlin/**'
+      # deploy/ carries the manifests and scripts that decide what actually
+      # runs in the cluster; a change there that never reaches CI is exactly
+      # the class of bug this pipeline exists to catch.
+      - 'deploy/**'
       - '.github/workflows/kotlin-ci.yml'
   pull_request:
     paths:
       - 'kotlin/**'
+      - 'deploy/**'
       - '.github/workflows/kotlin-ci.yml'
 
 jobs:

@@ -5,14 +5,14 @@ plugins {
 
 dependencies {
     implementation(project(":common"))
+    testImplementation(testFixtures(project(":common")))
     implementation(libs.jackson.module.kotlin)
-    implementation(libs.postgresql)
+    // The importer talks to Mongo with the driver directly, not through Spring.
+    implementation(libs.mongodb.driver.sync)
 
     testImplementation(platform(libs.testcontainers.bom))
-    testImplementation(libs.testcontainers.postgresql)
+    testImplementation(libs.testcontainers.core)
     testImplementation(libs.testcontainers.junit.jupiter)
-    testImplementation(libs.flyway.core)
-    testImplementation(libs.flyway.postgresql)
 }
 
 application {
