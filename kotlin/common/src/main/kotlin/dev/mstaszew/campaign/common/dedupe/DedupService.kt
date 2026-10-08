@@ -49,14 +49,14 @@ class DedupService(
         val url = UrlNormalizer.normalize(candidate.url)
 
         // id + url against applications
-        applications.findFirstByIdOrUrlOrderById(candidate.id, url)?.let { app ->
+        applications.findFirstByIdOrUrl(candidate.id, url)?.let { app ->
             val matchedOn = if (app.id == candidate.id) MatchedOn.ID else MatchedOn.URL
             return DuplicateDecision(true, matchedOn, app.id)
         }
 
         // company key (never for sentinel keys or blank keys)
         if (companyKey.isNotBlank() && !CompanyKeyNormalizer.isSentinelKey(companyKey)) {
-            applications.findFirstByCompanyKeyOrderById(companyKey)?.let {
+            applications.findFirstByCompanyKey(companyKey)?.let {
                 return DuplicateDecision(true, MatchedOn.COMPANY, it.id)
             }
             skips.findFirstByReasonAndCompanyKey(SkipReason.DUPLICATE, companyKey)?.let {

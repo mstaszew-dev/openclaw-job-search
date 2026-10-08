@@ -1,22 +1,19 @@
 package dev.mstaszew.campaign.common.domain
 
-import jakarta.persistence.Column
-import jakarta.persistence.Entity
-import jakarta.persistence.GeneratedValue
-import jakarta.persistence.GenerationType
-import jakarta.persistence.Id
-import jakarta.persistence.Table
-import org.hibernate.annotations.JdbcTypeCode
-import org.hibernate.type.SqlTypes
+import com.fasterxml.jackson.databind.JsonNode
+import org.springframework.data.annotation.Id
+import org.springframework.data.mongodb.core.mapping.Document
 import java.math.BigDecimal
 import java.time.Instant
 
-@Entity
-@Table(name = "job_listings")
+/**
+ * Discovered board listings. The id is a Mongo ObjectId hex string, assigned on
+ * insert; it is null until then, which is why every consumer that copies it
+ * (SkipEntity.listingId) takes a String?.
+ */
+@Document("job_listings")
 class JobListingEntity(
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    var id: Long = 0,
+    @Id var id: String? = null,
     var source: String = "",
     var sourceJobId: String = "",
     var company: String = "",
@@ -30,12 +27,9 @@ class JobListingEntity(
     var salaryMax: BigDecimal? = null,
     var salaryCurrency: String? = null,
     var salaryBasis: String? = null,
-    @JdbcTypeCode(SqlTypes.ARRAY)
     var stack: List<String> = emptyList(),
-    /** Canonical JSON string of the raw board payload; parsed at the edges only. */
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
-    var raw: String? = null,
+    /** Raw board payload as a real subdocument; parsed at the edges only. */
+    var raw: JsonNode? = null,
     var discoveredAt: Instant = Instant.now(),
     var updatedAt: Instant = Instant.now(),
 ) {

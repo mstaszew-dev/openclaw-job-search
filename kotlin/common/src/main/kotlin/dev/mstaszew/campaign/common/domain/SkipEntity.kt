@@ -1,27 +1,21 @@
 package dev.mstaszew.campaign.common.domain
 
-import jakarta.persistence.Column
-import jakarta.persistence.Entity
-import jakarta.persistence.EnumType
-import jakarta.persistence.Enumerated
-import jakarta.persistence.GeneratedValue
-import jakarta.persistence.GenerationType
-import jakarta.persistence.Id
-import jakarta.persistence.Table
-import org.hibernate.annotations.JdbcTypeCode
-import org.hibernate.type.SqlTypes
+import com.fasterxml.jackson.databind.JsonNode
+import org.springframework.data.annotation.Id
+import org.springframework.data.mongodb.core.mapping.Document
 import java.time.Instant
 
-/** Ports tracker.json skipped[] rows; reason=duplicate rows participate in dedup. */
-@Entity
-@Table(name = "skips")
+/**
+ * Ports tracker.json skipped[] rows; reason=duplicate rows participate in dedup.
+ *
+ * listingId points at job_listings._id, which is an ObjectId hex string rather
+ * than the Postgres BIGSERIAL it replaced, so this is a String?.
+ */
+@Document("skips")
 class SkipEntity(
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    var id: Long = 0,
-    @Enumerated(EnumType.STRING)
+    @Id var id: String? = null,
     var reason: SkipReason = SkipReason.DUPLICATE,
-    var listingId: Long? = null,
+    var listingId: String? = null,
     var source: String? = null,
     var sourceJobId: String? = null,
     var company: String? = null,
@@ -31,10 +25,7 @@ class SkipEntity(
     var url: String? = null,
     var region: String? = null,
     var remotePolicy: String? = null,
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
-    var salary: String? = null,
-    @JdbcTypeCode(SqlTypes.ARRAY)
+    var salary: JsonNode? = null,
     var stack: List<String> = emptyList(),
     var detail: String? = null,
     var blockedRepeat: Boolean = false,

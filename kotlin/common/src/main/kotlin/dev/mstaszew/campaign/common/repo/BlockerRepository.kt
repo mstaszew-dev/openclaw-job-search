@@ -1,9 +1,9 @@
 package dev.mstaszew.campaign.common.repo
 
 import dev.mstaszew.campaign.common.domain.BlockerEntity
-import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.mongodb.repository.MongoRepository
 
-interface BlockerRepository : JpaRepository<BlockerEntity, Long> {
+interface BlockerRepository : MongoRepository<BlockerEntity, String> {
 
     /** Repeat-block guard input: prior blocks for the same company. */
     fun countByCompanyKeyAndResolvedFalse(companyKey: String): Long

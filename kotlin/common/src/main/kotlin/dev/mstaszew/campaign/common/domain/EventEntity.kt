@@ -1,25 +1,23 @@
 package dev.mstaszew.campaign.common.domain
 
-import jakarta.persistence.Column
-import jakarta.persistence.Entity
-import jakarta.persistence.GeneratedValue
-import jakarta.persistence.GenerationType
-import jakarta.persistence.Id
-import jakarta.persistence.Table
-import org.hibernate.annotations.JdbcTypeCode
-import org.hibernate.type.SqlTypes
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import org.springframework.data.annotation.Id
+import org.springframework.data.mongodb.core.mapping.Document
 import java.time.Instant
 
-/** Append-only ledger porting events.jsonl; never updated or deleted. */
-@Entity
-@Table(name = "events")
+/**
+ * Append-only ledger porting events.jsonl; never updated or deleted.
+ *
+ * The Postgres version ordered reads by a BIGSERIAL `seq`. There is no
+ * equivalent here: the generated _id is a UUID string, not an ObjectId, so it
+ * carries no time ordering. "Most recent N" therefore sorts on `at` against
+ * idx_events_at, and only ties on that are broken by _id.
+ */
+@Document("events")
 class EventEntity(
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    var seq: Long = 0,
+    @Id var id: String? = null,
     var at: Instant = Instant.now(),
     var action: String = "",
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb", nullable = false)
-    var record: String = "{}",
+    var record: JsonNode = JsonNodeFactory.instance.objectNode(),
 )

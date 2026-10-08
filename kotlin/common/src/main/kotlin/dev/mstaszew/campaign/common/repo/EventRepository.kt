@@ -1,12 +1,19 @@
 package dev.mstaszew.campaign.common.repo
 
 import dev.mstaszew.campaign.common.domain.EventEntity
-import org.springframework.data.jpa.repository.JpaRepository
-import org.springframework.data.jpa.repository.Query
+import org.springframework.data.mongodb.repository.MongoRepository
 
-interface EventRepository : JpaRepository<EventEntity, Long> {
+/**
+ * The ledger is append-only. The Postgres JPQL maxSeq() counter is gone with
+ * the table it counted: idempotent event re-imports are gated on
+ * countDocuments({}) == 0 instead.
+ */
+interface EventRepository : MongoRepository<EventEntity, String> {
 
-    /** Max imported events.jsonl line number, for idempotent re-imports. */
-    @Query("select max(coalesce(e.seq, 0)) from EventEntity e")
-    fun maxSeq(): Long?
+    /**
+     * Most recent first, ordered by `at` rather than _id. Spring Data generates
+     * a UUID string for EventEntity._id, which carries no time ordering, so
+     * ordering by _id would return an arbitrary slice of the ledger.
+     */
+    fun findTop20ByOrderByAtDesc(): List<EventEntity>
 }
