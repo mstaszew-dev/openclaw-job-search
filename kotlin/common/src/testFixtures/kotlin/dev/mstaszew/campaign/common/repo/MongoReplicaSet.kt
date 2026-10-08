@@ -51,7 +51,32 @@ object MongoReplicaSet {
             "rs.initiate() failed (exit ${initiate.exitCode}): ${initiate.stderr}"
         }
 
+        // rs.initiate() returns the moment the config is accepted, which is
+        // before the member has been elected. Handing the URI back at that
+        // point hands it to a SECONDARY, and the first write in the test JVM
+        // then blocks on server selection until it gives up. Waiting for the
+        // real primary is what makes the harness deterministic.
+        awaitWritablePrimary(container)
+
         return "mongodb://${container.host}:${container.getMappedPort(27017)}/$DB_NAME" +
             "?directConnection=true"
+    }
+
+    private fun awaitWritablePrimary(container: GenericContainer<*>) {
+        val deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos()
+        var lastSeen = "never evaluated"
+        while (System.nanoTime() < deadline) {
+            val probe =
+                container.execInContainer(
+                    "mongosh",
+                    "--quiet",
+                    "--eval",
+                    "db.hello().isWritablePrimary",
+                )
+            lastSeen = probe.stdout.trim().ifEmpty { probe.stderr.trim() }
+            if (probe.exitCode == 0 && lastSeen == "true") return
+            Thread.sleep(250)
+        }
+        error("replica set $REPL_SET never reached a writable primary; last probe: $lastSeen")
     }
 }

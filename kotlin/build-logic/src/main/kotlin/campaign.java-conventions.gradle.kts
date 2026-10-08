@@ -1,3 +1,5 @@
+import java.time.Duration
+
 plugins {
     id("org.jetbrains.kotlin.jvm")
 }
@@ -22,6 +24,12 @@ tasks.withType<Test>().configureEach {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
     maxParallelForks = 1
+
+    // A hung integration test must fail the build, not occupy a CI runner
+    // until the six-hour job limit. The Testcontainers work is the only slow
+    // part (two containers, one replica-set election) and it takes about two
+    // minutes in total; twenty is generous.
+    timeout.set(Duration.ofMinutes(20))
 }
 
 // Coordinates mirror gradle/libs.versions.toml (precompiled scripts cannot use
