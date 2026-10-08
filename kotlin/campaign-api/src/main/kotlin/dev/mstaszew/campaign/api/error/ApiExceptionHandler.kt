@@ -1,6 +1,6 @@
 package dev.mstaszew.campaign.api.error
 
-import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.dao.DuplicateKeyException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.web.bind.annotation.ExceptionHandler
@@ -20,8 +20,13 @@ class ApiExceptionHandler {
     @ExceptionHandler(ConflictException::class)
     fun conflict(e: ConflictException) = problem(HttpStatus.CONFLICT, e.message ?: "conflict")
 
-    @ExceptionHandler(DataIntegrityViolationException::class)
-    fun dataConflict(e: DataIntegrityViolationException) =
+    /**
+     * Spring JDBC's DataIntegrityViolationException went away with Postgres;
+     * Mongo raises DuplicateKeyException for a unique-index collision, which
+     * is the same 409 case (an application already exists for this job id).
+     */
+    @ExceptionHandler(DuplicateKeyException::class)
+    fun dataConflict(e: DuplicateKeyException) =
         problem(HttpStatus.CONFLICT, "conflicting state (constraint violation)")
 
     @ExceptionHandler(IllegalArgumentException::class)

@@ -1,18 +1,22 @@
 package dev.mstaszew.campaign.finder
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
 import dev.mstaszew.campaign.common.dedupe.Candidate
+import dev.mstaszew.campaign.common.dedupe.CompanyKeyNormalizer
 import dev.mstaszew.campaign.common.dedupe.DedupService
 import dev.mstaszew.campaign.common.dedupe.UrlNormalizer
-import dev.mstaszew.campaign.common.domain.ApplyTaskEntity
 import dev.mstaszew.campaign.common.domain.EventEntity
 import dev.mstaszew.campaign.common.domain.JobListingEntity
+import dev.mstaszew.campaign.common.domain.JobStateDocument
+import dev.mstaszew.campaign.common.domain.JobStatus
 import dev.mstaszew.campaign.common.domain.SkipEntity
 import dev.mstaszew.campaign.common.domain.SkipReason
-import dev.mstaszew.campaign.common.domain.TaskState
-import dev.mstaszew.campaign.common.repo.ApplyTaskRepository
+import dev.mstaszew.campaign.common.messaging.JobMessage
+import dev.mstaszew.campaign.common.messaging.Topics
 import dev.mstaszew.campaign.common.repo.EventRepository
 import dev.mstaszew.campaign.common.repo.JobListingRepository
+import dev.mstaszew.campaign.common.repo.JobStateRepository
 import dev.mstaszew.campaign.common.repo.SkipRepository
 import dev.mstaszew.campaign.finder.collect.CollectedListing
 import dev.mstaszew.campaign.finder.collect.ListingCollector
@@ -22,7 +26,7 @@ import dev.mstaszew.campaign.finder.policy.IneligibilityReason
 import dev.mstaszew.campaign.finder.score.CvScore
 import dev.mstaszew.campaign.finder.score.CvScorer
 import org.slf4j.LoggerFactory
-import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.support.TransactionTemplate
@@ -30,16 +34,19 @@ import org.springframework.transaction.support.TransactionTemplate
 /**
  * One discovery run: collect -> upsert -> dedup -> eligibility -> score ->
  * enqueue. Scoring (an external LLM call) runs OUTSIDE any transaction; the
- * persist tail (task + event, or skip) is one short transaction via
- * TransactionTemplate. Each listing is isolated: one failure is logged and
- * skipped. Enqueueing is safe in shadow mode (no worker applies while
- * apply.mode=shadow).
+ * persist tail (event, or skip) is one short transaction via TransactionTemplate.
+ * Each listing is isolated: one failure is logged and skipped.
+ *
+ * Delivery is Kafka's job, not ours. This class records a PENDING row in
+ * job_state for operator visibility and produces to campaign.jobs; it never
+ * reads job_state back to decide what to do, which is what keeps Mongo out of
+ * the scheduling path.
  */
 @Service
 class FinderPipeline(
     private val collector: ListingCollector,
     private val listings: JobListingRepository,
-    private val tasks: ApplyTaskRepository,
+    private val jobState: JobStateRepository,
     private val skips: SkipRepository,
     private val events: EventRepository,
     private val dedup: DedupService,
@@ -47,6 +54,7 @@ class FinderPipeline(
     private val scorer: CvScorer,
     private val cvProfile: CvProfile,
     private val tx: TransactionTemplate,
+    private val kafka: KafkaTemplate<String, Any>,
     private val mapper: ObjectMapper,
 ) {
 
@@ -105,50 +113,59 @@ class FinderPipeline(
         )
         if (score.score < 60) return Outcome.LowScore(score.score, score.reason)
 
-        val enqueued = tx.execute {
-            if (tasks.existsByListingId(listing.id)) return@execute false
-            tasks.save(
-                ApplyTaskEntity(
-                    listingId = listing.id,
-                    state = TaskState.QUEUED,
-                    // fallback-scored tasks go last so LLM-verified ones apply first
-                    priority = if (score.source == CvScore.Source.FALLBACK) -10 else 0,
+        val message = JobMessage(
+            source = listing.source,
+            sourceJobId = listing.sourceJobId,
+            company = listing.company,
+            companyKey = listing.companyKey,
+            roleTitle = listing.roleTitle,
+            url = listing.url,
+            region = listing.region,
+            score = score.score,
+            scoreReason = score.reason.take(500),
+            enqueuedAt = java.time.Instant.now(),
+        )
+
+        tx.executeWithoutResult {
+            jobState.save(
+                JobStateDocument(
+                    id = message.id,
+                    source = message.source,
+                    sourceJobId = message.sourceJobId,
+                    companyKey = message.companyKey,
+                    status = JobStatus.PENDING,
                     score = score.score,
-                    scoreReason = score.reason.take(500),
+                    scoreReason = message.scoreReason,
                 ),
             )
             events.save(
                 EventEntity(
                     action = "enqueued",
-                    record = mapper.writeValueAsString(
-                        mapper.createObjectNode().apply {
-                            put("id", "${listing.source}:${listing.sourceJobId}")
-                            put("company", listing.company)
-                            put("score", score.score)
-                            put("scoreSource", score.source.name)
-                        },
-                    ),
+                    record = record {
+                        put("id", message.id)
+                        put("company", message.company)
+                        put("score", score.score)
+                        put("scoreSource", score.source.name)
+                    },
                 ),
             )
-            true
         }
-        return if (enqueued == true) Outcome.Enqueued(score.score, score.reason) else Outcome.AlreadyQueued
+
+        // Keyed by companyKey so every job for one company lands on one
+        // partition and is consumed by a single worker, in order.
+        kafka.send(Topics.JOBS, message.companyKey, message).whenComplete { _, ex ->
+            if (ex != null) log.warn("kafka send failed for {}: {}", message.id, ex.message)
+        }
+        return Outcome.Enqueued(score.score, score.reason)
     }
 
     private fun upsert(item: CollectedListing): JobListingEntity {
-        val companyKey = dev.mstaszew.campaign.common.dedupe.CompanyKeyNormalizer.normalize(item.company)
+        val companyKey = CompanyKeyNormalizer.normalize(item.company)
         val existing = listings.findBySourceAndSourceJobId(item.source, item.sourceJobId)
         if (existing != null) {
             return listings.save(existing.apply { updateListing(this, item) })
         }
-        return try {
-            listings.save(item.toEntity(companyKey))
-        } catch (e: DataIntegrityViolationException) {
-            // lost an upsert race (retry/re-run): fall back to update
-            val winner = listings.findBySourceAndSourceJobId(item.source, item.sourceJobId)
-                ?: throw e
-            listings.save(winner.apply { updateListing(this, item) })
-        }
+        return listings.save(item.toEntity(companyKey))
     }
 
     /** Salary and filter skips are bookkeeping (they never match in dedup). */
@@ -181,7 +198,7 @@ class FinderPipeline(
         target.salaryMin = item.salaryMin
         target.salaryMax = item.salaryMax
         target.stack = item.stack
-        target.raw = item.rawJson
+        target.raw = item.rawJson?.let(mapper::readTree)
         target.touch()
     }
 
@@ -203,15 +220,17 @@ class FinderPipeline(
         salaryMin = salaryMin,
         salaryMax = salaryMax,
         stack = stack,
-        raw = rawJson,
+        raw = rawJson?.let(mapper::readTree),
     )
+
+    private fun record(build: ObjectNode.() -> Unit): com.fasterxml.jackson.databind.JsonNode =
+        mapper.createObjectNode().apply(build)
 
     private fun roleKeyOrNull(roleTitle: String): String? =
         roleTitle.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').takeIf { it.isNotEmpty() }
 
     sealed class Outcome {
         data class Enqueued(val score: Int, val reason: String) : Outcome()
-        data object AlreadyQueued : Outcome()
         data class Duplicate(val matchedOn: String?, val reference: String?) : Outcome()
         data class Ineligible(val reason: String, val detail: String) : Outcome()
         data class LowScore(val score: Int, val reason: String) : Outcome()

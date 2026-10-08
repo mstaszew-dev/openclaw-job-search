@@ -1,11 +1,11 @@
 package dev.mstaszew.campaign.api
 
+import dev.mstaszew.campaign.common.messaging.KafkaBroker
+import dev.mstaszew.campaign.common.repo.MongoReplicaSet
 import org.junit.jupiter.api.Test
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import org.testcontainers.containers.PostgreSQLContainer
-import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 
 @Testcontainers(disabledWithoutDocker = true)
@@ -13,19 +13,12 @@ import org.testcontainers.junit.jupiter.Testcontainers
 class ApiContextIT {
 
     companion object {
-        @Container
-        @JvmStatic
-        val postgres = PostgreSQLContainer("postgres:16-alpine")
-            .withDatabaseName("campaign")
-            .withUsername("campaign")
-            .withPassword("campaign")
-
         @JvmStatic
         @DynamicPropertySource
-        fun datasource(registry: DynamicPropertyRegistry) {
-            registry.add("spring.datasource.url", postgres::getJdbcUrl)
-            registry.add("spring.datasource.username", postgres::getUsername)
-            registry.add("spring.datasource.password", postgres::getPassword)
+        fun infra(registry: DynamicPropertyRegistry) {
+            registry.add("spring.data.mongodb.uri") { MongoReplicaSet.connectionUri }
+            registry.add("spring.data.mongodb.database") { "api_context_it" }
+            registry.add("spring.kafka.bootstrap-servers") { KafkaBroker.bootstrapServers }
         }
     }
 

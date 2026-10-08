@@ -25,11 +25,16 @@ class StatsControllerTest {
             applications = org.mockito.Mockito.mock(dev.mstaszew.campaign.common.repo.ApplicationRepository::class.java).also {
                 org.mockito.Mockito.`when`(it.countByStatus(dev.mstaszew.campaign.common.domain.ApplicationStatus.SUBMITTED)).thenReturn(1804L)
             },
-            tasks = org.mockito.Mockito.mock(dev.mstaszew.campaign.common.repo.ApplyTaskRepository::class.java).also {
-                org.mockito.Mockito.`when`(it.countByState(dev.mstaszew.campaign.common.domain.TaskState.QUEUED)).thenReturn(3L)
+            jobState = org.mockito.Mockito.mock(dev.mstaszew.campaign.common.repo.JobStateRepository::class.java).also {
+                org.mockito.Mockito.`when`(it.countByStatus(dev.mstaszew.campaign.common.domain.JobStatus.IN_FLIGHT)).thenReturn(2L)
+                org.mockito.Mockito.`when`(it.countByStatus(dev.mstaszew.campaign.common.domain.JobStatus.PENDING)).thenReturn(1L)
+                org.mockito.Mockito.`when`(it.countByStatus(dev.mstaszew.campaign.common.domain.JobStatus.DEAD)).thenReturn(4L)
             },
             skips = org.mockito.Mockito.mock(dev.mstaszew.campaign.common.repo.SkipRepository::class.java),
             blockers = org.mockito.Mockito.mock(dev.mstaszew.campaign.common.repo.BlockerRepository::class.java),
+            lagProbe = org.mockito.Mockito.mock(dev.mstaszew.campaign.common.messaging.ConsumerLagProbe::class.java).also {
+                org.mockito.Mockito.`when`(it.lag(org.mockito.Mockito.anyString(), org.mockito.Mockito.anyString())).thenReturn(7L)
+            },
         )
     }
 
@@ -40,7 +45,9 @@ class StatsControllerTest {
             jsonPath("$.submitted") { value(1804) }
             jsonPath("$.target") { value(2000) }
             jsonPath("$.remaining") { value(196) }
-            jsonPath("$.queued") { value(3) }
+            jsonPath("$.inFlight") { value(3) }
+            jsonPath("$.dead") { value(4) }
+            jsonPath("$.consumerLag") { value(7) }
         }
     }
 }

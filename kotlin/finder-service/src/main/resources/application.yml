@@ -1,16 +1,19 @@
 spring:
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://127.0.0.1:27017/campaign?directConnection=true}
+      auto-index-creation: false
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    admin:
+      fail-fast: false
+    producer:
+      # A send that cannot reach the broker within this window is a warning,
+      # not a stack trace: the finder keeps collecting either way.
+      delivery.timeout.ms: 30000
+      request.timeout.ms: 10000
   application:
     name: finder-service
-  datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/campaign}
-    username: ${DB_USER:campaign}
-    password: ${DB_PASSWORD:campaign}
-  jpa:
-    hibernate:
-      ddl-auto: validate
-    open-in-view: false
-  flyway:
-    locations: classpath:db/migration
 
 server:
   port: ${PORT:8081}
