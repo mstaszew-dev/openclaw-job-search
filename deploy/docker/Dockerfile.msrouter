@@ -19,6 +19,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY node_modules ./node_modules
 COPY dist ./dist
+# dist/director/iterm.js resolves the repo root by walking up until it finds
+# scripts/kafka.sh, so dist alone is not enough
+COPY scripts ./scripts
+COPY data ./data
 
 # The clone ships dist/ built but untracked: a stray git clean or a fresh
 # clone would otherwise make a dead image that dies at MODULE_NOT_FOUND.

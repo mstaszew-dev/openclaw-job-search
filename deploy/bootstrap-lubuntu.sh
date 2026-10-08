@@ -93,6 +93,12 @@ kubectl -n "$NS" scale deploy --all --replicas=0 2>/dev/null || true
 kubectl -n "$NS" delete statefulset postgres --ignore-not-found 2>/dev/null \
   && echo "postgres statefulset deleted (data dir /home/mstro/k3s-pod-data/postgres kept for M8)" || true
 
+log "pre-create host data dirs with the ownership the images need"
+# k3s kubelet does not apply fsGroup to hostPath volumes on this host, and the
+# kafka image runs as non-root appuser (uid 1000); kubelet creates
+# DirectoryOrCreate dirs as root:root, so the format step would EACCES
+install -d -o 1000 -g 0 -m 775 /home/mstro/k3s-pod-data/kafka
+
 log "deploy manifests"
 kubectl apply -f deploy/k8s/mongodb.yaml
 kubectl apply -f deploy/k8s/kafka.yaml

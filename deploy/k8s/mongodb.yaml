@@ -21,10 +21,10 @@ spec:
     metadata:
       labels: { app: mongo }
     spec:
-      securityContext:
-        # mongod runs as uid 999 (mongodb); without a group it cannot read the
-        # root-owned 0400 keyfile and crash-loops on the very first boot
-        fsGroup: 999
+      # k3s kubelet does not apply fsGroup to hostPath volumes, and mongod
+      # itself re-owns its data dir as mongodb (uid 999) on every start; the
+      # only hard requirement left is the keyfile, handled by the init
+      # container below.
       containers:
         - name: mongo
           image: mongo:7
@@ -43,7 +43,7 @@ spec:
           ports: [{ containerPort: 27017 }]
           volumeMounts:
             - { name: data, mountPath: /data/db }
-            - { name: keyfile, mountPath: /etc/mongo/keyfile, subPath: keyfile, readOnly: true }
+            - { name: keyfile, mountPath: /etc/mongo, readOnly: true }
           livenessProbe:
             exec:
               # "the port is open" is not readiness; a replset member that
@@ -67,13 +67,14 @@ spec:
       volumes:
         - name: data
           hostPath: { path: /home/mstro/k3s-pod-data/mongodb, type: DirectoryOrCreate }
-        - name: keyfile
+        - name: keyfile-src
           secret:
             secretName: campaign-mongo
             items:
               - key: keyfile
                 path: keyfile
-                mode: 0400
+        - name: keyfile
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -84,8 +85,9 @@ spec:
   selector: { app: mongo }
   ports: [{ port: 27017, targetPort: 27017 }]
 ---
-# rs.initiate() returns before the member is elected, so the replica set is rs.initiate() returns before the member is
-# elected, and a SECONDARY serving writes makes every first transaction fail.
+# rs.initiate() returns the moment the config is accepted, BEFORE the member
+# is elected; a SECONDARY serving writes makes every first transaction fail
+# with "not primary".
 apiVersion: batch/v1
 kind: Job
 metadata:
