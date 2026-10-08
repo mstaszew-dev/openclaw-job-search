@@ -19,8 +19,10 @@ kotlin {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    // started/passed are on while the teardown-hang question is open: a run
+    // that times out would otherwise leave "which test was in flight" unknown.
     testLogging {
-        events("failed", "skipped")
+        events("started", "passed", "failed", "skipped")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
     maxParallelForks = 1

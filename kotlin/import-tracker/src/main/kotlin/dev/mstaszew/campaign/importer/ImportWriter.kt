@@ -6,6 +6,7 @@ import com.mongodb.client.model.Filters.eq
 import com.mongodb.client.model.UpdateOneModel
 import com.mongodb.client.model.UpdateOptions
 import com.mongodb.client.model.WriteModel
+import dev.mstaszew.campaign.common.JsonNodePropertyValueConversions
 import dev.mstaszew.campaign.common.domain.ApplicationEntity
 import dev.mstaszew.campaign.common.domain.ApplicationStatus
 import dev.mstaszew.campaign.common.domain.BlockerEntity
@@ -16,6 +17,10 @@ import org.bson.Document
 import org.bson.conversions.Bson
 import java.security.MessageDigest
 import java.time.Instant
+
+private object MapperHolder {
+    val MAPPER = com.fasterxml.jackson.databind.ObjectMapper()
+}
 
 data class ImportReport(
     val applicationsInserted: Int,
@@ -214,9 +219,14 @@ class ImportWriter(private val database: MongoDatabase) {
         .append("action", e.action)
         .append("record", e.record ?: Document())
 
-    /** BSON-native conversion of the Jackson node the parser produced. */
+    /**
+     * BSON-native conversion of the Jackson node the parser produced. Shared
+     * with the Spring converter so both sides store identical shapes; the
+     * tracker emits salarySeen as either a bare string or an object, and
+     * Document.parse would reject the bare string outright.
+     */
     private fun jsonOrNull(node: com.fasterxml.jackson.databind.JsonNode?): Any? =
-        node?.let { Document.parse(it.toString()) }
+        node?.let { JsonNodePropertyValueConversions.toBson(it, MapperHolder.MAPPER) }
 
     private companion object {
         const val BATCH = 500
