@@ -97,7 +97,7 @@ class ImportWriterIT {
         assertThat(companyHit).isEqualTo(1)
 
         val idHit = withDb { db ->
-            db.getCollection("applications").countDocuments(Document("_id", "justjoin:9"))
+            db.getCollection("applications").countDocuments(Document("_id", "justjoin:jj-9"))
         }
         assertThat(idHit).isEqualTo(1)
     }

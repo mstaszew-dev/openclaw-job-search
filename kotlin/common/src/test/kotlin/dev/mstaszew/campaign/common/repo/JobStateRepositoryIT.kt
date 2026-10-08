@@ -107,18 +107,21 @@ class JobStateRepositoryIT {
         val start = java.util.concurrent.CountDownLatch(1)
         val pool = java.util.concurrent.Executors.newFixedThreadPool(threads)
         try {
-            val results = (1..threads).map {
-                pool.submit<Int> {
-                    start.await()
-                    jobState.beginAttempt(seed())
-                }
-            }.map { it.get() }
+            val futures = (1..threads).map {
+                pool.submit<Int> { start.await(); jobState.beginAttempt(seed()) }
+            }
+            // The latch has to open BEFORE collecting futures: the original
+            // order (get() then countDown() in finally) deadlocked, because
+            // every task waits on the latch that the main thread would have
+            // opened only after waiting on them. The timeout is a second line
+            // of defence; a CI run occupied a runner for 20 minutes here.
+            start.countDown()
+            val results = futures.map { it.get(60, java.util.concurrent.TimeUnit.SECONDS) }
             assertThat(results).allMatch { it in 1..threads }
             // The load-modify-save version this replaced lost increments here
             // and left the counter below the true number of attempts.
             assertThat(jobState.findById("justjoin:1").orElseThrow().attempts).isEqualTo(threads)
         } finally {
-            start.countDown()
             pool.shutdownNow()
         }
     }
