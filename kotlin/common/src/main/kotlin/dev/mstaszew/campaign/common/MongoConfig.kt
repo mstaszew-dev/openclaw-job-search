@@ -32,10 +32,10 @@ class MongoConfig {
         MongoTransactionManager(factory)
 
     @Bean
-    fun mongoCustomConversions(objectMapper: ObjectMapper): MongoCustomConversions =
+    fun mongoCustomConversions(): MongoCustomConversions =
         MongoCustomConversions.create { store ->
-            store.registerConverter(JsonNodeToBson(objectMapper))
-            store.registerConverter(BsonToJsonNode(objectMapper))
+            store.registerConverter(JsonNodeToBson(NODE_MAPPER))
+            store.registerConverter(BsonToJsonNode(NODE_MAPPER))
         }
 
     /**
@@ -70,5 +70,18 @@ class MongoConfig {
 
     private class BsonToJsonNode(private val mapper: ObjectMapper) : Converter<Any, JsonNode> {
         override fun convert(source: Any): JsonNode = mapper.valueToTree(source)
+    }
+
+    private companion object {
+        /**
+         * Deliberately not the application's ObjectMapper bean. The Mongo slice
+         * in common has no Jackson auto-configuration, so injecting one fails
+         * with "No qualifying bean of type ObjectMapper". These converters only
+         * move JsonNode to and from plain BSON shapes, so a private mapper with
+         * no modules registered is exactly as capable as it needs to be: the
+         * Instant fields on the documents around them are mapped by Spring
+         * Data, not by Jackson.
+         */
+        val NODE_MAPPER: ObjectMapper = ObjectMapper()
     }
 }
