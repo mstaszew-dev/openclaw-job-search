@@ -12,7 +12,7 @@ dependencies {
     "implementation"("org.springframework.kafka:spring-kafka")
     "implementation"("com.fasterxml.jackson.module:jackson-module-kotlin")
 
-    "testImplementation"(platform("org.testcontainers:testcontainers-bom:2.0.5"))
+    "testImplementation"(platform("org.testcontainers:testcontainers-bom:1.21.4"))
     "testImplementation"("org.testcontainers:testcontainers")
     "testImplementation"("org.testcontainers:junit-jupiter")
     "testImplementation"("org.testcontainers:kafka")

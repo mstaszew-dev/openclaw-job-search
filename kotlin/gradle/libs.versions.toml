@@ -2,7 +2,11 @@
 kotlin = "2.4.20"
 spring-boot = "3.5.9"
 graalvm-native = "1.1.14"
-testcontainers = "2.0.5"
+# Pinned to the line Spring Boot 3.5.9 manages. The 2.x core artifact exists,
+# but org.testcontainers:kafka is only published up to 1.21.4, so a 2.x core
+# with the 1.x kafka module resolves to a mismatched pair whose container is
+# never actually started.
+testcontainers = "1.21.4"
 mockk = "1.14.11"
 
 [libraries]
