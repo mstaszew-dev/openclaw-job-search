@@ -841,3 +841,263 @@ class TestExtractTextsErrorNormalization:
         result = MagicMock()  # isError attribute is a Mock, not True
         result.content = [MagicMock(text="fine")]
         assert _extract_texts(result) == "fine"
+
+
+class TestSessionCancellationSurvived:
+    """2026-10-09 campaign death: anyio cancels the MCP session task through its
+    own cancel scope, which raises asyncio.CancelledError. CancelledError is a
+    BaseException (not an Exception), so it slipped past every `except Exception`
+    guard on the way out - playwright_mcp.call_tool -> tools.dispatch ->
+    run_agent_turn -> asyncio.run - and killed the worker mid-tick. The
+    production traceback ended at playwright_mcp.py:227, the respawn's
+    connect(). Session-scoped cancellation must surface as an error string so
+    the campaign keeps ticking; only cancellation aimed at the campaign task
+    itself may propagate."""
+
+    @pytest.mark.asyncio
+    async def test_tool_call_cancelled_becomes_error_string(self):
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=3)
+        session = AsyncMock()
+        session.call_tool = AsyncMock(
+            side_effect=asyncio.CancelledError("Cancelled via cancel scope 10de814f0")
+        )
+        pw._session = session
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+
+        result = await pw.call_tool("browser_navigate", {"url": "x"}, timeout=1.0)
+        assert result.startswith("Error")
+        # Counted as a strike: the wedge watchdog must still see the wedge.
+        assert pw._consecutive_failures == 1
+
+    @pytest.mark.asyncio
+    async def test_dialog_dismiss_cancelled_counts_strike(self):
+        """The dismiss call runs inside _clear_pending_dialog; a cancellation
+        there must mean 'session dead', i.e. None (strike), not a dead worker."""
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=3)
+        session = AsyncMock()
+        session.call_tool = AsyncMock(
+            side_effect=asyncio.CancelledError("Cancelled via cancel scope dead")
+        )
+        pw._session = session
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+
+        assert await pw._clear_pending_dialog() is None
+
+    @pytest.mark.asyncio
+    async def test_respawn_cancelled_does_not_kill_campaign(self):
+        """The exact production shape: three 120s timeouts, then the wedge
+        watchdog respawns and connect() is cancelled by the dying session's
+        scope. That used to end the process."""
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=3)
+        session = AsyncMock()
+        session.call_tool = AsyncMock(side_effect=TimeoutError)
+        pw._session = session
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock(
+            side_effect=asyncio.CancelledError("Cancelled via cancel scope 10de814f0")
+        )
+
+        results = [
+            await pw.call_tool("browser_evaluate", {"function": "() => 1"}, timeout=0.05)
+            for _ in range(3)
+        ]
+        assert all(r.startswith("Error") for r in results)
+        assert pw.close.await_count == 1
+        # Counter deliberately not reset: the next strike retries the respawn.
+        assert pw._consecutive_failures == 3
+        await pw.call_tool("browser_evaluate", {"function": "() => 1"}, timeout=0.05)
+        assert pw.connect.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_respawn_ok_resets_counter_after_cancelled_tool_call(self):
+        """A cancellation must still feed the watchdog: after enough of them
+        the session is respawned and the turn recovers in place."""
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=2)
+        session = AsyncMock()
+        session.call_tool = AsyncMock(
+            side_effect=asyncio.CancelledError("Cancelled via cancel scope dead")
+        )
+        pw._session = session
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+
+        first = await pw.call_tool("browser_navigate", {"url": "x"}, timeout=1.0)
+        assert first.startswith("Error")
+        second = await pw.call_tool("browser_navigate", {"url": "x"}, timeout=1.0)
+        assert "respawned" in second.lower()
+        assert pw._consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_rag_tool_call_cancelled_becomes_error_string(self):
+        rag = RAGMCP("python3", ["rag_server.py"], wedge_restart_strikes=3)
+        session = AsyncMock()
+        session.call_tool = AsyncMock(
+            side_effect=asyncio.CancelledError("Cancelled via cancel scope dead")
+        )
+        rag._session = session
+        rag.close = AsyncMock()
+        rag.connect = AsyncMock()
+
+        result = await rag.call_tool("rag_search", {"query": "x"}, timeout=1.0)
+        assert result.startswith("Error")
+        assert rag._consecutive_failures == 1
+
+    @pytest.mark.asyncio
+    async def test_rag_respawn_cancelled_does_not_kill_campaign(self):
+        rag = RAGMCP("python3", ["rag_server.py"], wedge_restart_strikes=2)
+        session = AsyncMock()
+        session.call_tool = AsyncMock(side_effect=TimeoutError)
+        rag._session = session
+        rag.close = AsyncMock()
+        rag.connect = AsyncMock(
+            side_effect=asyncio.CancelledError("Cancelled via cancel scope dead")
+        )
+
+        for _ in range(2):
+            result = await rag.call_tool("rag_search", {"query": "x"}, timeout=0.05)
+        assert result.startswith("Error")
+        assert "respawn failed" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_post_dismiss_retry_cancelled_returns_original_text(self):
+        """Both post-dialog-dismiss retries (modal-state branch and timeout
+        branch) are guards too: a cancelled retry must report the original
+        result, not end the campaign."""
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=3)
+        modal_result = MagicMock()
+        modal_result.content = [MagicMock(text=(
+            'Error: Tool "browser_navigate" does not handle the modal state.'
+        ))]
+
+        nav_calls = 0
+
+        async def modal_then_cancelled(name, args):
+            nonlocal nav_calls
+            if name == "browser_handle_dialog":
+                return modal_result
+            nav_calls += 1
+            if nav_calls == 1:
+                return modal_result  # the fail-fast modal refusal
+            raise asyncio.CancelledError("Cancelled via cancel scope dead")
+
+        pw._session = AsyncMock()
+        pw._session.call_tool = modal_then_cancelled
+        result = await pw.call_tool("browser_navigate", {"url": "x"}, timeout=1.0)
+        assert "modal state" in result
+
+        pw2 = PlaywrightMCP("node", [], wedge_restart_strikes=3)
+        dismisses = 0
+
+        async def timeout_then_cancelled(name, args):
+            nonlocal dismisses
+            if name == "browser_handle_dialog":
+                dismisses += 1
+                if dismisses == 1:
+                    return modal_result
+                raise asyncio.CancelledError("Cancelled via cancel scope dead")
+            raise TimeoutError
+
+        pw2._session = AsyncMock()
+        pw2._session.call_tool = timeout_then_cancelled
+        result2 = await pw2.call_tool("browser_navigate", {"url": "x"}, timeout=0.05)
+        assert "timed out" in result2
+
+
+class TestCancelledCloseUnwindsState:
+    """2026-10-09 review SHOULD-2/3: exit_ctx_quietly re-raises CancelledError,
+    so a cancelled close() used to abort the unwinding loop and leave
+    _session/_ctx_stack populated - a stale session over a still-running MCP
+    subprocess, with the wedge watchdog re-failing on the same context."""
+
+    class _BoomCtx:
+        def __init__(self, exc: BaseException) -> None:
+            self._exc = exc
+            self.exited = False
+
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *exc_info):
+            self.exited = True
+            raise self._exc
+
+    @pytest.mark.asyncio
+    async def test_close_clears_state_when_a_context_is_cancelled(self):
+        pw = PlaywrightMCP("node", [])
+        healthy = self._BoomCtx(RuntimeError("teardown blew up"))
+        cancelled = self._BoomCtx(asyncio.CancelledError("Cancelled via cancel scope dead"))
+        pw._session = AsyncMock()
+        pw._ctx_stack = [healthy, cancelled]
+
+        # close() still propagates the cancellation (exit_ctx_quietly's
+        # documented intent); what it must no longer do is abandon the unwind.
+        with pytest.raises(asyncio.CancelledError):
+            await pw.close()
+        # The cancellation is deferred, not raised on the spot: the healthy
+        # context AFTER the bad one must still be exited, or the stdio_client
+        # context holding the MCP subprocess handle is orphaned.
+        assert cancelled.exited
+        assert healthy.exited
+        assert pw._ctx_stack == []
+        assert pw._session is None
+
+    @pytest.mark.asyncio
+    async def test_rag_close_clears_state_when_a_context_is_cancelled(self):
+        rag = RAGMCP("python3", ["rag_server.py"])
+        rag._session = AsyncMock()
+        boom = self._BoomCtx(asyncio.CancelledError("Cancelled via cancel scope dead"))
+        rag._ctx_stack = [self._BoomCtx(RuntimeError("teardown blew up")), boom]
+        with pytest.raises(asyncio.CancelledError):
+            await rag.close()
+        assert boom.exited
+        assert rag._ctx_stack == []
+        assert rag._session is None
+
+    @pytest.mark.asyncio
+    async def test_cancelled_close_during_respawn_returns_error_string(self):
+        """The respawn guard must cover close() itself, not only connect():
+        production died with the respawn raising CancelledError."""
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=1)
+        pw._session = AsyncMock()
+        pw._session.call_tool = AsyncMock(side_effect=TimeoutError)
+        pw._ctx_stack = [self._BoomCtx(asyncio.CancelledError("Cancelled via cancel scope dead"))]
+
+        async def never_connect():
+            raise AssertionError("connect() must not run after a cancelled close")
+
+        pw.connect = never_connect
+        result = await pw.call_tool("browser_evaluate", {"function": "() => 1"}, timeout=0.05)
+        assert result.startswith("Error")
+        assert pw._session is None
+
+
+class TestRealAnyioCancelScopeContained:
+    """NICE-3: the guard must hold against a real anyio cancel scope, not only
+    a mocked CancelledError. This is the containment decision made explicit:
+    cancellation raised inside the session path is contained, because the
+    campaign's shutdown is signal-driven (main.py SIGTERM/SIGINT), not driven
+    by cancelling the campaign task."""
+
+    @pytest.mark.asyncio
+    async def test_enclosing_cancel_scope_does_not_end_the_turn(self):
+        anyio = pytest.importorskip("anyio")
+        pw = PlaywrightMCP("node", [], wedge_restart_strikes=3)
+
+        async def hanging_call(name, args):
+            await asyncio.sleep(60)
+
+        pw._session = AsyncMock()
+        pw._session.call_tool = hanging_call
+        pw.close = AsyncMock()
+        pw.connect = AsyncMock()
+
+        async def inside_scope():
+            with anyio.CancelScope() as scope:
+                scope.deadline = anyio.current_time() + 0.05
+                return await pw.call_tool("browser_navigate", {"url": "x"}, timeout=30.0)
+
+        result = await asyncio.wait_for(inside_scope(), timeout=5.0)
+        assert result.startswith("Error")
+        assert pw._consecutive_failures == 1

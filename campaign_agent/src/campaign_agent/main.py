@@ -666,8 +666,13 @@ async def run_campaign(config: Config) -> None:
 
     finally:
         log.info("Campaign agent stopped (last tracker write: see tracker.json updatedAt)")
-        await pw.close()
-        await rag.close()
+        # close() re-raises CancelledError by design; nesting keeps a cancelled
+        # Playwright close from skipping the RAG close and leaking its
+        # MCP subprocess.
+        try:
+            await pw.close()
+        finally:
+            await rag.close()
 
 
 def assert_in_iterm() -> None:

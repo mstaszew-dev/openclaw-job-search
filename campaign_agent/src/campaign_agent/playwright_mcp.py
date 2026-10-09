@@ -11,6 +11,7 @@ from typing import Any
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from campaign_agent.mcp_teardown import SESSION_FAILURES
 from campaign_agent.mcp_teardown import exit_ctx_quietly as _exit_ctx_quietly
 
 log = logging.getLogger(__name__)
@@ -142,15 +143,16 @@ class PlaywrightMCP:
                         if isinstance(retry_text, str) and retry_text.startswith("Error"):
                             return retry_text
                         return retry_text + note
-                    except Exception as e:
+                    except SESSION_FAILURES as e:
                         log.warning("Post-dialog-dismiss retry failed: %s", e)
                         return text
                 else:
-                    # The dismiss itself hung: half-wedged session. Count the
-                    # strike so the watchdog respawns instead of looping on
-                    # refusals forever (2026-10-01 bug hunt).
+                    # The dismiss itself hung or the session was cancelled:
+                    # half-wedged either way. Count the strike so the watchdog
+                    # respawns instead of looping on refusals forever
+                    # (2026-10-01 bug hunt).
                     return await self._handle_failure(
-                        text, "modal-state refusal and dialog dismiss hung",
+                        text, "modal-state refusal and dialog dismiss did not answer",
                     )
             self._consecutive_failures = 0
             return text
@@ -179,13 +181,13 @@ class PlaywrightMCP:
                         return retry_text
                     self._consecutive_failures = 0
                     return retry_text + note
-                except Exception as e:
+                except SESSION_FAILURES as e:
                     log.warning("Post-dialog-dismiss retry failed: %s", e)
             return await self._handle_failure(
                 f"Error: Playwright tool '{name}' timed out after {timeout}s",
                 "tool '%s' timed out after %.1fs", name, timeout,
             )
-        except Exception as e:
+        except SESSION_FAILURES as e:
             return await self._handle_failure(
                 f"Error: {e}", "tool '%s' failed: %s", name, e,
             )
@@ -207,7 +209,7 @@ class PlaywrightMCP:
                 "have reloaded and unsaved form state was lost - re-verify "
                 "form contents before submitting)"
             )
-        except Exception as e:
+        except SESSION_FAILURES as e:
             log.warning("Dialog dismiss attempt failed: %s", e)
             return None
 
@@ -222,21 +224,36 @@ class PlaywrightMCP:
             "%d consecutive Playwright MCP failures; respawning MCP server",
             self._consecutive_failures,
         )
-        await self.close()
         try:
+            # close() is inside the guard: unwinding a cancelled session's
+            # context managers raises CancelledError too (exit_ctx_quietly
+            # re-raises it on purpose), and the respawn must not die with it.
+            await self.close()
             await self.connect()
             self._consecutive_failures = 0
             return err_msg + " (Playwright MCP respawned; retry the browser tool)"
-        except Exception as e:
+        except SESSION_FAILURES as e:
             log.error("Playwright MCP respawn failed: %s", e)
             # Counter deliberately NOT reset: a later failure retries the respawn.
             return f"{err_msg} (Playwright MCP respawn failed: {e})"
 
     async def close(self) -> None:
         """Close the MCP session and subprocess."""
-        # Exit in reverse order
-        for ctx in reversed(self._ctx_stack):
-            await _exit_ctx_quietly(ctx)
-        self._ctx_stack = []
-        self._session = None
+        cancelled: asyncio.CancelledError | None = None
+        try:
+            # Exit in reverse order. A cancelled context is remembered, not
+            # raised on the spot: exit_ctx_quietly re-raises CancelledError by
+            # design, and aborting here would abandon the rest of the stack -
+            # the stdio_client context owns the MCP subprocess handle, and
+            # dropping it orphans the process (see mcp_teardown).
+            for ctx in reversed(self._ctx_stack):
+                try:
+                    await _exit_ctx_quietly(ctx)
+                except asyncio.CancelledError as exc:
+                    cancelled = cancelled or exc
+        finally:
+            self._ctx_stack = []
+            self._session = None
+        if cancelled is not None:
+            raise cancelled
         log.info("Playwright MCP disconnected")
