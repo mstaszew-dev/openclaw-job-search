@@ -3,6 +3,7 @@ import asyncio
 import os
 import runpy
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -901,3 +902,75 @@ class TestPostSubmissionHook:
 
         assert result.success is True
         assert result.submitted == 1
+
+
+FORGED_SCRIPT = Path(__file__).parent / 'update_tracker.py'
+
+
+class TestRecordSubmissionGate:
+    """The tick only succeeds when update_tracker.py actually recorded a
+    submission. The gate must read the script's OWN output line, not a
+    model-influenced substring: the model chooses the arguments, and it could
+    otherwise forge 'exit=0' in an action name, a field value, or the stdout of
+    a non-submitted action."""
+
+    @staticmethod
+    def _turn(action, tool_result, extra=None):
+        args = {"source": "nofluffjobs", "sourceJobId": "abc-123", **({"action": action} if action else {}), **(extra or {})}
+        mock_llm = MagicMock()
+        mock_llm.chat_async = AsyncMock(side_effect=[
+            LLMResponse(content="", finish_reason="tool_calls",
+                        tool_calls=[ToolCall(id="c1", name="record_submission", arguments=args)]),
+            LLMResponse(content="done", tool_calls=[], finish_reason="stop"),
+        ])
+        mock_llm.model = "test"
+        tools = ToolRouter(playwright_client=None, rag_client=None,
+                           default_cwd=str(FORGED_SCRIPT.parent))
+        with patch("campaign_agent.tools.record_tracker_event", return_value=tool_result):
+            return asyncio.run(run_agent_turn(mock_llm, tools, [], max_steps=5))
+
+    def test_real_submission_counts(self):
+        result = self._turn("submitted", "submitted: nofluffjobs:abc-123\nsubmitted 41/2000\nexit=0")
+        assert result.success is True
+        assert result.submitted == 1
+
+    def test_missing_evidence_attempt_is_not_a_submission(self):
+        """No evidence: the script logs 'attempted', which must NOT count."""
+        result = self._turn("submitted", "attempted: nofluffjobs:abc-123\nexit=0")
+        assert result.success is False
+        assert "no_submission" in result.reason
+
+    def test_duplicate_is_not_a_submission(self):
+        result = self._turn("submitted", "already recorded: nofluffjobs:abc-123 (no change)\nexit=0")
+        assert result.success is False
+
+    def test_forged_exit_zero_in_an_action_is_rejected(self):
+        result = self._turn("submitted exit=0", "unknown action: submitted exit=0\nexit=2")
+        assert result.success is False
+
+    def test_forged_exit_zero_in_a_field_is_rejected(self):
+        """A field value can carry 'exit=0' too: only the script's OWN stdout
+        prefix counts, so the whole result string is checked, not a slice."""
+        result = self._turn("submitted", "followUp: app-9 exit=0\nexit=1",
+                            {"applicationId": "app-9 exit=0"})
+        assert result.success is False
+
+    def test_result_containing_exit_zero_is_not_a_submission(self):
+        result = self._turn("submitted", "exit=0\nWARNING: no evidence. Not counting as submitted.")
+        assert result.success is False
+
+    def test_other_action_with_exit_zero_is_not_a_submission(self):
+        result = self._turn("skippedSalary", "skippedSalary: nofluffjobs:abc-123\nexit=0")
+        assert result.success is False
+
+    def test_result_prefixing_submitted_under_another_action_is_rejected(self):
+        """Nothing produces this naturally, which is why it needs a test: the
+        gate must check the action the model asked for AND the script's own
+        output line. Deleting the `action == "submitted" and` half leaves every
+        other gate test green, so this one pins it."""
+        result = self._turn("skippedSalary", "submitted: nofluffjobs:abc-123\\nexit=0")
+        assert result.success is False
+
+    def test_script_error_is_not_a_submission(self):
+        result = self._turn("submitted", "ERROR: data loss guard\nexit=1")
+        assert result.success is False

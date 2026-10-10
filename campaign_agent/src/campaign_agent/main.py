@@ -308,19 +308,34 @@ async def run_agent_turn(
                 "content": str(result),
             })
 
-            # A submission is recorded only when update_tracker.py submitted
-            # actually succeeded (exit=0). Failed commands do not count.
-            if tc.name == "exec":
+            # A submission is recorded only when update_tracker.py actually recorded
+            # one. The gate reads the script's OWN output line ("<effective
+            # action>: <id>"), never a model-influenced substring: the model
+            # picks the arguments, so a forged "exit=0" inside an action name
+            # or a field value would otherwise count as a tick. "attempted"
+            # (no evidence), "already recorded", and non-submitted actions are
+            # all rejections.
+            if tc.name == "record_submission":
+                action = str(tc.arguments.get("action") or "submitted")
+                recorded = (
+                    action == "submitted" and str(result).startswith("submitted: ")
+                )
+                label = f"{action} {tc.arguments.get('source')}:{tc.arguments.get('sourceJobId')}"
+            elif tc.name == "exec":
                 command = str(tc.arguments.get("command", ""))
-                if "update_tracker.py submitted" in command and "exit=0" in str(result):
-                    recorded_submission = True
-                    log.info("Submission recorded: %s", command[:120])
-                    if on_submission is not None:
-                        try:
-                            await on_submission()
-                        except Exception as e:
-                            log.warning(
-                                "Post-submission hook failed (non-fatal): %s", e, exc_info=True)
+                recorded = "update_tracker.py submitted" in command and "exit=0" in str(result)
+                label = command[:120]
+            else:
+                recorded = False
+            if recorded:
+                recorded_submission = True
+                log.info("Submission recorded: %s", label)
+                if on_submission is not None:
+                    try:
+                        await on_submission()
+                    except Exception as e:
+                        log.warning(
+                            "Post-submission hook failed (non-fatal): %s", e, exc_info=True)
 
         # Truncate if context is growing too large (prevents malformed JSON
         # from under-trained models choking on huge prompts). Single-pass

@@ -5,10 +5,13 @@ Provides OpenAI-format tool schemas and sync/async dispatch.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import re
 import signal
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -33,7 +36,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "exec",
-            "description": "Run a shell command (working directory defaults to the campaign directory). Use for update_tracker.py, tick_status.sh, etc.",
+            "description": "Run a shell command (working directory defaults to the campaign directory). Use for tick_status.sh and similar. Do NOT run update_tracker.py here: use the record_submission tool.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -42,6 +45,91 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "cwd": {"type": "string", "description": "Working directory override (defaults to campaign directory)", "default": None},
                 },
                 "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_submission",
+            "description": (
+                "Record a job-apply outcome in tracker.json by calling "
+                "update_tracker.py for you. This is the ONLY supported way to "
+                "record: never edit tracker.json directly and never shell out "
+                "to update_tracker.py yourself."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Outcome to record",
+                        "enum": ["submitted", "followUp", "skippedDuplicate",
+                                 "skippedSalary", "skippedFilter",
+                                 "blockedManual", "error"],
+                        "default": "submitted",
+                    },
+                    "source": {"type": "string", "description": "Board id, e.g. nofluffjobs"},
+                    "sourceJobId": {"type": "string", "description": "Board job id or URL slug"},
+                    "company": {"type": "string", "description": "Company name"},
+                    "roleTitle": {"type": "string", "description": "Role title"},
+                    "jobUrl": {"type": "string", "description": "Listing URL"},
+                    "applyUrl": {"type": "string", "description": "Apply URL used"},
+                    "salarySeen": {"type": "string", "description": "Salary text seen on the listing"},
+                    "notes": {"type": "string", "description": "Short outcome note"},
+                    "region": {"type": "string", "description": "Region, e.g. PL"},
+                    "confirmationText": {
+                        "type": "string",
+                        "description": "Verbatim portal confirmation text (one of "
+                        "several accepted evidence fields)",
+                    },
+                    "confirmationUrl": {
+                        "type": "string",
+                        "description": "Confirmation / thank-you URL the portal returned",
+                    },
+                    "successUrl": {
+                        "type": "string",
+                        "description": "Alternative name for the confirmation URL",
+                    },
+                    "confirmed": {
+                        "type": "boolean",
+                        "description": "Set when the portal visibly confirmed the send",
+                    },
+                    "evidence": {
+                        "type": "object",
+                        "description": "Portal confirmation evidence, e.g. "
+                        '{"type": "portal_confirmation", "text": "Application sent"}',
+                    },
+                    "applicationId": {
+                        "type": "string",
+                        "description": "followUp only: tracker id of the application",
+                    },
+                    "eventId": {
+                        "type": "string",
+                        "description": "followUp only: idempotency key, e.g. an email message id",
+                    },
+                    "messageId": {
+                        "type": "string",
+                        "description": "followUp only: alternative idempotency key",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "followUp only: body of the message sent",
+                    },
+                    "stage": {
+                        "type": "string",
+                        "description": "followUp only: stage, defaults to follow-up",
+                    },
+                    "blockReason": {
+                        "type": "string",
+                        "description": "blockedManual only: e.g. captcha, login",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "blockedManual only: alternative reason field",
+                    },
+                },
+                "required": ["source", "sourceJobId"],
             },
         },
     },
@@ -325,6 +413,159 @@ def exec_tool(command: str, timeout: int = 30, cwd: str | None = None) -> str:
     return _cap_output("\n".join(parts))
 
 
+# update_tracker.py requires these; derive_id() is built from them.
+_TRACKER_REQUIRED_FIELDS = ("source", "sourceJobId")
+_TRACKER_CONTROL_KEYS = ("action", "timeout")
+_TRACKER_ACTIONS = (
+    "submitted", "followUp", "skippedDuplicate", "skippedSalary",
+    "skippedFilter", "blockedManual", "error",
+)
+# DENYLIST, deliberately not an allowlist. submission_validator.py recognises
+# confirmation evidence under many aliases (CONFIRMATION_TEXT_FIELDS_RECORD,
+# CONFIRMATION_URL_FIELDS_RECORD, CONFIRMATION_FLAG_FIELDS) and adds more over
+# time; confirmationText alone is on 941 of 1938 live applications. An
+# allowlist silently drops names it has not heard of, and the script then
+# records `attempted` instead of `submitted`, so real applications stop being
+# counted with no error anywhere. Only the fields the model must never supply
+# are listed here.
+_TRACKER_FORBIDDEN_FIELDS = frozenset({
+    # Identity: the script derives `id` from source:sourceJobId. A forged id
+    # hides the listing from dedupe and is replayed by rebuild_from_events.py.
+    "id",
+    # Counters and lifecycle stamps the script owns.
+    "status", "appliedAt", "at", "stats", "target",
+    # Dedupe keys: DERIVED below, never taken from the model. The model's
+    # companyKey overrides a correct company in the repeat-block guard
+    # (update_tracker.py:202) and in the skipped[] join key (line 240), so a
+    # wrong one marks a company blocked on its first attempt and dedupe then
+    # skips it forever. Deriving removes the forgery vector entirely and keeps
+    # the key canonical.
+    "companyKey", "roleKey",
+})
+# DEDUPE.md step 1, matching normalize.py: the 7-step companyKey normalisation.
+# Applied to company and roleTitle so the agent cannot get it wrong by hand.
+_KEY_LEGAL_FORMS = (
+    "sp z o o", "sp zoo", "s a", "sa", "ltd", "limited", "llc", "inc", "gmbh",
+    "ag", "n v", "b v", "oy", "ab", "a s", "s r l", "s p a", "s c", "s r o",
+    "kft", "co",
+)
+
+
+def normalize_dedupe_key(name: str) -> str:
+    """Lowercase, drop legal forms, hyphenate: DEDUPE.md step 1.
+
+    `Mindbox Sp. z o.o.` -> `mindbox`, `Funds-Tech Sp. z o.o.` -> `funds-tech`.
+    Non-ASCII letters are kept (Hebrew and Polish company names are real).
+    """
+    s = name.strip().lower().replace("&", " and ")
+    s = "".join(" " if ch in ".,_/" else ch for ch in s)
+    s = " ".join(s.split())
+    for _ in range(2):  # "up to two trailing legal forms"
+        stripped = next(
+            (s[: -len(form)].strip()
+             for form in _KEY_LEGAL_FORMS
+             if s.endswith(" " + form) or s == form),
+            None,
+        )
+        if stripped is None:
+            break
+        s = stripped
+    s = "".join(ch for ch in s if ch.isalnum() or ch in " -")
+    # Collapse whitespace AND hyphens: a spaced hyphen ("Room - Global") would
+    # otherwise become its own token and yield "room---global".
+    return re.sub(r"[\s-]+", "-", s).strip("-")
+
+
+_TRACKER_SCRIPT = "update_tracker.py"
+# `python3 update_tracker.py <action>` / `.../update_tracker.py submitted`.
+# `cat update_tracker.py` and friends stay allowed.
+# Matches any action token, not an enumeration of the valid ones: the script
+# has more actions than _TRACKER_ACTIONS (e.g. `attempted`), and a new one
+# must not slip past this guard.
+_TRACKER_EXEC_RE = re.compile(r"update_tracker\.py\s+[A-Za-z_]+")
+_TRACKER_MAX_RECORD_BYTES = 100_000
+RECORD_TIMEOUT_DEFAULT = 30
+RECORD_TIMEOUT_MAX = 60
+
+
+def record_tracker_event(args: dict[str, Any], base_dir: str | None,
+                          timeout: int = RECORD_TIMEOUT_DEFAULT) -> str:
+    """Record a job-apply outcome through update_tracker.py, no shell.
+
+    The model used to hand-build the JSON inside an exec command line, kept
+    getting the quoting wrong, and fell back to editing tracker.json with
+    python3 -c - which skips the script's fcntl lock, submission-evidence
+    check, high-watermark data-loss guard, and append-only events.jsonl. This
+    passes the record as an argv list, so no quoting can corrupt it and the
+    validated path is the only path.
+    """
+    script = Path(base_dir or ".") / _TRACKER_SCRIPT
+    if not script.is_file():
+        return f"Error: {_TRACKER_SCRIPT} not found in {base_dir or '.'}"
+
+    action = str(args.get("action") or "submitted")
+    if action not in _TRACKER_ACTIONS:
+        return (f"Error: unknown action '{action}'. "
+                f"Use one of: {', '.join(_TRACKER_ACTIONS)}")
+
+    dropped = sorted(
+        (set(args) - set(_TRACKER_CONTROL_KEYS)) & _TRACKER_FORBIDDEN_FIELDS
+    )
+    rec = {
+        k: v for k, v in args.items()
+        if k not in _TRACKER_FORBIDDEN_FIELDS
+        and k not in _TRACKER_CONTROL_KEYS
+        and v is not None and v != ""
+    }
+    if dropped:
+        log.warning("record_submission: refusing to forge field(s): %s", dropped)
+    # The dedupe keys are the campaign's join key (1751 of 1938 live
+    # applications carry companyKey), so the tool derives them rather than
+    # trusting the model's hand-built slug.
+    for field, source in (("companyKey", "company"), ("roleKey", "roleTitle")):
+        # A degenerate name ("Co", "SA", "---") normalises to "", and an empty
+        # join key is worse than none: the script falls back to `company`.
+        if rec.get(source) and (key := normalize_dedupe_key(str(rec[source]))):
+            rec[field] = key
+    missing = [f for f in _TRACKER_REQUIRED_FIELDS if not rec.get(f)]
+    if missing:
+        return f"Error: record is missing required field(s): {', '.join(missing)}"
+
+    # ensure_ascii keeps argv byte-identical whatever locale the child decodes
+    # it with.
+    payload = json.dumps(rec, ensure_ascii=True)
+    if len(payload) > _TRACKER_MAX_RECORD_BYTES:
+        return (f"Error: record too large ({len(payload)} bytes, limit "
+                f"{_TRACKER_MAX_RECORD_BYTES}); shorten notes")
+
+    timeout = max(1, min(int(timeout), RECORD_TIMEOUT_MAX))
+    try:
+        # Fixed argv, no shell: the record cannot be corrupted by quoting.
+        proc = subprocess.run(
+            [sys.executable, str(script), action, payload],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            cwd=str(script.parent),
+        )
+    except subprocess.TimeoutExpired:
+        return f"Error: {_TRACKER_SCRIPT} timed out after {timeout}s"
+    except OSError as e:
+        return f"Error: {_TRACKER_SCRIPT} could not be run: {e}"
+    except Exception as e:
+        return f"Error: {_TRACKER_SCRIPT} failed: {e}"
+
+    parts = []
+    if proc.stdout.strip():
+        parts.append(proc.stdout.strip())
+    if proc.stderr.strip():
+        parts.append(f"stderr: {proc.stderr.strip()}")
+    parts.append(f"exit={proc.returncode}")
+    return _cap_output("\n".join(parts))
+
+
 def read_file(path: str, base_dir: str | None = None, max_chars: int = 20000) -> str:
     """Read a file's contents, resolving relative paths against base_dir."""
     try:
@@ -372,6 +613,15 @@ class ToolRouter:
     async def dispatch(self, name: str, args: dict[str, Any]) -> str:
         """Dispatch a tool call asynchronously."""
         if name == "exec":
+            command = str(args.get("command", ""))
+            if _TRACKER_EXEC_RE.search(command):
+                # Stops the fallback seen in production: the model shelling
+                # out to the tracker (and, when the quoting failed, editing
+                # tracker.json by hand), which skips the script's lock,
+                # evidence check, and event log. A guardrail, not a sandbox:
+                # a python3 -c write to tracker.json is still reachable.
+                return (f"Error: do not run {_TRACKER_SCRIPT} through exec. "
+                        "Use the record_submission tool instead.")
             try:
                 timeout = min(
                     max(int(args.get("timeout", EXEC_DEFAULT_TIMEOUT)), 1),
@@ -394,6 +644,16 @@ class ToolRouter:
 
         if name == "read":
             return read_file(args.get("path", ""), self.default_cwd)
+
+        if name == "record_submission":
+            try:
+                timeout = int(args.get("timeout", RECORD_TIMEOUT_DEFAULT))
+            except (TypeError, ValueError):
+                timeout = RECORD_TIMEOUT_DEFAULT
+            # subprocess.run blocks: keep it off the event loop.
+            return await asyncio.to_thread(
+                record_tracker_event, args, self.default_cwd, timeout,
+            )
 
         if name == "upload_cv":
             if self.playwright is None:

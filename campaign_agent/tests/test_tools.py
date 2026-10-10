@@ -1,4 +1,8 @@
 """Tests for ToolRouter — tool schemas, exec dispatch, routing logic."""
+import asyncio
+import concurrent.futures
+import json
+import os
 import subprocess
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -466,3 +470,379 @@ class TestUploadCvDispatch:
         assert result.startswith("Error")
         assert "not found" in result
         client.call_tool.assert_not_awaited()
+
+
+class TestRecordTrackerEvent:
+    """The model used to record a submission by hand-building JSON inside an
+    exec command line. It kept getting the quoting wrong (one unquoted colon
+    failed as a shell error) and then fell back to editing tracker.json
+    directly with python3 -c, which skips update_tracker.py's lock, evidence
+    check, high-watermark guard, and append-only event log. This tool calls the
+    same script with an argv list, so no shell quoting is involved."""
+
+    @staticmethod
+    def _fake_script(tmp_path, body="print('recorded')"):
+        script = tmp_path / "update_tracker.py"
+        script.write_text(
+            "import json, sys, pathlib\n"
+            "pathlib.Path('argv.json').write_text(json.dumps(sys.argv[1:]))\n"
+            f"{body}\n",
+            encoding="utf-8",
+        )
+        return script
+
+    def test_missing_script_is_a_clear_error(self, tmp_path):
+        result = tools_mod.record_tracker_event({"source": "x"}, str(tmp_path))
+        assert result.startswith("Error")
+        assert "update_tracker.py" in result
+
+    def test_missing_required_fields_fails_before_running(self, tmp_path):
+        self._fake_script(tmp_path)
+        result = tools_mod.record_tracker_event({"company": "Acme"}, str(tmp_path))
+        assert result.startswith("Error")
+        assert not (tmp_path / "argv.json").exists()
+
+    def test_arguments_become_script_argv_without_a_shell(self, tmp_path):
+        self._fake_script(tmp_path)
+        result = tools_mod.record_tracker_event(
+            {
+                "source": "nofluffjobs",
+                "sourceJobId": "abc-123",
+                "company": 'Acme "quoted" Ltd',
+                "roleTitle": "Senior Java",
+                "evidence": {"type": "portal_confirmation", "text": "thanks"},
+                "emptyField": "",
+                "noneField": None,
+            },
+            str(tmp_path),
+        )
+        assert "exit=0" in result
+
+        argv = json.loads((tmp_path / "argv.json").read_text(encoding="utf-8"))
+        action, payload = argv[0], json.loads(argv[1])
+        assert action == "submitted"
+        assert payload["source"] == "nofluffjobs"
+        assert payload["sourceJobId"] == "abc-123"
+        # Structured evidence survives; empty/None args are dropped.
+        assert payload["evidence"]["type"] == "portal_confirmation"
+        assert "emptyField" not in payload and "noneField" not in payload
+        assert "action" not in payload and "timeout" not in payload
+
+    def test_explicit_action_is_forwarded(self, tmp_path):
+        self._fake_script(tmp_path)
+        tools_mod.record_tracker_event(
+            {"action": "skippedDuplicate", "source": "nofluffjobs",
+             "sourceJobId": "abc-123"},
+            str(tmp_path),
+        )
+        argv = json.loads((tmp_path / "argv.json").read_text(encoding="utf-8"))
+        assert argv[0] == "skippedDuplicate"
+
+    def test_script_failure_is_reported_not_swallowed(self, tmp_path):
+        self._fake_script(tmp_path, body="raise SystemExit(3)")
+        result = tools_mod.record_tracker_event(
+            {"source": "nofluffjobs", "sourceJobId": "abc-123"}, str(tmp_path)
+        )
+        assert "exit=3" in result
+        assert not result.startswith("Error")
+
+    def test_stderr_from_the_script_is_surfaced(self, tmp_path):
+        self._fake_script(tmp_path, body="import sys; sys.stderr.write('warning: x')")
+        result = tools_mod.record_tracker_event(
+            {"source": "nofluffjobs", "sourceJobId": "abc-123"}, str(tmp_path)
+        )
+        assert "stderr: warning: x" in result
+        assert "exit=0" in result
+
+    def test_timeout_is_reported(self, tmp_path):
+        self._fake_script(tmp_path)
+        with patch("campaign_agent.tools.subprocess.run",
+                   side_effect=subprocess.TimeoutExpired("update_tracker.py", 30)):
+            result = tools_mod.record_tracker_event(
+                {"source": "nofluffjobs", "sourceJobId": "abc-123"}, str(tmp_path)
+            )
+        assert "timed out" in result
+
+    def test_oserror_is_reported_as_could_not_be_run(self, tmp_path):
+        self._fake_script(tmp_path)
+        with patch("campaign_agent.tools.subprocess.run", side_effect=OSError("no exec")):
+            result = tools_mod.record_tracker_event(
+                {"source": "nofluffjobs", "sourceJobId": "abc-123"}, str(tmp_path)
+            )
+        assert "could not be run" in result
+
+    def test_unexpected_error_is_reported_as_failed(self, tmp_path):
+        self._fake_script(tmp_path)
+        with patch("campaign_agent.tools.subprocess.run", side_effect=ValueError("boom")):
+            result = tools_mod.record_tracker_event(
+                {"source": "nofluffjobs", "sourceJobId": "abc-123"}, str(tmp_path)
+            )
+        assert "failed: boom" in result
+
+    def test_dispatch_falls_back_on_a_bad_timeout(self, tmp_path):
+        self._fake_script(tmp_path)
+        router = ToolRouter(default_cwd=str(tmp_path))
+        out = asyncio.run(router.dispatch(
+            "record_submission",
+            {"source": "nofluffjobs", "sourceJobId": "abc-123", "timeout": "soon"},
+        ))
+        assert "exit=0" in out
+
+    def test_dispatch_routes_the_tool(self, tmp_path):
+        self._fake_script(tmp_path)
+        router = ToolRouter(default_cwd=str(tmp_path))
+        out = asyncio.run(router.dispatch(
+            "record_submission",
+            {"source": "nofluffjobs", "sourceJobId": "abc-123"},
+        ))
+        assert "exit=0" in out
+
+
+class TestRecordSubmissionHardening:
+    """Follow-up review: the model chooses every argument, so the write path
+    must refuse forged ledger identity and must not be reachable through exec."""
+
+    def _script(self, tmp_path):
+        s = tmp_path / "update_tracker.py"
+        s.write_text(
+            "import json, sys, pathlib\n"
+            "pathlib.Path('argv.json').write_text(json.dumps(sys.argv[1:]))\n"
+            "print('submitted: x')\n",
+            encoding="utf-8",
+        )
+        return s
+
+    def test_identity_and_counter_fields_are_dropped(self, tmp_path):
+        self._script(tmp_path)
+        tools_mod.record_tracker_event(
+            {
+                "source": "nofluffjobs", "sourceJobId": "REAL-123",
+                "company": "Acme",
+                "id": "nofluffjobs:FORGED-999", "status": "submitted",
+                "appliedAt": "whenever", "at": "whenever",
+                "stats": {"submitted": 9999}, "target": 1,
+                "companyKey": "acme",
+            },
+            str(tmp_path),
+        )
+        rec = json.loads(json.loads((tmp_path / "argv.json").read_text())[1])
+        for forged in ("id", "status", "appliedAt", "at", "stats", "target"):
+            assert forged not in rec, forged
+        # The model's companyKey is refused and the derived one is written:
+        # the repeat-block guard reads `companyKey or company`, so a wrong key
+        # would override a correct company and get it skipped forever.
+        assert rec["companyKey"] == "acme"
+        assert rec["sourceJobId"] == "REAL-123"
+        assert rec["company"] == "Acme"
+
+    def test_unknown_action_is_rejected_before_the_script_runs(self, tmp_path):
+        self._script(tmp_path)
+        result = tools_mod.record_tracker_event(
+            {"action": "submitted exit=0", "source": "nofluffjobs",
+             "sourceJobId": "abc-123"},
+            str(tmp_path),
+        )
+        assert "unknown action" in result
+        assert not (tmp_path / "argv.json").exists()
+
+    def test_shell_metacharacters_reach_the_script_verbatim(self, tmp_path):
+        self._script(tmp_path)
+        nasty = "Acme; touch /tmp/PWNED $(id) `id`"
+        tools_mod.record_tracker_event(
+            {"source": "nofluffjobs", "sourceJobId": "abc-123", "company": nasty},
+            str(tmp_path),
+        )
+        rec = json.loads(json.loads((tmp_path / "argv.json").read_text())[1])
+        assert rec["company"] == nasty
+        assert not os.path.exists("/tmp/PWNED")
+
+    def test_non_utf8_child_output_does_not_fail_a_successful_write(self, tmp_path):
+        script = tmp_path / "update_tracker.py"
+        script.write_bytes(
+            b"import sys\n"
+            b"sys.stdout.buffer.write(b'submitted: x\\n')\n"
+            b"sys.stdout.buffer.write(b'caf\\xe9\\n')\n"
+        )
+        result = tools_mod.record_tracker_event(
+            {"source": "nofluffjobs", "sourceJobId": "abc-123"}, str(tmp_path)
+        )
+        assert "exit=0" in result
+        assert "caf" in result
+
+    def test_oversized_record_is_refused(self, tmp_path):
+        self._script(tmp_path)
+        result = tools_mod.record_tracker_event(
+            {"source": "nofluffjobs", "sourceJobId": "abc-123",
+             "notes": "x" * (tools_mod._TRACKER_MAX_RECORD_BYTES + 10)},
+            str(tmp_path),
+        )
+        assert "too large" in result
+        assert not (tmp_path / "argv.json").exists()
+
+    def test_exec_cannot_run_the_tracker(self, tmp_path):
+        router = ToolRouter(default_cwd=str(tmp_path))
+        for command in (
+            "python3 update_tracker.py submitted '{}'",
+            "/Users/mst/Downloads/job-search/job-apply/update_tracker.py error '{}'",
+        ):
+            out = asyncio.run(router.dispatch("exec", {"command": command}))
+            assert out.startswith("Error"), command
+            assert "record_submission" in out
+
+    def test_followup_keeps_its_idempotency_key_and_body(self, tmp_path):
+        """A single flat allowlist would strip eventId/messageId and message,
+        which update_tracker.py uses for followUp idempotency and payload."""
+        self._script(tmp_path)
+        tools_mod.record_tracker_event(
+            {
+                "action": "followUp", "source": "nofluffjobs",
+                "sourceJobId": "abc-123", "applicationId": "app-7",
+                "eventId": "EMAIL-42", "message": "Wrote to the recruiter",
+            },
+            str(tmp_path),
+        )
+        rec = json.loads(json.loads((tmp_path / "argv.json").read_text())[1])
+        assert rec["applicationId"] == "app-7"
+        assert rec["eventId"] == "EMAIL-42"
+        assert rec["message"] == "Wrote to the recruiter"
+
+    def test_blocked_manual_keeps_its_block_reason(self, tmp_path):
+        self._script(tmp_path)
+        tools_mod.record_tracker_event(
+            {"action": "blockedManual", "source": "drushim",
+             "sourceJobId": "x", "blockReason": "captcha", "reason": "captcha"},
+            str(tmp_path),
+        )
+        rec = json.loads(json.loads((tmp_path / "argv.json").read_text())[1])
+        assert rec["blockReason"] == "captcha"
+        assert rec["reason"] == "captcha"
+
+    def test_every_confirmation_alias_the_validator_reads_is_forwarded(self, tmp_path):
+        """An allowlist once dropped confirmationText, which is on 941 of the
+        1938 live applications. The script then recorded `attempted` instead of
+        `submitted` and the real application stopped being counted, with no
+        error anywhere. These names must never be filtered again."""
+        self._script(tmp_path)
+        aliases = (
+            "confirmationText", "confirmation", "submitConfirmation",
+            "emailConfirmation", "portalConfirmationText", "confirmation_evidence",
+            "confirmationUrl", "successUrl", "thankYouUrl", "confirmation_url",
+            "evidence_url", "apply_url", "confirmed", "submissionConfirmed",
+            "submittedConfirmed",
+        )
+        tools_mod.record_tracker_event(
+            {"source": "nofluffjobs", "sourceJobId": "abc-123",
+             **{a: "x" for a in aliases}},
+            str(tmp_path),
+        )
+        rec = json.loads(json.loads((tmp_path / "argv.json").read_text())[1])
+        for alias in aliases:
+            assert alias in rec, alias
+
+    def test_forbidden_fields_stay_refused_with_the_denylist(self, tmp_path):
+        """The fix for the alias bug must not reopen ledger forging."""
+        self._script(tmp_path)
+        tools_mod.record_tracker_event(
+            {"source": "nofluffjobs", "sourceJobId": "abc-123",
+             "id": "x:FORGED", "status": "submitted", "appliedAt": "whenever",
+             "at": "whenever", "stats": {"submitted": 9999}, "target": 1,
+             "companyKey": "acme", "roleKey": "r"},
+            str(tmp_path),
+        )
+        rec = json.loads(json.loads((tmp_path / "argv.json").read_text())[1])
+        for forged in ("id", "status", "appliedAt", "at", "stats", "target",
+                       "companyKey", "roleKey"):
+            assert forged not in rec, forged
+        assert rec["sourceJobId"] == "abc-123"
+
+    @pytest.mark.parametrize("raw,expected", [
+        # DEDUPE.md step 1's own examples.
+        ("Google LLC", "google"),
+        ("Cellebrite Mobile Synchronization Ltd", "cellebrite-mobile-synchronization"),
+        ("LivePerson Inc.", "liveperson"),
+        ("Funds-Tech Sp. z o.o.", "funds-tech"),
+        ("Dector Sp. z o.o.", "dector"),
+        ("Mindbox Sp. z o.o.", "mindbox"),
+        ("N-iX", "n-ix"),
+        ("Finanteq S.A.", "finanteq"),
+        ("Mindbox", "mindbox"),
+        ("  M&B  Consulting  ", "m-and-b-consulting"),
+        # Hebrew keys stay in Hebrew: 12 live applications use them.
+        ("קבוצת Aman", "קבוצת-aman"),
+        # A spaced hyphen must not become a triple hyphen: 19 live companies
+        # are already stored as "recruitment-room-global".
+        ("Recruitment Room - Global", "recruitment-room-global"),
+        ("JAVA Developer - Spring Framework", "java-developer-spring-framework"),
+        ("Acme -", "acme"),
+        # Degenerate names normalise to nothing; no empty key is written.
+        ("Co", ""), ("AG", ""), ("---", ""),
+    ])
+    def test_normalize_dedupe_key_matches_dedupe_md(self, raw, expected):
+        assert tools_mod.normalize_dedupe_key(raw) == expected
+
+    def test_dedupe_keys_are_derived_not_supplied(self, tmp_path):
+        """companyKey is the dedupe join key on 1751 of 1938 live rows, and the
+        model's value overrides the correct company in the repeat-block guard.
+        So the tool derives it and refuses the model's."""
+        self._script(tmp_path)
+        tools_mod.record_tracker_event(
+            {"source": "nofluffjobs", "sourceJobId": "abc-123",
+             "company": "Mindbox Sp. z o.o.", "roleTitle": "Senior Java Engineer",
+             "companyKey": "attacker-controlled", "roleKey": "x"},
+            str(tmp_path),
+        )
+        rec = json.loads(json.loads((tmp_path / "argv.json").read_text())[1])
+        assert rec["companyKey"] == "mindbox"
+        assert rec["roleKey"] == "senior-java-engineer"
+
+    def test_no_dedupe_key_is_written_without_a_source_field(self, tmp_path):
+        self._script(tmp_path)
+        tools_mod.record_tracker_event(
+            {"action": "skippedSalary", "source": "nofluffjobs",
+             "sourceJobId": "abc-123", "notes": "too junior"},
+            str(tmp_path),
+        )
+        rec = json.loads(json.loads((tmp_path / "argv.json").read_text())[1])
+        assert "companyKey" not in rec and "roleKey" not in rec
+
+    def test_two_simultaneous_records_both_survive(self, tmp_path):
+        """update_tracker.py holds an fcntl lock; concurrent calls must not lose
+        a record (PY-3)."""
+        # Append, not overwrite: the real script takes an fcntl lock and both
+        # records must land, so the fake must not clobber the first line.
+        (tmp_path / "update_tracker.py").write_text(
+            "import json, sys, pathlib\n"
+            "with open('argv.json', 'a') as fh:\n"
+            "    fh.write(json.dumps(sys.argv[1:]) + chr(10))\n"
+            "print('submitted: x')\n",
+            encoding="utf-8",
+        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(
+                lambda job_id: tools_mod.record_tracker_event(
+                    {"source": "nofluffjobs", "sourceJobId": job_id}, str(tmp_path)),
+                ["abc-1", "abc-2"],
+            ))
+        seen = [json.loads(line)[1]
+                for line in (tmp_path / "argv.json").read_text().splitlines() if line]
+        assert {json.loads(r)["sourceJobId"] for r in seen} == {"abc-1", "abc-2"}
+        assert len(seen) == 2
+
+    def test_schema_enum_matches_the_action_allowlist(self):
+        schema = next(s for s in TOOL_SCHEMAS
+                      if s["function"]["name"] == "record_submission")
+        assert set(schema["function"]["parameters"]["properties"]["action"]["enum"]) \
+            == set(tools_mod._TRACKER_ACTIONS)
+
+    def test_exec_blocks_actions_outside_the_enum(self, tmp_path):
+        """`attempted` is a real script action that is not a model action."""
+        router = ToolRouter(default_cwd=str(tmp_path))
+        out = asyncio.run(router.dispatch(
+            "exec", {"command": "python3 update_tracker.py attempted '{}'"}))
+        assert out.startswith("Error")
+
+    def test_exec_still_allows_reading_the_script(self, tmp_path):
+        router = ToolRouter(default_cwd=str(tmp_path))
+        (tmp_path / "update_tracker.py").write_text("print('hi')\n", encoding="utf-8")
+        out = asyncio.run(router.dispatch("exec", {"command": "cat update_tracker.py"}))
+        assert "print('hi')" in out

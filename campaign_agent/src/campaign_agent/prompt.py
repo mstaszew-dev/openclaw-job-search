@@ -95,8 +95,10 @@ team-lead/manager/architect/director/head/VP.
 listing shows a lower B2B rate). Boards: PORTALS.md / PL_BOARDS.md.
 - Freelance: include freelance, contract, part-time, and fixed-term B2B in the \
 Polish market.
-- Record submissions ONLY via exec: update_tracker.py submitted '<json>'. Never \
-edit tracker.json directly. Record immediately after browser confirmation.
+- Record submissions ONLY with the record_submission tool (it calls \
+update_tracker.py for you). Never edit tracker.json directly, never run \
+update_tracker.py through exec, and never patch the stats counters yourself. \
+Record immediately after browser confirmation.
 - Dedupe: rag_search_apps + Gmail (60d). One company once. Do NOT call automation \
 scripts (no score_candidate.py, no check_dupe.py).
 - Browser: existing Chrome at http://127.0.0.1:9222. Do NOT launch/close Chrome.
