@@ -9,8 +9,8 @@ secret `campaign-mongo`; no password, keyfile, or provider key appears in this f
 |---|---|
 | Laptop tailnet | `100.94.153.31` (`mstro-travelmate-p215-52`), MagicDNS `mstro-travelmate-p215-52.taila0a683.ts.net` |
 | Laptop LAN | `192.168.18.13` |
-| SSH (host) | `ssh -p 2222 mstro@100.94.153.31`, password `1851`, passwordless sudo |
-| SSH (pod `lubuntu-agent`) | `ssh -p 30022 agent@100.94.153.31`, password `1851` |
+| SSH (host) | `ssh -p 2222 mstro@100.94.153.31`, password `{ in local vault }`, passwordless sudo |
+| SSH (pod `lubuntu-agent`) | `ssh -p 30022 agent@100.94.153.31`, password `{ in local vault }` |
 | Mac dev | `michaels-macbook-air` `100.125.162.30`, runs opencode + Playwright MCP |
 
 Host sshd does not auto-start after a reboot (per `deploy/docs/KOTLIN_DEPLOY.md`).
