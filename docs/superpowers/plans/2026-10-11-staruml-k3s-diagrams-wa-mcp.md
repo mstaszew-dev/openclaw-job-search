@@ -12,9 +12,9 @@
 
 ## Global Constraints
 
-- Verified access: laptop `ssh -p 2222 mstro@100.94.153.31` password `1851`, passwordless sudo, `k3s` + `kubectl` + `docker` present. Host sshd does not auto-start after reboot.
-- k3s facts that must be exact in diagrams: ns `campaign` = `finder`, `apply-worker`, `campaign-api`, `kafka-0` (KRaft), `mongo-0` (replica set `rs0`, auth), `msrouter` (pinned `replicas: 0`); ns `default` = `lubuntu-agent` (Chrome/Xvfb/VNC/CDP). Services: `campaign-api` NodePort 30080, `finder` 8081 ClusterIP, `kafka` 9092, `mongo` 27017, `msrouter` 3000, `postgres` 5432 (retired). Host NodePorts: 30022 ssh, 30080 api, 30590 vnc, 30922 cdp. Data: `/home/mstro/k3s-pod-data/{mongodb,kafka,agent-home,agent-state,playwright-output,tailscale}`.
-- Topics: `campaign.jobs` (3 partitions, key `companyKey`), `campaign.jobs.dlq` (1). Collections: `job_listings`, `applications` (`_id = source:sourceJobId`), `skips`, `blockers`, `events`, `job_state`.
+- Verified access: laptop `ssh -p 2222 mstro@100.94.153.31` password `$LAPTOP_PW` from the local vault, passwordless sudo, `k3s` + `kubectl` + `docker` present. Host sshd does not auto-start after reboot.
+- k3s facts that must be exact in diagrams: ns `campaign` = `finder`, `apply-worker`, `campaign-api`, `kafka-0` (KRaft), `mongo-0` (replica set `rs0`, auth), `msrouter` (pinned `replicas: 0`); ns `default` = `lubuntu-agent` (Chrome/Xvfb/VNC/CDP). Services: `campaign-api` NodePort 30080, `finder` 8081 ClusterIP, `kafka` 9092, `mongo` 27017, `msrouter` 3000, `postgres` 5432 (retired). Host NodePorts: 30022 ssh, 30080 api, 30590 vnc, 30922 cdp. Data: `/home/mstro/k3s-pod-data/{mongodb,kafka,agent-home,agent-state,playwright-output,tailscale,usr-local}`.
+- Topics: `campaign.jobs` (3 partitions, key `companyKey`), `campaign.jobs.dlq` (1). Collections: `job_listings`, `applications` (`_id = source:sourceJobId`), `skips`, `blockers`, `events`, `job_state`, `import_runs`.
 - GCP means the msrouter Google Gemini provider slot: `https://generativelanguage.googleapis.com/v1beta/openai`, env `GEMINI_API_KEY`/`GEMINI_MODEL`, default `gemini-2.5-flash-lite`, position 5 in `EXTRA_PROVIDER_ORDER` (`unorouter, groq, sambanova, mistral, gemini, cline, cloudflare`, then cloudflare last).
 - OpenCode is V2: servers go under `mcp.servers` (`mcp.<name>` is V1 and not read by V2). Preserve unrelated `opencode.json` settings.
 - NO SECRETS in any artifact: no `campaign-mongo` password/keyfile, no `msrouter.env` provider keys, no `GEMINI_API_KEY`, no bridge session files. MongoDB credentials appear only as `{ from secret campaign-mongo }`.
@@ -76,12 +76,12 @@ git commit -m "docs(diagrams): record StarUML 6.3.4 CLI capability and mdj schem
 - [ ] **Step 1: Snapshot cluster state**
 
 Run (from the Mac):
-`sshpass -p 1851 ssh -p 2222 mstro@100.94.153.31 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; sudo -E k3s kubectl get nodes -o wide; sudo -E k3s kubectl -n campaign get deploy,sts,svc,ep; sudo -E k3s kubectl -n default get pods,svc -o wide'`
+`sshpass -p "$LAPTOP_PW" ssh -p 2222 mstro@100.94.153.31 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; sudo -E k3s kubectl get nodes -o wide; sudo -E k3s kubectl -n campaign get deploy,sts,svc,ep; sudo -E k3s kubectl -n default get pods,svc -o wide'`
 Expected: node + backing pod except `msrouter` list, all services and endpoints as listed in Global Constraints.
 
 - [ ] **Step 2: Snapshot Mongo schema**
 
-Run: `sshpass -p 1851 ssh -p 2222 mstro@100.94.153.31 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; P=$(sudo -E k3s kubectl -n campaign get pod -l app=mongo -o jsonpath="{.items[0].metadata.name}"); sudo -E k3s kubectl -n campaign exec $P -- mongosh "mongodb://campaign:$(sudo -E k3s kubectl -n campaign get secret campaign-mongo -o jsonpath="{.data.password}" | base64 -d)@localhost:27017/campaign?authSource=admin" --quiet --eval "db.getCollectionNames(); db.getCollectionNames().forEach(c => print(c, JSON.stringify(db.getCollection(c).getIndexes())))"'`
+Run: `sshpass -p "$LAPTOP_PW" ssh -p 2222 mstro@100.94.153.31 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; P=$(sudo -E k3s kubectl -n campaign get pod -l app=mongo -o jsonpath="{.items[0].metadata.name}"); sudo -E k3s kubectl -n campaign exec $P -- mongosh "mongodb://campaign:$(sudo -E k3s kubectl -n campaign get secret campaign-mongo -o jsonpath="{.data.password}" | base64 -d)@localhost:27017/campaign?authSource=admin" --quiet --eval "db.getCollectionNames(); db.getCollectionNames().forEach(c => print(c, JSON.stringify(db.getCollection(c).getIndexes())))"'`
 Expected: the seven collections and their index lists. Redact the password before writing `facts.md` (write `{ from secret campaign-mongo }`).
 
 - [ ] **Step 3: Snapshot provider order and Gemini slot**
@@ -113,7 +113,7 @@ git commit -m "docs(diagrams): snapshot live k3s, mongo, and msrouter provider f
 
 - [ ] **Step 1: Write `01-uml-deployment.mdj`**
 
-Content: UML deployment with nodes Mac dev (opencode, Playwright MCP), Tailscale tailnet (`100.94.153.31`, MagicDNS name), laptop node (Ubuntu 22.04, k3s, docker), artifacts inside the node: ns `campaign` (finder, apply-worker, campaign-api, kafka-0, mongo-0 rs0, msrouter replicas 0), ns `default` (lubuntu-agent: Chrome, Xvfb, VNC, CDP), NodePorts 30022/30080/30590/30922, hostPath volumes under `/home/mstro/k3s-pod-data/`, and the image path `docker build -> docker save | k3s ctr images import` (no registry).
+Content: UML deployment with nodes Mac dev (opencode, Playwright MCP), Tailscale tailnet (`100.94.153.31`, MagicDNS name), laptop node (Ubuntu 22.04, k3s, docker), artifacts inside the node: ns `campaign` (finder, apply-worker, campaign-api, kafka-0, mongo-0 rs0, msrouter replicas 0), ns `default` (lubuntu-agent: Chrome, Xvfb, VNC, CDP), NodePorts 30022/30080/30590/30922, hostPath volumes under `/home/mstro/k3s-pod-data/` (`usr-local` included), and the image path `docker build -> docker save | k3s ctr images import` (no registry).
 
 - [ ] **Step 2: Write `02-arch-job-pipeline.mdj`**
 
@@ -157,7 +157,7 @@ git commit -m "docs(diagrams): five StarUML models plus SVG exports for k3s pipe
 
 - [ ] **Step 1: Prove the store is live and writable-primary**
 
-Run: `sshpass -p 1851 ssh -p 2222 mstro@100.94.153.31 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; P=$(sudo -E k3s kubectl -n campaign get pod -l app=mongo -o jsonpath="{.items[0].metadata.name}"); sudo -E k3s kubectl -n campaign exec $P -- mongosh "mongodb://campaign:$(sudo -E k3s kubectl -n campaign get secret campaign-mongo -o jsonpath="{.data.password}" | base64 -d)@localhost:27017/campaign?authSource=admin" --quiet --eval "db.hello().isWritablePrimary; db.events.countDocuments({}); db.applications.countDocuments({})"'`
+Run: `sshpass -p "$LAPTOP_PW" ssh -p 2222 mstro@100.94.153.31 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; P=$(sudo -E k3s kubectl -n campaign get pod -l app=mongo -o jsonpath="{.items[0].metadata.name}"); sudo -E k3s kubectl -n campaign exec $P -- mongosh "mongodb://campaign:$(sudo -E k3s kubectl -n campaign get secret campaign-mongo -o jsonpath="{.data.password}" | base64 -d)@localhost:27017/campaign?authSource=admin" --quiet --eval "db.hello().isWritablePrimary; db.events.countDocuments({}); db.applications.countDocuments({})"'`
 Expected: `true` and two counts. Record counts in the doc with the date.
 
 - [ ] **Step 2: Write the doc**
@@ -166,8 +166,8 @@ Sections: deployment (mongo-0, replica set `rs0`, auth via secret `campaign-mong
 
 - [ ] **Step 3: Secret sweep**
 
-Run: `rg -n 'base64|password|API_KEY|keyfile' docs/mongodb-tracking.md docs/diagrams/*.mdj docs/diagrams/facts.md docs/diagrams/README.md`
-Expected: only `{ from secret campaign-mongo }` style placeholders and env-var names such as `GEMINI_API_KEY`, never a value.
+Run: `rg -n 'base64|password|API_KEY|keyfile|sshpass -p [A-Za-z0-9_]+' docs/superpowers/plans docs/mongodb-tracking.md docs/whatsapp-mcp.md docs/diagrams/*.mdj docs/diagrams/facts.md docs/diagrams/README.md`
+Expected: only `{ from secret campaign-mongo }` / `$LAPTOP_PW` style placeholders and env-var names such as `GEMINI_API_KEY`, never a value.
 
 - [ ] **Step 4: Commit**
 

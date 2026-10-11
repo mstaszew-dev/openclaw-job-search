@@ -29,6 +29,7 @@ playwright-output/
 director/
 .coverage
 campaign_agent/state/tick-context.md
+.superpowers/
 
 # Kotlin test fixtures (fictional data; the *.json rule above guards live campaign data)
 !kotlin/**/src/test/resources/*.json

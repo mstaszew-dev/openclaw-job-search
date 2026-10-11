@@ -2,8 +2,9 @@
 
 Five StarUML 6 models for the laptop-hosted k3s pipeline, plus exports and the
 generator that produced them. The source of truth for the content is
-`docs/diagrams/facts.md` (live cluster evidence, 2026-10-11) and the Obsidian
-architecture note.
+`docs/diagrams/facts.md` (live cluster evidence, 2026-10-11), the Obsidian
+architecture note, and - for collection field lists beyond the indexes - the
+Kotlin repos (`JobStateRepositoryImpl`, `Recorder`, campaign-api entities).
 
 ## Files
 

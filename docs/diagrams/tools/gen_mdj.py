@@ -2,8 +2,7 @@
 """Generate the five StarUML 6 (.mdj) models for the k3s job pipeline.
 
 How StarUML 6.3.4 loads a hand-written project (established by experiment
-against the real app, see the ledger in
-`.superpowers/sdd/2026-10-11-staruml-k3s-diagrams-wa-mcp/progress.md`):
+against the real app; full findings in `docs/diagrams/README.md`):
 
   * a view must carry ONLY geometry and model content. Hand-written
     `subViews`, `nameCompartment` or `attributeCompartment` refs make the app
@@ -22,9 +21,9 @@ against the real app, see the ledger in
   * labels are drawn as given, without wrapping, so every box is sized from
     its longest text (about 6.3 px per character at Arial 12).
 
-Validity check: every file is exported with `staruml image -f svg` (the app
-loads the project to export it), then the SVG is searched for expected text.
-See `docs/diagrams/README.md`.
+Validity check (manual, not run by this script): export each `.mdj` with
+`staruml image -f svg` (the app must load the project to export it), then grep
+the SVG for the expected labels. See `docs/diagrams/README.md`.
 
 Usage: python3 gen_mdj.py
 """
@@ -328,7 +327,7 @@ def diagram_01():
         "k3s ctr images import; there is no registry.",
         "msrouter is pinned to 0 replicas and finder runs with",
         "FINDER_SCORING_ENABLED=false while the pipeline is paused.",
-        "finder and apply-worker reach Chrome over CDP at the node IP",
+        "apply-worker reaches Chrome over CDP at the node IP",
         "port 30922 (NodePort 9222:30922).",
         "Host data lives under /home/mstro/k3s-pod-data, owned by mstro.",
         "The laptop host sshd does not auto-start after a reboot.",
@@ -398,6 +397,9 @@ def diagram_02():
 
 
 def diagram_03():
+    # Collection field lists beyond the index keys come from the Kotlin repos
+    # (JobStateRepositoryImpl, Recorder, campaign-api entities), reviewed at
+    # build time; facts.md documents indexes and document counts live.
     classes = [
         ("job_listings", "job_listings - 507 docs", [
             "source: String",
@@ -543,7 +545,7 @@ def diagram_05():
         "store and prints a QR code to pair.",
         "Pairing needs the user's phone (WhatsApp > Linked devices); the",
         "re-link window is about 20 days.",
-        "Sends are user driven; the agent never sends on its own.",
+        "No message is sent by setup; sends happen only on an explicit ask.",
     ], 0, 3)
     b.edge("n0", "n1", "MCP stdio")
     b.edge("n1", "n2", "HTTP queries / sends")
@@ -567,8 +569,8 @@ DIAGRAMS = [
 def main():
     for filename, factory in DIAGRAMS:
         b = factory()
-        views = b.write(OUT / filename)
         boxes = b.check_overlap()
+        views = b.write(OUT / filename)
         print("%s: %d views, %d boxes, overlap clean" % (filename, views, boxes))
     return 0
 
