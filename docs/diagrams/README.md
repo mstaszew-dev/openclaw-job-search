@@ -30,9 +30,9 @@ load test:
 The CLI subcommands are `ejs|image|html|pdf|exec`; `image` takes `-f png|jpeg|svg`
 and `-o` (and `-s` to select a diagram). Then the SVG text is grepped for the
 expected labels (node names, attribute rows, edge labels, note text). The
-committed exports have had the app's `UNREGISTERED` demo watermark stripped
-(plain `<text>` elements), nothing else was touched; the `.mdj` files are
-untouched watermarked-free app output.
+committed exports had the app's `UNREGISTERED` demo watermark stripped, as
+plain `<text>` elements, and nothing else was changed. The `.mdj` files are
+kept as the app-native source the exports come from.
 
 ## How the schema was learned
 
@@ -50,11 +50,13 @@ findings (each confirmed by export-and-grep):
   VIEW (`text`), not on the `UMLNote` element.
 - An edge view needs distinct ids for its model element and its view; reusing
   one id suppresses the edge label.
+- Edges are the one exception to the geometry-only rule: a relation view owns
+  its three `EdgeLabelView` sub-views and the `nameLabel` / `stereotypeLabel`
+  / `propertyLabel` refs; boxes never carry `subViews`.
 - Class attribute rows are label views whose `text` lives on the row view, and
   the class element keeps attributes in its own `attributes` array.
 
-Full detail lives in the execution ledger:
-`.superpowers/sdd/2026-10-11-staruml-k3s-diagrams-wa-mcp/progress.md`.
+Those findings are the complete set the generator relies on.
 
 ## Layout policy
 

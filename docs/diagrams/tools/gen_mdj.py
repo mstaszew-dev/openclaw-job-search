@@ -15,6 +15,10 @@ against the real app, see the ledger in
   * a relation view must reference its own model element id in `model` and
     two distinct view ids in `head` / `tail`; reusing one id for both the
     element and the view kills the label.
+  * relation views are the exception to the geometry-only rule: the app
+    builds their three labels (name, stereotype, property) from the view's
+    own `subViews` (EdgeLabelView) plus the `nameLabel` / `stereotypeLabel`
+    / `propertyLabel` refs.
   * labels are drawn as given, without wrapping, so every box is sized from
     its longest text (about 6.3 px per character at Arial 12).
 
@@ -264,6 +268,24 @@ class Builder:
         pathlib.Path(path).write_text(json.dumps(project, indent=2) + "\n")
         return len(self.views)
 
+    def check_overlap(self):
+        """Fail if two non-relation views intersect (README promises this)."""
+        rects = []
+        for v in self.views:
+            if v["_type"] in ("UMLDependencyView", "EdgeLabelView"):
+                continue
+            rects.append((v["_type"], v["left"], v["top"], v["width"],
+                          v["height"]))
+        for i, a in enumerate(rects):
+            for b in rects[i + 1:]:
+                ax, ay, aw, ah = a[1:5]
+                bx, by, bw, bh = b[1:5]
+                if not (ax + aw <= bx or bx + bw <= ax
+                        or ay + ah <= by or by + bh <= ay):
+                    raise SystemExit("overlap: %s %r vs %s %r"
+                                     % (a[0], a[1:5], b[0], b[1:5]))
+        return len(rects)
+
 
 # ---------------------------------------------------------------------------
 # Diagram content. Every name, port, count, and index below comes from
@@ -280,16 +302,16 @@ def diagram_01():
     names = [
         "Mac dev michaels-macbook-air 100.125.162.30 - opencode + Playwright MCP",
         "Tailscale tailnet taila0a683.ts.net - overlay net for laptop and pod",
-        "lubuntu laptop mstro-TravelMate-P215-52 - Ubuntu 22.04.5, 4 vCPU / 7.8 GB, 100.94.153.31",
+        "lubuntu laptop mstro-travelmate-p215-52 - Ubuntu 22.04.5, 4 vCPU / 7.8 GB, 100.94.153.31",
         "k3s v1.36.5+k3s1 single node - containerd 2.3.4, no registry, docker save | k3s ctr import",
         "finder :8081 (Deployment, ns campaign) - discovery, dedupe, eligibility, CV score, produce",
         "apply-worker (Deployment, ns campaign) - consumer group apply-workers, APPLY_MODE=shadow",
         "campaign-api :8080 (NodePort 30080, ns campaign) - /stats /jobs /applications",
-        "kafka-0 apache/kafka:3.7.1 (StatefulSet) - KRaft, heap 512 MB, campaign.jobs (3) + dlq (1)",
+        "kafka (StatefulSet, apache/kafka:3.7.1) - KRaft, single broker, heap 512 MB, campaign.jobs (3) + dlq (1)",
         "mongo-0 mongo:7 (StatefulSet) - replica set rs0, auth, WiredTiger cache 256 MB",
         "msrouter :3000 (Deployment, ns campaign) - PAUSED, replicas 0 since 2026-10-08",
         "lubuntu-agent (Pod, ns default) - Chrome on Xvfb :99, VNC :5900, CDP :9222, sshd :22",
-        "hostPath /home/mstro/k3s-pod-data - mongodb, kafka, agent-home, agent-state, playwright-output",
+        "hostPath /home/mstro/k3s-pod-data - mongodb, kafka, agent-home, agent-state, playwright-output, tailscale, usr-local",
     ]
     b = Builder("Deployment - Mac dev, tailnet, k3s laptop", "Deployment",
                 "UMLDeploymentDiagram",
@@ -306,8 +328,8 @@ def diagram_01():
         "k3s ctr images import; there is no registry.",
         "msrouter is pinned to 0 replicas and finder runs with",
         "FINDER_SCORING_ENABLED=false while the pipeline is paused.",
-        "finder and apply-worker reach Chrome over CDP at the node IP, :30922,",
-        "because Chrome rejects a DNS Host header.",
+        "finder and apply-worker reach Chrome over CDP at the node IP",
+        "port 30922 (NodePort 9222:30922).",
         "Host data lives under /home/mstro/k3s-pod-data, owned by mstro.",
         "The laptop host sshd does not auto-start after a reboot.",
     ], 0, 4)
@@ -409,8 +431,6 @@ def diagram_03():
         ("events", "events - 40724 docs", [
             "action: String (idx with at)",
             "at: Date (idx)",
-            "payload: Doc",
-            "mirrors events.jsonl",
         ]),
         ("job_state", "job_state - 94 docs", [
             "status: String (idx)",
@@ -459,7 +479,7 @@ def diagram_03():
 def diagram_04():
     names = [
         "Clients - agent loop, CvScorer (finder), apply-worker",
-        "msrouter mst/free :3000 - ClusterIP, OpenAI-compatible /v1/chat/completions, PAUSED (replicas 0)",
+        "msrouter :3000 - ClusterIP, OpenAI-compatible /v1/chat/completions, PAUSED (replicas 0)",
         "EXTRA_PROVIDER_ORDER 1 - unorouter",
         "EXTRA_PROVIDER_ORDER 2 - groq",
         "EXTRA_PROVIDER_ORDER 3 - sambanova",
@@ -467,7 +487,7 @@ def diagram_04():
         "EXTRA_PROVIDER_ORDER 5 - gemini = GCP (Google Gemini API, GEMINI_MODEL=gemini-2.5-flash-lite)",
         "EXTRA_PROVIDER_ORDER 6 - cline",
         "EXTRA_PROVIDER_ORDER 7 (last) - cloudflare",
-        "local / lmstudio / ollama - tried before the extras",
+        "local slot (on-host LLM providers) - tried before the extras (msrouter config, not facts.md)",
         "pause switch - msrouter.yaml replicas 0 + finder FINDER_SCORING_ENABLED=false",
     ]
     b = Builder("msrouter providers including GCP Gemini", "Providers",
@@ -482,9 +502,11 @@ def diagram_04():
         "Default model: gemini-2.5-flash-lite, free tier via GEMINI_API_KEY.",
         "Order: unorouter, groq, sambanova, mistral, gemini, cline, cloudflare.",
         "Cloudflare is last in the walk; the local on-host slot comes first.",
-        "While msrouter has 0 replicas, CvScorer returns the fallback score 70",
-        "and the score >= 60 CV filter stops rejecting candidates.",
-        "APPLY_MODE must stay shadow while the pause switch is active.",
+        "The extras order is the facts.md EXTRA_PROVIDER_ORDER; the primary",
+        "and local slots come from msrouter config, not facts.md.",
+        "Pause switch (moves together): msrouter replicas 0 and finder",
+        "FINDER_SCORING_ENABLED=false -> CvScorer fallback score 70; the",
+        "score >= 60 CV filter stops rejecting and APPLY_MODE stays shadow.",
     ], 0, 4)
     b.edge("n0", "n1", "POST /v1/chat/completions")
     b.edge("n1", "n9", "local slot")
@@ -544,8 +566,10 @@ DIAGRAMS = [
 
 def main():
     for filename, factory in DIAGRAMS:
-        views = factory().write(OUT / filename)
-        print("%s: %d views" % (filename, views))
+        b = factory()
+        views = b.write(OUT / filename)
+        boxes = b.check_overlap()
+        print("%s: %d views, %d boxes, overlap clean" % (filename, views, boxes))
     return 0
 
 
