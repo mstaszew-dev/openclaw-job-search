@@ -23,6 +23,8 @@ coverage/
 *.svg
 !docs/diagrams/export/
 !docs/diagrams/export/*.svg
+!docs/diagrams/drawio/export/
+!docs/diagrams/drawio/export/*.svg
 *.pdf
 secrets-dump-*.txt
 playwright-output/

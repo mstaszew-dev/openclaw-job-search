@@ -1,7 +1,8 @@
-# StarUML diagrams: k3s job-search pipeline
+# Diagrams: k3s job-search pipeline
 
-Five StarUML 6 models for the laptop-hosted k3s pipeline, plus exports and the
-generator that produced them. The source of truth for the content is
+Five UML models for the laptop-hosted k3s pipeline, generated twice from the
+same generator: StarUML 6 (`.mdj`, kept as legacy) and draw.io (`.drawio`, the
+active format). The source of truth for the content is
 `docs/diagrams/facts.md` (live cluster evidence, 2026-10-11), the Obsidian
 architecture note, and - for collection field lists beyond the indexes - the
 Kotlin repos (`JobStateRepositoryImpl`, `Recorder`, campaign-api entities).
@@ -16,24 +17,33 @@ Kotlin repos (`JobStateRepositoryImpl`, `Recorder`, campaign-api entities).
 | `04-gcp-msrouter-providers.mdj` -> `export/04-gcp-msrouter-providers.svg` | Component: msrouter provider chain, GCP (Google Gemini) slot | labels `EXTRA_PROVIDER_ORDER`, `gemini-2.5-flash-lite` |
 | `05-wa-mcp-opencode.mdj` -> `export/05-wa-mcp-opencode.svg` | Component: WhatsApp MCP for opencode only | labels `whatsmeow`, `send_audio_message` |
 
-`tools/gen_mdj.py` regenerates all five models from the same specs, so the
-diagrams stay reproducible when `facts.md` changes.
+`tools/gen_mdj.py` regenerates both the `.mdj` and the `drawio/*.drawio`
+copies from the same specs, so the diagrams stay reproducible when
+`facts.md` changes.
+
+Open the live diagrams in draw.io (free, open source):
+
+```
+open -a draw.io drawio/01-uml-deployment.drawio drawio/02-arch-job-pipeline.drawio drawio/03-mongo-data-model.drawio drawio/04-gcp-msrouter-providers.drawio drawio/05-wa-mcp-opencode.drawio
+```
 
 ## How the files were validated
 
-Each `.mdj` is loaded by the real app to export, so a successful export is a
-load test:
+Each file is loaded by the real app to export, so a successful export is a
+load test. draw.io runs headless:
 
 ```
-/Applications/StarUML.app/Contents/MacOS/StarUML image 01-uml-deployment.mdj -f svg -o export/01-uml-deployment.svg
+/Applications/draw.io.app/Contents/MacOS/draw.io --export --format svg --output drawio/export/01-uml-deployment.svg drawio/01-uml-deployment.drawio
 ```
 
-The CLI subcommands are `ejs|image|html|pdf|exec`; `image` takes `-f png|jpeg|svg`
-and `-o` (and `-s` to select a diagram). Then the SVG text is grepped for the
-expected labels (node names, attribute rows, edge labels, note text). The
-committed exports had the app's `UNREGISTERED` demo watermark stripped, as
-plain `<text>` elements, and nothing else was changed. The `.mdj` files are
-kept as the app-native source the exports come from.
+The committed `drawio/export/*.svg` came from that command. Each SVG text is
+grepped for the expected labels (node names, attribute rows, edge labels,
+note text).
+
+The `.mdj` copies were load-tested with the StarUML app the same way
+(`StarUML image <f>.mdj -f svg -o ...`) when they were created. StarUML was
+uninstalled on 2026-10-12; the `.mdj` files stay committed as the original
+format, and the draw.io copies are the active, editable form.
 
 ## How the schema was learned
 
