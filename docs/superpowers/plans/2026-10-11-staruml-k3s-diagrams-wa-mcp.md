@@ -82,7 +82,7 @@ Expected: node + backing pod except `msrouter` list, all services and endpoints 
 - [ ] **Step 2: Snapshot Mongo schema**
 
 Run: `sshpass -p 1851 ssh -p 2222 mstro@100.94.153.31 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; P=$(sudo -E k3s kubectl -n campaign get pod -l app=mongo -o jsonpath="{.items[0].metadata.name}"); sudo -E k3s kubectl -n campaign exec $P -- mongosh "mongodb://campaign:$(sudo -E k3s kubectl -n campaign get secret campaign-mongo -o jsonpath="{.data.password}" | base64 -d)@localhost:27017/campaign?authSource=admin" --quiet --eval "db.getCollectionNames(); db.getCollectionNames().forEach(c => print(c, JSON.stringify(db.getCollection(c).getIndexes())))"'`
-Expected: the six collections and their index lists. Redact the password before writing `facts.md` (write `{ from secret campaign-mongo }`).
+Expected: the seven collections and their index lists. Redact the password before writing `facts.md` (write `{ from secret campaign-mongo }`).
 
 - [ ] **Step 3: Snapshot provider order and Gemini slot**
 
@@ -121,7 +121,7 @@ Content: UML component diagram of the reference flow mapped to reality (table in
 
 - [ ] **Step 3: Write `03-mongo-data-model.mdj`**
 
-Content: UML class diagram of the six collections with the fields and index names from Task 2 Step 2. Mark `applications._id` unique (`source:sourceJobId`), `job_listings` unique `(source, sourceJobId)`, and the three transaction boundaries (`recordSubmitted`, `recordSkippedDuplicate`/`recordBlocked`, `markTerminal`/`failJob`). Note `job_state` is a ledger only and never schedules.
+Content: UML class diagram of the seven collections with the fields and index names from Task 2 Step 2. Mark `applications._id` unique (`source:sourceJobId`), `job_listings` unique `(source, sourceJobId)`, and the three transaction boundaries (`recordSubmitted`, `recordSkippedDuplicate`/`recordBlocked`, `markTerminal`/`failJob`). Note `job_state` is a ledger only and never schedules.
 
 - [ ] **Step 4: Write `04-gcp-msrouter-providers.mdj`**
 

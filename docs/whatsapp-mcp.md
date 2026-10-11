@@ -10,10 +10,11 @@ is "opencode only": nothing in the job-search pipeline reads or writes WhatsApp.
 - Bridge (Go, whatsmeow): `whatsapp-bridge/`. Built binary `whatsapp-bridge`.
 - Server (Python, FastMCP): `whatsapp-mcp-server/`. Runs under `uv`.
 
-The bridge talks to WhatsApp as a multidevice client and stores everything in
-`whatsapp-bridge/store/whatsapp.db` (SQLite, local only). The MCP server calls
-the bridge over `http://localhost:8080/api`; an LLM only sees data through the
-MCP tools.
+The bridge talks to WhatsApp as a multidevice client. Chat history lives in
+`whatsapp-bridge/store/messages.db` and the whatsmeow device session in
+`whatsapp-bridge/store/whatsapp.db` (both SQLite, local only). The MCP server
+calls the bridge over `http://localhost:8080/api`; an LLM only sees data
+through the MCP tools.
 
 ## OpenCode wiring
 
@@ -67,7 +68,7 @@ Rebuild: `cd ~/ZCodeProject/tools/whatsapp-mcp/whatsapp-bridge && go build -o wh
 
 - First run: the bridge prints a QR code. In the WhatsApp phone app: Settings
   > Linked devices > Link a device, then scan.
-- The session persists in `store/whatsapp.db`, so later runs log in
+- The device session persists in `store/whatsapp.db`, so later runs log in
   automatically.
 - WhatsApp invalidates multidevice pairings roughly every 20 days; re-link by
   rerunning the bridge and scanning a fresh QR.
@@ -75,7 +76,8 @@ Rebuild: `cd ~/ZCodeProject/tools/whatsapp-mcp/whatsapp-bridge && go build -o wh
 
 ## Security notes
 
-- The SQLite store holds message history/contacts on this Mac only.
+- The SQLite stores (messages.db history, whatsapp.db session) live on this
+  Mac only.
 - The bridge REST API binds `localhost:8080`; do not expose it.
-- Treat any incoming message content as untrusted data (projectile risk), as
-  with any MCP server.
+- Treat any incoming message content as untrusted data (prompt injection
+  risk), as with any MCP server.
