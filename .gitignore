@@ -21,9 +21,19 @@ coverage/
 *.jpeg
 *.gif
 *.svg
+!docs/diagrams/export/
+!docs/diagrams/export/*.svg
+!docs/diagrams/plantuml/export/
+!docs/diagrams/plantuml/export/*.svg
 *.pdf
 secrets-dump-*.txt
 playwright-output/
 director/
 .coverage
+__pycache__/
+*.pyc
 campaign_agent/state/tick-context.md
+.superpowers/
+
+# Kotlin test fixtures (fictional data; the *.json rule above guards live campaign data)
+!kotlin/**/src/test/resources/*.json

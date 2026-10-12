@@ -1,0 +1,15 @@
+package dev.mstaszew.campaign.common.repo
+
+import dev.mstaszew.campaign.common.domain.BlockerEntity
+import org.springframework.data.mongodb.repository.MongoRepository
+
+interface BlockerRepository : MongoRepository<BlockerEntity, String> {
+
+    /** Repeat-block guard input: prior blocks for the same company. */
+    fun countByCompanyKeyAndResolvedFalse(companyKey: String): Long
+
+    /** Sentinel companies are guarded in LISTING scope instead. */
+    fun countBySourceAndSourceJobIdAndResolvedFalse(source: String?, sourceJobId: String?): Long
+
+    fun countByResolvedFalse(): Long
+}

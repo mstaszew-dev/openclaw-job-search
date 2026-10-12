@@ -1,0 +1,115 @@
+{
+  "target": 2000,
+  "stats": {
+    "submitted": 3,
+    "skippedDuplicate": 2,
+    "skippedSalary": 1,
+    "skippedFilter": 0,
+    "blockedManual": 1,
+    "errors": 0
+  },
+  "applications": [
+    {
+      "id": "nofluffjobs:aaa-1",
+      "source": "nofluffjobs",
+      "sourceJobId": "aaa-1",
+      "company": "Funds-Tech Sp. z o.o.",
+      "companyKey": "funds-tech",
+      "roleTitle": "Java Developer",
+      "roleKey": "java-developer",
+      "jobUrl": "https://nofluffjobs.com/pl/job/java-developer-funds-tech",
+      "region": "PL",
+      "remotePolicy": "remote",
+      "salarySeen": {"min": 15000, "max": 20000, "currency": "PLN", "basis": "net_b2b"},
+      "stack": ["java", "spring"],
+      "applyMethod": "portal",
+      "confirmationUrl": "https://nofluffjobs.com/success",
+      "confirmationText": "Thank you",
+      "evidence": {"type": "portal_confirmation", "confirmationText": "Thank you"},
+      "appliedAt": "2026-09-20T10:15:30Z",
+      "status": "submitted",
+      "ats": "traffit",
+      "notes": "ok"
+    },
+    {
+      "id": "justjoin:jj-9",
+      "source": "justjoin",
+      "sourceJobId": "jj-9",
+      "company": "Acme New Ltd",
+      "roleTitle": "Kotlin Developer",
+      "listingUrl": "https://justjoin.it/offers/kotlin-dev?jobid=AB12&src=x",
+      "region": "PL",
+      "remotePolicy": "hybrid",
+      "salarySeen": "15000 - 18000 PLN B2B",
+      "evidence": "gmail_auto_reply",
+      "stack": "kotlin",
+      "status": "attempted"
+    },
+    {
+      "id": "mindbox-senior-backend-java",
+      "source": "nofluffjobs",
+      "sourceJobId": "nb-1",
+      "company": "Mind Box Sp. z o.o.",
+      "roleTitle": "Senior Backend Java",
+      "region": "PL",
+      "appliedAt": "2026-08-01T12:00:00Z",
+      "status": "submitted"
+    }
+  ],
+  "skipped": [
+    {
+      "at": "2026-09-21T08:00:00Z",
+      "reason": "duplicate",
+      "id": "theprotocol:tp-1",
+      "source": "theprotocol",
+      "sourceJobId": "tp-1",
+      "company": "Prev Co Ltd",
+      "companyKey": "prev-co",
+      "roleTitle": "Node Developer",
+      "jobUrl": "https://theprotocol.it/job/node-prev",
+      "region": "PL",
+      "detail": "company match",
+      "blockedRepeat": false
+    },
+    {
+      "at": "2026-09-22T09:00:00Z",
+      "reason": "salary",
+      "source": "nofluffjobs",
+      "sourceJobId": "aaa-2",
+      "company": "Poor Pay sp. z o.o.",
+      "companyKey": "poor-pay",
+      "roleTitle": "Java Dev",
+      "region": "PL",
+      "detail": "9000 PLN"
+    },
+    {
+      "at": "2026-09-23T09:00:00Z",
+      "reason": "duplicate",
+      "company": "Blocked Twice Ltd",
+      "companyKey": "blocked-twice",
+      "blockedRepeat": true,
+      "blockCount": 2,
+      "detail": "auto"
+    },
+    {
+      "at": "2026-09-25T09:00:00Z",
+      "reason": "gmail_prior_application_60d",
+      "company": "Legacy Reason Co",
+      "detail": "free-text legacy reason, dropped by contract"
+    }
+  ],
+  "blockers": [
+    {
+      "at": "2026-09-24T11:00:00Z",
+      "id": "justjoin:jj-7",
+      "source": "justjoin",
+      "sourceJobId": "jj-7",
+      "company": "Captcha Corp",
+      "companyKey": "captcha-corp",
+      "roleTitle": "Backend Dev",
+      "reason": "captcha",
+      "resolved": false,
+      "detail": "recaptcha v2"
+    }
+  ]
+}

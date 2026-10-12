@@ -1,0 +1,73 @@
+@startuml 03_-_mongo_data_model
+title 03 - mongo data model: collections, keys, indexes, transactions
+skinparam shadowing false
+hide empty members
+class "job_listings - 507 docs" as job_listings {
+  source: String
+  sourceJobId: String
+  companyKey: String (idx)
+  url: String (idx)
+  uq_job_listings_source_job UNIQUE (source, sourceJobId)
+  salary: Doc
+}
+class "applications - 1845 docs" as applications {
+  _id: String = source:sourceJobId
+  companyKey: String (idx)
+  roleKey: String (idx with companyKey)
+  url: String (idx)
+  appliedAt: Date (idx)
+  salary / evidence / followUps / raw / record: Doc
+}
+class "skips - 654 docs" as skips {
+  reason: String
+  companyKey: String (idx)
+  url: String (idx)
+  at: Date
+  uq_skips_dedupe: reason, source, sourceJobId, companyKey, url, at
+}
+class "blockers - 102 docs" as blockers {
+  companyKey: String (idx)
+  reason: String
+  at: Date
+  uq_blockers_dedupe: companyKey, reason, at
+}
+class "events - 40724 docs" as events {
+  action: String (idx with at)
+  at: Date (idx)
+}
+class "job_state - 94 docs" as job_state {
+  status: String (idx)
+  attempts: Int
+  lastError: String
+  score: Int (setOnInsert)
+  ledger only, never schedules
+}
+class "import_runs - 1 doc" as import_runs {
+  one row per tracker.json import
+}
+class "transaction boundaries" as transactions {
+  recordSubmitted: application + event + job_state
+  recordSkippedDuplicate / recordBlocked
+  markTerminal / failJob
+  Kafka owns delivery, Mongo owns bookkeeping
+}
+skips --> applications : dedupe: id, company, url
+blockers --> applications : blockedRepeat counts as duplicate
+events --> applications : ledger
+job_state --> events : outcome events
+import_runs --> applications : one-shot import
+job_listings --> applications : discovery -> application
+note as guide
+  Notes the metadata does not advertise
+  uq_ indexes are not flagged unique in live metadata except
+  uq_job_listings_source_job; the packed dedupe tuples are enforced by
+  the write path (insert-if-absent), not by MongoDB.
+  applications._id is the assigned String source:sourceJobId, so its
+  uniqueness rides on the default _id_ index.
+  Only three write paths use a transaction; single-document writes stay
+  outside on purpose.
+  job_state is a ledger: it records attempts and outcomes and never
+  schedules work.
+end note
+
+@enduml

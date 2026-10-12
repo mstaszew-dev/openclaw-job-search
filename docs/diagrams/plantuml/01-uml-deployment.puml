@@ -1,0 +1,48 @@
+@startuml 01_-_deployment
+title 01 - deployment: Mac, tailnet, k3s on the lubuntu laptop
+skinparam shadowing false
+hide empty members
+node "Mac dev michaels-macbook-air 100.125.162.30 - opencode + Playwright MCP" as n0
+node "Tailscale tailnet taila0a683.ts.net - overlay net for laptop and pod" as n1
+node "lubuntu laptop mstro-travelmate-p215-52 - Ubuntu 22.04.5, 4 vCPU / 7.8 GB, 100.94.153.31" as n2
+node "k3s v1.36.5+k3s1 single node - containerd 2.3.4, no registry, docker save | k3s ctr import" as n3
+node "finder :8081 (Deployment, ns campaign) - discovery, dedupe, eligibility, CV score, produce" as n4
+node "apply-worker (Deployment, ns campaign) - consumer group apply-workers, APPLY_MODE=shadow" as n5
+node "campaign-api :8080 (NodePort 30080, ns campaign) - /stats /jobs /applications" as n6
+node "kafka (StatefulSet, apache/kafka:3.7.1) - KRaft, single broker, heap 512 MB, campaign.jobs (3) + dlq (1)" as n7
+node "mongo-0 mongo:7 (StatefulSet) - replica set rs0, auth, WiredTiger cache 256 MB" as n8
+node "msrouter :3000 (Deployment, ns campaign) - PAUSED, replicas 0 since 2026-10-08" as n9
+node "lubuntu-agent (Pod, ns default) - Chrome on Xvfb :99, VNC :5900, CDP :9222, sshd :22" as n10
+node "hostPath /home/mstro/k3s-pod-data - mongodb, kafka, agent-home, agent-state, playwright-output, tailscale, usr-local" as n11
+n0 --> n1 : ssh -p 2222 / 30022
+n1 --> n2 : tailnet 100.94.153.31
+n2 --> n3 : images imported into containerd
+n3 --> n4 : Deployment
+n3 --> n5 : Deployment
+n3 --> n6 : NodePort 30080
+n3 --> n9 : 0/0 replicas
+n3 --> n10 : pod in ns default
+n3 --> n7 : StatefulSet
+n3 --> n8 : StatefulSet
+n4 --> n7 : produce campaign.jobs
+n7 --> n5 : consume apply-workers
+n5 --> n8 : record after write
+n6 --> n8 : read
+n5 --> n10 : CDP :30922
+n8 --> n11 : data
+n7 --> n11 : data
+note as guide
+  Reading guide
+  One k3s node runs ns campaign (finder, apply-worker, campaign-api,
+  kafka-0, mongo-0, msrouter) and ns default (lubuntu-agent).
+  Images are built on the host with docker and imported with
+  k3s ctr images import; there is no registry.
+  msrouter is pinned to 0 replicas and finder runs with
+  FINDER_SCORING_ENABLED=false while the pipeline is paused.
+  apply-worker reaches Chrome over CDP at the node IP
+  port 30922 (NodePort 9222:30922).
+  Host data lives under /home/mstro/k3s-pod-data, owned by mstro.
+  The laptop host sshd does not auto-start after a reboot.
+end note
+
+@enduml

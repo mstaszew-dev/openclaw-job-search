@@ -1,0 +1,40 @@
+spring:
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://127.0.0.1:27017/campaign?directConnection=true}
+      auto-index-creation: false
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    admin:
+      fail-fast: false
+    producer:
+      # A send that cannot reach the broker within this window is a warning,
+      # not a stack trace: the finder keeps collecting either way.
+      delivery.timeout.ms: 30000
+      request.timeout.ms: 10000
+  application:
+    name: finder-service
+
+server:
+  port: ${PORT:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+finder:
+  run-interval-seconds: ${FINDER_RUN_INTERVAL_SECONDS:900}
+  cv-profile-path: ${CV_PROFILE_PATH:}
+  msrouter-url: ${MSROUTER_URL:http://127.0.0.1:8787/v1}
+  msrouter-api-key: ${MSROUTER_API_KEY:}
+  msrouter-model: ${MSROUTER_MODEL:mst/free}
+  # false = collect and produce, but never call the gateway. Costs no tokens.
+  scoring-enabled: ${FINDER_SCORING_ENABLED:true}
+  browser-cdp-url: ${BROWSER_CDP_URL:http://127.0.0.1:9222}
+  mcp-command: ${FINDER_MCP_COMMAND:node @playwright/mcp/cli.js --cdp-endpoint http://127.0.0.1:9222}
+  collect-stacks: ${FINDER_COLLECT_STACKS:java,kotlin,php,node,react}
+
+finder.policy:
+  pln-b2b-floor: ${POLICY_PLN_B2B_FLOOR:15000}

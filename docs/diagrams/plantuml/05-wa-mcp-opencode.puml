@@ -1,0 +1,32 @@
+@startuml 05_-_whatsapp_mcp
+title 05 - whatsapp mcp: opencode only, not part of the pipeline
+skinparam shadowing false
+hide empty members
+component "opencode (Mac) - MCP stdio client, mcp.servers.whatsapp in opencode.json" as n0
+component "whatsapp-mcp-server - Python, uv run main.py in tools/whatsapp-mcp" as n1
+component "whatsapp-bridge - Go / whatsmeow, WhatsApp Web multi-device, QR link" as n2
+component "SQLite store/messages.db - local history, chats + messages" as n3
+component "personal WhatsApp account - paired device, the user controls the phone" as n4
+component "MCP tools - search_contacts, list_messages, list_chats, get_chat, get_message_context" as n5
+component "MCP tools - send_message, send_file, send_audio_message, download_media" as n6
+component "scope note - opencode only, NOT wired into the campaign pipeline or k3s" as n7
+n0 --> n1 : MCP stdio
+n1 --> n2 : HTTP queries / sends
+n2 --> n3 : persist
+n2 --> n4 : multi-device protocol
+n0 --> n5 : tools/list
+n0 --> n6 : tools/call
+n0 --> n7
+note as guide
+  opencode only: nothing in the campaign pipeline or the k3s cluster
+  calls these tools.
+  Install: brew install go, clone lharries/whatsapp-mcp under
+  ~/ZCodeProject/tools, then go build the bridge.
+  The bridge keeps WhatsApp Web multi-device state in a local SQLite
+  store and prints a QR code to pair.
+  Pairing needs the user's phone (WhatsApp > Linked devices); the
+  re-link window is about 20 days.
+  No message is sent by setup; sends happen only on an explicit ask.
+end note
+
+@enduml

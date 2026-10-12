@@ -1,0 +1,31 @@
+[versions]
+kotlin = "2.4.20"
+spring-boot = "3.5.9"
+graalvm-native = "1.1.14"
+# Pinned to the line Spring Boot 3.5.9 manages. The 2.x core artifact exists,
+# but org.testcontainers:kafka is only published up to 1.21.4, so a 2.x core
+# with the 1.x kafka module resolves to a mismatched pair whose container is
+# never actually started.
+testcontainers = "1.21.4"
+mockk = "1.14.11"
+
+[libraries]
+spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
+spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
+spring-boot-starter-data-mongodb = { module = "org.springframework.boot:spring-boot-starter-data-mongodb" }
+spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
+jackson-module-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin" }
+mongodb-driver-sync = { module = "org.mongodb:mongodb-driver-sync" }
+testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
+testcontainers-core = { module = "org.testcontainers:testcontainers", version.ref = "testcontainers" }
+testcontainers-junit-jupiter = { module = "org.testcontainers:junit-jupiter" }
+testcontainers-kafka = { module = "org.testcontainers:kafka" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+graalvm-native = { id = "org.graalvm.buildtools.native", version.ref = "graalvm-native" }

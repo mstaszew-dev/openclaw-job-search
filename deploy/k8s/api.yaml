@@ -1,0 +1,52 @@
+# campaign-api: stats/applications/events over Mongo; NodePort 30080 on the
+# laptop LAN. job_state replaces the old queue endpoints: GET /api/v1/jobs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: campaign-api
+  namespace: campaign
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: campaign-api }
+  template:
+    metadata:
+      labels: { app: campaign-api }
+    spec:
+      containers:
+        - name: api
+          image: localhost:5000/campaign-api:v1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MONGO_PASSWORD
+              valueFrom: { secretKeyRef: { name: campaign-mongo, key: password } }
+            - name: MONGO_URI
+              value: mongodb://campaign:$(MONGO_PASSWORD)@mongo.campaign.svc.cluster.local:27017/campaign?authSource=admin
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.campaign.svc.cluster.local:9092
+          ports: [{ containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8080 }
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 5
+          resources:
+            requests: { memory: 256Mi, cpu: 100m }
+            limits: { memory: 512Mi, cpu: 500m }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: campaign-api
+  namespace: campaign
+spec:
+  type: NodePort
+  selector: { app: campaign-api }
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080

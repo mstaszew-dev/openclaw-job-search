@@ -1,0 +1,32 @@
+# msrouter runtime image. Built on the lubuntu host from the msrouter
+# k3s-headless clone, where dist/ and node_modules/ already exist:
+#
+#   cd /home/mstro/k3s-pod-data/agent-home/apps/msrouter && git checkout k3s-headless
+#   sudo docker build -f <campaign>/deploy/docker/Dockerfile.msrouter \
+#     -t localhost:5000/msrouter:k3s-headless-v1 .
+#   sudo docker save localhost:5000/msrouter:k3s-headless-v1 | \
+#     sudo k3s ctr images import -
+#
+# The build context is the msrouter checkout, so node_modules and dist are
+# copied rather than installed/shipped: provider keys stay out of the image
+# and the build needs no credentials. They are built in the clone, not
+# committed, so the caller must have run `npm ci && npm run build` there
+# first; bootstrap checks for both before building.
+FROM node:22.19-bookworm-slim
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY node_modules ./node_modules
+COPY dist ./dist
+# dist/director/iterm.js resolves the repo root by walking up until it finds
+# scripts/kafka.sh, so dist alone is not enough
+COPY scripts ./scripts
+COPY data ./data
+
+# The clone ships dist/ built but untracked: a stray git clean or a fresh
+# clone would otherwise make a dead image that dies at MODULE_NOT_FOUND.
+RUN test -f dist/main.js || { echo "dist/main.js missing; npm run build in the msrouter checkout first" >&2; exit 1; }
+
+EXPOSE 3000
+CMD ["node", "dist/main.js"]
