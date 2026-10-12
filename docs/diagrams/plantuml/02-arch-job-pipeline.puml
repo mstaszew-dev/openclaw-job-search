@@ -1,0 +1,38 @@
+@startuml 02_-_job_pipeline
+title 02 - job pipeline: sources, finder, kafka, worker fleet, db and ui
+skinparam shadowing false
+hide empty members
+component "External sources - NoFluffJobs, JustJoin.it, theProtocol.it (PL only, fully remote)" as n0
+component "finder = Discovery & Deduplication Agent - crawl/API, normalize, hash + similarity dedupe" as n1
+component "campaign.jobs - Kafka topic, reference name validated_job_offers, 3 partitions, key companyKey" as n2
+component "apply-worker pool - consumer group apply-workers, one record per poll, ack after the Mongo write" as n3
+component "worker specialisms (reference) - skill/stack, salary/benefit, company/culture checks" as n4
+component "campaign.jobs.dlq - poison messages past maxAttempts -> job_state.status=DEAD" as n5
+component "mongo-0 = Job Search DB - job_listings, applications, skips, blockers, events, job_state" as n6
+component "campaign-api = UI/API - NodePort 30080, /stats /jobs /applications" as n7
+component "Chrome in lubuntu-agent - CDP node IP :30922, used only when APPLY_MODE=live" as n8
+component "mode switch - APPLY_MODE=shadow, msrouter PAUSED (replicas 0), fallback score 70" as n9
+n0 --> n1 : collect
+n1 --> n2 : produce validated offers
+n2 --> n3 : consume
+n3 --> n4 : the three checks
+n3 --> n5 : maxAttempts
+n3 --> n6 : record submitted / skipped / blocked
+n3 --> n8 : apply (live only)
+n6 --> n7 : read
+n7 --> n9 : observed by
+n9 --> n3 : gates
+note as guide
+  Reference flow vs deployed
+  Reference: External sources -> Discovery & Deduplication Agent ->
+  Kafka (validated_job_offers) -> worker agents -> Job Search DB / UI.
+  Deployed: finder -> campaign.jobs -> apply-worker pool -> mongo-0 ->
+  campaign-api, with campaign.jobs.dlq for poison messages.
+  The reference names three specialist workers; the deployment runs one
+  consumer group (apply-workers), so parallelism comes from the three
+  partitions, not from three services.
+  Kafka owns delivery, Mongo owns bookkeeping: the offset commits only
+  after the Mongo write succeeds, and a redelivery declines the action.
+end note
+
+@enduml

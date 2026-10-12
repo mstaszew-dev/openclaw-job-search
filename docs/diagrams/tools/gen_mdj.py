@@ -32,7 +32,6 @@ import base64
 import json
 import os
 import pathlib
-from xml.sax.saxutils import escape
 
 OUT = pathlib.Path(__file__).resolve().parent.parent
 PX_PER_CHAR = 6.3
@@ -286,83 +285,55 @@ class Builder:
                                      % (a[0], a[1:5], b[0], b[1:5]))
         return len(rects)
 
-    def write_drawio(self, path):
-        """Write the same layout as a draw.io (mxfile) document.
+    def write_puml(self, path):
+        """Write the same model as PlantUML source.
 
-        The layout, text and sizes come from the same spec as the .mdj; the
-        styling is simplified (plain rectangles, straight edges) because
-        draw.io has no UML profile. Notes become draw.io note shapes.
+        PlantUML lays the graph out itself, so positions differ from the
+        .mdj copy; text and relations match.
         """
         el_by_id = {e["_id"]: e for e in self.elements}
         vid_to_key = {v[0]: key for key, v in self.boxes.items()}
-
-        box_cells = []
-        edge_cells = []
+        kind = {"UMLNodeView": "node", "UMLComponentView": "component",
+                "UMLClassView": "class"}
+        decl = []
+        edges = []
+        notes = []
         for v in self.views:
             vid = v["_id"]
             model = el_by_id.get(v["model"]["$ref"], {})
             if v["_type"] == "UMLDependencyView":
-                tail_key = vid_to_key[v["tail"]["$ref"]]
-                head_key = vid_to_key[v["head"]["$ref"]]
-                ty = self.boxes[tail_key][2]
-                hy = self.boxes[head_key][2]
-                if abs(ty - hy) < 10:
-                    style = ("edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;"
-                             "fontSize=12;endArrow=open;exitX=1;exitY=0.5;"
-                             "entryX=0;entryY=0.5;")
-                else:
-                    style = ("edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;"
-                             "fontSize=12;endArrow=open;exitX=0.5;exitY=1;"
-                             "entryX=0.5;entryY=0;")
-                points = []
-                for xy in v.get("points", "").split(";"):
-                    if ":" in xy:
-                        x, y = xy.split(":")
-                        points.append('<mxPoint x="%s" y="%s"/>' % (x, y))
-                value = escape(model.get("name", "") or "")
-                edge_cells.append(
-                    '<mxCell id="%s" value="%s" style="%s" edge="1" '
-                    'source="%s" target="%s" parent="1">'
-                    '<mxGeometry relative="1" as="geometry">'
-                    '<Array as="points">%s</Array></mxGeometry></mxCell>'
-                    % (vid, value, style, v["tail"]["$ref"], v["head"]["$ref"],
-                       "".join(points)))
-                continue
-            x, y, w, h = v["left"], v["top"], v["width"], v["height"]
-            fill = v.get("fillColor", "#ffffff")
-            if "text" in v:  # UMLNoteView carries its own text
-                cell_style = ("shape=note;whiteSpace=wrap;html=1;fontSize=12;"
-                              "fillColor=%s;strokeColor=#000000;" % fill)
-                value = escape(v["text"])
+                edges.append((vid_to_key[v["tail"]["$ref"]],
+                              vid_to_key[v["head"]["$ref"]],
+                              (model.get("name", "") or "").replace('"', "'")))
+            elif "text" in v:  # UMLNoteView
+                body = "\n".join("  " + ln for ln in v["text"].split("\n"))
+                notes.append("note as %s\n%s\nend note\n"
+                             % (vid_to_key[vid], body))
             else:
-                cell_style = ("rounded=0;whiteSpace=wrap;html=1;fontSize=12;"
-                              "fillColor=%s;strokeColor=#000000;" % fill)
-                lines = [model.get("name", "")]
-                lines += [a["name"] for a in
-                          model.get("attributes", [])]
-                value = escape("\n".join(lines))
-            box_cells.append(
-                '<mxCell id="%s" value="%s" style="%s" vertex="1" parent="1">'
-                '<mxGeometry x="%d" y="%d" width="%d" height="%d" '
-                'as="geometry"/></mxCell>'
-                % (vid, value, cell_style, x, y, w, h))
-
-        max_x = max((v["left"] + v["width"] for v in self.views
-                     if v["_type"] != "UMLDependencyView"), default=0) + 40
-        max_y = max((v["top"] + v["height"] for v in self.views
-                     if v["_type"] != "UMLDependencyView"), default=0) + 40
-        doc = ('<mxfile host="app.diagrams.net" agent="gen_mdj.py" '
-               'version="24.4.0" type="device">'
-               '<diagram id="%s" name="%s">'
-               '<mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" '
-               'tooltips="1" connect="1" arrows="1" fold="1" page="1" '
-               'pageScale="1" pageWidth="%d" pageHeight="%d" math="0" '
-               'shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/>'
-               '%s%s</root></mxGraphModel></diagram></mxfile>'
-               % (self.diagram_id, escape(self.diagram_name), max_x, max_y,
-                  "".join(box_cells), "".join(edge_cells)))
-        pathlib.Path(path).write_text(doc)
-        return len(self.views)
+                key = vid_to_key[vid]
+                name = (model.get("name", "") or "").replace('"', "'")
+                attrs = [a["name"].replace('"', "'")
+                         for a in model.get("attributes", [])]
+                kw = kind.get(v["_type"], "component")
+                if attrs:
+                    decl.append('%s "%s" as %s {' % (kw, name, key))
+                    decl += ["  " + a for a in attrs]
+                    decl.append("}")
+                else:
+                    decl.append('%s "%s" as %s' % (kw, name, key))
+        slug = self.diagram_name.split(":")[0].strip().replace(" ", "_")
+        out = ["@startuml %s" % slug,
+               "title %s" % self.diagram_name.replace('"', "'"),
+               "skinparam shadowing false",
+               "hide empty members"]
+        out += decl
+        for tail, head, label in edges:
+            out.append("%s --> %s : %s" % (tail, head, label)
+                       if label else "%s --> %s" % (tail, head))
+        out += notes
+        out.append("@enduml")
+        pathlib.Path(path).write_text("\n".join(out) + "\n")
+        return len(edges)
 
 
 # ---------------------------------------------------------------------------
@@ -646,15 +617,15 @@ DIAGRAMS = [
 
 
 def main():
-    drawio_dir = OUT / "drawio"
-    drawio_dir.mkdir(exist_ok=True)
+    puml_dir = OUT / "plantuml"
+    puml_dir.mkdir(exist_ok=True)
     for filename, factory in DIAGRAMS:
         b = factory()
         boxes = b.check_overlap()
         views = b.write(OUT / filename)
-        dw = b.write_drawio(drawio_dir / filename.replace(".mdj", ".drawio"))
-        print("%s: %d views, %d boxes, overlap clean, %s drawio cells"
-              % (filename, views, boxes, dw))
+        edges = b.write_puml(puml_dir / filename.replace(".mdj", ".puml"))
+        print("%s: %d views, %d boxes, overlap clean, %d puml edges"
+              % (filename, views, boxes, edges))
     return 0
 
 

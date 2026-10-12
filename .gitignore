@@ -23,13 +23,15 @@ coverage/
 *.svg
 !docs/diagrams/export/
 !docs/diagrams/export/*.svg
-!docs/diagrams/drawio/export/
-!docs/diagrams/drawio/export/*.svg
+!docs/diagrams/plantuml/export/
+!docs/diagrams/plantuml/export/*.svg
 *.pdf
 secrets-dump-*.txt
 playwright-output/
 director/
 .coverage
+__pycache__/
+*.pyc
 campaign_agent/state/tick-context.md
 .superpowers/
 

@@ -1,0 +1,40 @@
+@startuml 04_-_msrouter_provider_chain
+title 04 - msrouter provider chain: GCP (Google Gemini) slot and failover order
+skinparam shadowing false
+hide empty members
+component "Clients - agent loop, CvScorer (finder), apply-worker" as n0
+component "msrouter :3000 - ClusterIP, OpenAI-compatible /v1/chat/completions, PAUSED (replicas 0)" as n1
+component "EXTRA_PROVIDER_ORDER 1 - unorouter" as n2
+component "EXTRA_PROVIDER_ORDER 2 - groq" as n3
+component "EXTRA_PROVIDER_ORDER 3 - sambanova" as n4
+component "EXTRA_PROVIDER_ORDER 4 - mistral" as n5
+component "EXTRA_PROVIDER_ORDER 5 - gemini = GCP (Google Gemini API, GEMINI_MODEL=gemini-2.5-flash-lite)" as n6
+component "EXTRA_PROVIDER_ORDER 6 - cline" as n7
+component "EXTRA_PROVIDER_ORDER 7 (last) - cloudflare" as n8
+component "local slot (on-host LLM providers) - tried before the extras (msrouter config, not facts.md)" as n9
+component "pause switch - msrouter.yaml replicas 0 + finder FINDER_SCORING_ENABLED=false" as n10
+n0 --> n1 : POST /v1/chat/completions
+n1 --> n9 : local slot
+n1 --> n2
+n1 --> n3
+n1 --> n4
+n1 --> n5
+n1 --> n6
+n1 --> n7
+n1 --> n8
+n10 --> n1 : replicas 0
+n10 --> n0 : fallback score 70
+note as guide
+  GCP is the Google Gemini slot in msrouter
+  Base URL: generativelanguage.googleapis.com/v1beta/openai
+  Default model: gemini-2.5-flash-lite, free tier via GEMINI_API_KEY.
+  Order: unorouter, groq, sambanova, mistral, gemini, cline, cloudflare.
+  Cloudflare is last in the walk; the local on-host slot comes first.
+  The extras order is the facts.md EXTRA_PROVIDER_ORDER; the primary
+  and local slots come from msrouter config, not facts.md.
+  Pause switch (moves together): msrouter replicas 0 and finder
+  FINDER_SCORING_ENABLED=false -> CvScorer fallback score 70; the
+  score >= 60 CV filter stops rejecting and APPLY_MODE stays shadow.
+end note
+
+@enduml
