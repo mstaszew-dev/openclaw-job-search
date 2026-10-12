@@ -10,7 +10,12 @@ from typing import Any
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from campaign_agent.mcp_teardown import SESSION_FAILURES, exit_ctx_quietly
+from campaign_agent.mcp_teardown import (
+    SESSION_FAILURES,
+    absorb_session_failure,
+    contain_session_cancellation,
+    exit_ctx_quietly,
+)
 
 log = logging.getLogger(__name__)
 
@@ -104,12 +109,19 @@ class RAGMCP:
                 "tool '%s' timed out after %.1fs", name, timeout,
             )
         except SESSION_FAILURES as e:
+            # Same catch-site containment as PlaywrightMCP: this path returns
+            # without closing, so a live cancelled scope would keep
+            # re-delivering to later awaits. See mcp_teardown.
+            absorb_session_failure(e, self)
             return await self._handle_failure(
                 f"Error: {e}", "tool '%s' failed: %s", name, e,
             )
 
     async def close(self) -> None:
         """Close the MCP session and subprocess."""
+        # Contain BEFORE unwinding, while the scopes are still reachable: the
+        # finally below clears _ctx_stack. See PlaywrightMCP.close.
+        contain_session_cancellation(self)
         cancelled: asyncio.CancelledError | None = None
         try:
             # See PlaywrightMCP.close: unwind every context before re-raising,

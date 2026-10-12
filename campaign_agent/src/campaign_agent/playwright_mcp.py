@@ -11,7 +11,11 @@ from typing import Any
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from campaign_agent.mcp_teardown import SESSION_FAILURES
+from campaign_agent.mcp_teardown import (
+    SESSION_FAILURES,
+    absorb_session_failure,
+    contain_session_cancellation,
+)
 from campaign_agent.mcp_teardown import exit_ctx_quietly as _exit_ctx_quietly
 
 log = logging.getLogger(__name__)
@@ -144,6 +148,9 @@ class PlaywrightMCP:
                             return retry_text
                         return retry_text + note
                     except SESSION_FAILURES as e:
+                        # Returns without closing, so a cancellation here would
+                        # keep re-delivering to later awaits too.
+                        absorb_session_failure(e, self)
                         log.warning("Post-dialog-dismiss retry failed: %s", e)
                         return text
                 else:
@@ -182,12 +189,18 @@ class PlaywrightMCP:
                     self._consecutive_failures = 0
                     return retry_text + note
                 except SESSION_FAILURES as e:
+                    absorb_session_failure(e, self)
                     log.warning("Post-dialog-dismiss retry failed: %s", e)
             return await self._handle_failure(
                 f"Error: Playwright tool '{name}' timed out after {timeout}s",
                 "tool '%s' timed out after %.1fs", name, timeout,
             )
         except SESSION_FAILURES as e:
+            # A session cancellation must be contained HERE, not only at close
+            # time: this path returns without closing, and anyio re-delivers a
+            # live cancelled scope's CancelledError at every later await, which
+            # killed the worker one step after the guard (2026-10-11).
+            absorb_session_failure(e, self)
             return await self._handle_failure(
                 f"Error: {e}", "tool '%s' failed: %s", name, e,
             )
@@ -210,6 +223,7 @@ class PlaywrightMCP:
                 "form contents before submitting)"
             )
         except SESSION_FAILURES as e:
+            absorb_session_failure(e, self)
             log.warning("Dialog dismiss attempt failed: %s", e)
             return None
 
@@ -239,6 +253,11 @@ class PlaywrightMCP:
 
     async def close(self) -> None:
         """Close the MCP session and subprocess."""
+        # Contain BEFORE unwinding: this is the respawn path that logged
+        # "Playwright MCP respawn failed: Cancelled via cancel scope ...". The
+        # finally below clears _ctx_stack, after which no scope is reachable and
+        # a later containment would find nothing to stop re-delivering.
+        contain_session_cancellation(self)
         cancelled: asyncio.CancelledError | None = None
         try:
             # Exit in reverse order. A cancelled context is remembered, not
