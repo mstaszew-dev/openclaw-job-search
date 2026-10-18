@@ -44,8 +44,8 @@ class StatsControllerTest {
         mvc.get("/api/v1/stats").andExpect {
             status { isOk() }
             jsonPath("$.submitted") { value(1804) }
-            jsonPath("$.target") { value(2000) }
-            jsonPath("$.remaining") { value(196) }
+            jsonPath("$.target") { value(2100) }
+            jsonPath("$.remaining") { value(296) }
             jsonPath("$.inFlight") { value(3) }
             jsonPath("$.dead") { value(4) }
             jsonPath("$.consumerLag") { value(7) }

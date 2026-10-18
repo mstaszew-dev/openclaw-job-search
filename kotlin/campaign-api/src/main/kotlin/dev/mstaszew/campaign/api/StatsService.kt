@@ -29,7 +29,7 @@ import org.springframework.transaction.annotation.Transactional
 data class CampaignStats(
     val submitted: Long,
     val attempted: Long,
-    val target: Long = 2000,
+    val target: Long = 2100,
     val inFlight: Long,
     val dead: Long,
     val dlqDepth: Long,
