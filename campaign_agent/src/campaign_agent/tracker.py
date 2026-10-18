@@ -12,7 +12,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-DEFAULT_TARGET = 2000
+DEFAULT_TARGET = 2100
 
 
 class Tracker:
