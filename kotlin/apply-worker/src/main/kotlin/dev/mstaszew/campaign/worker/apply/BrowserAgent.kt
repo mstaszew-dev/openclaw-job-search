@@ -45,6 +45,7 @@ class BrowserAgent(
     private val llm: LlmClient,
     private val recorder: Recorder,
     private val listings: JobListingRepository,
+    private val cvUploader: CvUploader,
     private val mapper: ObjectMapper = ObjectMapper(),
 ) {
 
@@ -60,8 +61,8 @@ class BrowserAgent(
         val listing = listings.findById(listingId).orElse(null)
             ?: return ApplyResult.Failed("listing $listingId vanished")
         McpStdioClientClient(mcpFactory).use { browser ->
-            val state = LoopState(jobId, listing)
-            val system = systemPrompt(listing, applicantProfileText, cvPathPl)
+            val state = LoopState(jobId, listing, cvPathPl)
+            val system = systemPrompt(listing, applicantProfileText)
             repeat(MAX_STEPS) {
                 val response = try {
                     llm.chat(state.messages + ChatMessage("system", system), maxTokens = 1500, timeout = STEP_TIMEOUT)
@@ -79,7 +80,7 @@ class BrowserAgent(
         }
     }
 
-    private class LoopState(val jobId: String, val listing: JobListingEntity) {
+    private class LoopState(val jobId: String, val listing: JobListingEntity, val cvPath: String) {
         val messages = mutableListOf<ChatMessage>(
             ChatMessage(
                 "user",
@@ -96,12 +97,14 @@ class BrowserAgent(
         override fun close() = client.close()
     }
 
-    private fun systemPrompt(listing: JobListingEntity, profile: String, cvPath: String) = """
+    private fun systemPrompt(listing: JobListingEntity, profile: String) = """
         You are the apply executor for a Polish B2B job-search campaign.
         Rules (hard):
         - One browser tab only; never open new tabs.
-        - Fill PL forms from the profile below (Polish identity fields); use the
-          PL CV file "$cvPath" for uploads; salary answer: 15000 PLN net+VAT/month B2B.
+        - Fill PL forms from the profile below (Polish identity fields); upload
+          the PL CV ONLY via upload_cv - it owns the canonical file path, never
+          call browser_file_upload and never invent a path; salary answer:
+          15000 PLN net+VAT/month B2B.
         - NEVER mention relocation or Israel anywhere.
         - Captcha: attempt exactly once; if not solved, call skip_task with reason captcha.
         - If the portal says already applied, call skip_task with reason duplicate.
@@ -114,7 +117,7 @@ class BrowserAgent(
         $profile
 
         Tools: browser_navigate(url), browser_snapshot(), browser_click(element, target),
-        browser_fill_form(fields), browser_file_upload(paths), browser_evaluate(function),
+        browser_fill_form(fields), upload_cv(selector, cssInput), browser_evaluate(function),
         browser_wait_for(time|text), record_submission(confirmationUrl, confirmationText, ats),
         skip_task(reason, detail).
         Call exactly one tool per turn.
@@ -167,6 +170,24 @@ class BrowserAgent(
                     else -> ApplyResult.Failed("skipped: $reason $detail")
                 }
             }
+            "upload_cv" ->
+                // Worker-side like the ledger tools: the model picks the upload
+                // control (selector), never the path, and a refused chooser is
+                // escalated to CDP inside the tool instead of retried blindly.
+                // Second never-throw layer (mirrors tools.py): upload_cv must
+                // degrade one application, never escape the LLM loop into
+                // Kafka redelivery.
+                try {
+                    cvUploader.upload(
+                        browser.client,
+                        state.cvPath,
+                        selector = call.arguments.path("selector").asText(null)?.takeIf { it.isNotBlank() },
+                        cssInput = call.arguments.path("cssInput").asText(CvUploader.DEFAULT_CSS_INPUT),
+                    )
+                } catch (e: Exception) {
+                    if (e is InterruptedException) Thread.currentThread().interrupt()
+                    "Error: upload_cv failed: ${e.message?.take(200)}"
+                }
             else -> browserTool(browser, call, state)
         }
 

@@ -49,6 +49,15 @@ spec:
               value: http://msrouter.campaign.svc.cluster.local:3000/v1
             - name: WORKER_MCP_COMMAND
               value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922
+            # Canonical PL CV inside the container (hostPath mount below). The
+            # model never sees this path: upload_cv owns it (cv_upload.py port).
+            - name: CV_PATH_PL
+              value: /cv/michael-staszewski-cv-pl.pdf
+            # Same Chrome the Playwright MCP drives; used only by upload_cv's
+            # CDP fallback (DOM.setFileInputFiles) for drop zones that never
+            # open a native chooser.
+            - name: WORKER_CDP_URL
+              value: http://192.168.18.13:30922
             - name: WORKER_ID
               valueFrom: { fieldRef: { fieldPath: metadata.name } }
           ports: [{ containerPort: 8082 }]
@@ -64,3 +73,13 @@ spec:
           resources:
             requests: { memory: 768Mi, cpu: 250m }
             limits: { memory: 1536Mi, cpu: "1" }
+          volumeMounts:
+            # Read-only: the worker must never write next to the canonical CV.
+            - name: cv
+              mountPath: /cv
+              readOnly: true
+      volumes:
+        - name: cv
+          hostPath:
+            path: /home/mstro/k3s-pod-data/agent-home/cv
+            type: Directory
