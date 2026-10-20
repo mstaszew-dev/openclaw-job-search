@@ -55,14 +55,13 @@
 #     rejects a DNS Host header, so the CDP path stays on the node IP.
 #   - msrouter moved OFF lubuntu-agent into its own pod in namespace campaign
 #     (ClusterIP :3000); its gateway keys live in secret campaign-msrouter.
-#   - The gateway is PAUSED on purpose since 2026-10-08: msrouter.yaml pins
-#     spec.replicas: 0 and finder.yaml sets FINDER_SCORING_ENABLED=false, so no
-#     CV scoring tokens are spent. The finder still collects, dedupes and
-#     produces; every candidate scores the neutral fallback 70, so the score
-#     >= 60 CV filter is off and volume goes up. campaign-status.sh prints
-#     "PAUSED (replicas=0)". To resume: set both values back (replicas 1,
-#     FINDER_SCORING_ENABLED true) and rollout restart finder. Note APPLY_MODE
-#     must stay shadow while the gateway is down.
+#   - The gateway went LIVE at the 2026-10-20 cutover: msrouter.yaml runs
+#     spec.replicas: 1 and finder.yaml sets FINDER_SCORING_ENABLED=true, so CV
+#     scoring and the worker's apply tool loop spend real tokens. The former
+#     pause posture (replicas 0 + scoring false + APPLY_MODE=shadow, zero
+#     tokens) is now the documented rollback state; resume/pause = set those
+#     three values and rollout restart the touched deployments. Note APPLY_MODE
+#     must go shadow whenever the gateway is down: a live apply is an LLM loop.
 #   - While APPLY_MODE=shadow, no browser opens and no application rows are
 #     written: the worker consumes, re-checks dedupe, records job_state, and
 #     commits. Safe next to the Mac campaign.

@@ -1,0 +1,12 @@
+# Image builds run `docker build -f deploy/docker/Dockerfile.jvm*` with THIS
+# directory (kotlin/) as the context and `COPY . .` in the build stage, so the
+# Gradle caches and module build outputs below were being tarred to the daemon
+# on every image build, and a root-owned .gradle (created once by a
+# containerized test run) broke context transfer outright. Excluding them
+# makes both impossible. (Dockerfile.msrouter builds from the msrouter
+# checkout, a different context: this file never applies to it.)
+.gradle
+.kotlin
+**/build
+**/.gradle
+**/node_modules
