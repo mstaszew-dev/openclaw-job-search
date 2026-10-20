@@ -12,6 +12,7 @@ import dev.mstaszew.campaign.common.messaging.DeadLetter
 import dev.mstaszew.campaign.common.messaging.JobMessage
 import dev.mstaszew.campaign.common.messaging.Topics
 import dev.mstaszew.campaign.common.repo.AttemptSeed
+import dev.mstaszew.campaign.common.repo.ChromeLease
 import dev.mstaszew.campaign.common.repo.EventRepository
 import dev.mstaszew.campaign.common.repo.JobListingRepository
 import dev.mstaszew.campaign.common.repo.JobStateRepository
@@ -27,6 +28,7 @@ import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Component
 import org.springframework.transaction.support.TransactionTemplate
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**
@@ -62,6 +64,7 @@ class WorkerLoop(
     private val dedup: DedupService,
     private val recorder: Recorder,
     private val browserAgent: BrowserAgent,
+    private val chromeLease: ChromeLease,
     private val props: WorkerProperties,
     private val tx: TransactionTemplate,
     private val kafka: KafkaTemplate<String, Any>,
@@ -69,6 +72,12 @@ class WorkerLoop(
 ) {
 
     private val log = LoggerFactory.getLogger(WorkerLoop::class.java)
+
+    // Instance-unique lease identity: two pods sharing the default worker-id
+    // must never pass the same-owner refresh branch of the lease, or a second
+    // acquirer would enter a held browser and its release would drop the
+    // first holder's lease.
+    private val leaseOwner = "worker:${props.workerId}-${UUID.randomUUID().toString().substring(0, 8)}"
 
     @KafkaListener(
         topics = [Topics.JOBS],
@@ -241,6 +250,28 @@ class WorkerLoop(
             return
         }
 
+        // The lease spans exactly the browser loop, and nothing else queues
+        // behind it: dedupe above is a Mongo read and stays outside. Waiting
+        // for the browser is bounded (leaseWaitSeconds); past that the job is
+        // deferred for redelivery rather than applied without exclusion.
+        val lease = browserLease(job.id)
+        try {
+            applyWithBrowser(job, listing)
+        } finally {
+            lease.release()
+        }
+    }
+
+    private fun browserLease(jobId: String): ChromeLease.Handle =
+        chromeLease.acquire(
+            owner = leaseOwner,
+            op = "apply",
+            ttl = java.time.Duration.ofMinutes(props.leaseTtlMinutes),
+            wait = java.time.Duration.ofSeconds(props.leaseWaitSeconds),
+            renewEvery = java.time.Duration.ofSeconds(props.leaseRenewSeconds),
+        ) ?: throw BrowserBusyException(jobId)
+
+    private fun applyWithBrowser(job: JobMessage, listing: JobListingEntity) {
         val result = browserAgent.run(
             jobId = job.id,
             listingId = listing.id

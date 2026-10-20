@@ -15,6 +15,7 @@ import dev.mstaszew.campaign.common.domain.SkipReason
 import dev.mstaszew.campaign.common.messaging.JobMessage
 import dev.mstaszew.campaign.common.messaging.Topics
 import dev.mstaszew.campaign.common.repo.EventRepository
+import dev.mstaszew.campaign.common.repo.ChromeLease
 import dev.mstaszew.campaign.common.repo.JobListingRepository
 import dev.mstaszew.campaign.common.repo.JobStateRepository
 import dev.mstaszew.campaign.common.repo.SkipRepository
@@ -30,6 +31,7 @@ import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.support.TransactionTemplate
+import java.util.UUID
 
 /**
  * One discovery run: collect -> upsert -> dedup -> eligibility -> score ->
@@ -56,26 +58,50 @@ class FinderPipeline(
     private val tx: TransactionTemplate,
     private val kafka: KafkaTemplate<String, Any>,
     private val mapper: ObjectMapper,
+    private val props: FinderProperties,
+    private val chromeLease: ChromeLease,
 ) {
 
     private val log = LoggerFactory.getLogger(FinderPipeline::class.java)
 
+    // Instance-unique lease identity: two finder replicas sharing the bare
+    // "finder" owner would pass the same-owner refresh branch of the lease,
+    // enter a held browser, and each release would drop the other's lease.
+    private val leaseOwner = "finder-${UUID.randomUUID().toString().substring(0, 8)}"
+
     @Scheduled(fixedDelayString = "\${finder.run-interval-seconds:900}000", initialDelayString = "20000")
     fun run() {
-        for (source in listOf("nofluffjobs", "justjoin", "theprotocol")) {
-            val collected = try {
-                collector.collect(source)
-            } catch (e: Exception) {
-                log.warn("collector failed for {}: {}", source, e.message)
-                continue
-            }
-            for (item in collected) {
-                try {
-                    process(item)
+        // One lease for the whole pass: all three boards, then release. A
+        // live apply holding the Chrome defers the run to the next window
+        // rather than interleaving scans with a submission mid-flight.
+        val lease = chromeLease.acquire(
+            owner = leaseOwner,
+            op = "discover",
+            ttl = java.time.Duration.ofMinutes(props.leaseTtlMinutes),
+            renewEvery = java.time.Duration.ofSeconds(props.leaseRenewSeconds),
+        )
+        if (lease == null) {
+            log.info("browser busy (apply in progress); deferring discovery to the next window")
+            return
+        }
+        try {
+            for (source in listOf("nofluffjobs", "justjoin", "theprotocol")) {
+                val collected = try {
+                    collector.collect(source)
                 } catch (e: Exception) {
-                    log.warn("listing {}:{} failed: {}", item.source, item.sourceJobId, e.message)
+                    log.warn("collector failed for {}: {}", source, e.message)
+                    continue
+                }
+                for (item in collected) {
+                    try {
+                        process(item)
+                    } catch (e: Exception) {
+                        log.warn("listing {}:{} failed: {}", item.source, item.sourceJobId, e.message)
+                    }
                 }
             }
+        } finally {
+            lease.release()
         }
     }
 

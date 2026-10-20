@@ -32,6 +32,19 @@ worker:
   msrouter-model: ${MSROUTER_MODEL:mst/free}
   # CDP endpoint of the shared campaign Chrome (CV upload fallback only).
   cdp-url: ${WORKER_CDP_URL:http://127.0.0.1:9222}
+  # Mutual exclusion on the shared Chrome. The worker waits for a busy
+  # browser (a discovery pass) instead of failing the job outright; past the
+  # wait budget the job is deferred for redelivery, which still costs one
+  # attempt, so the budget is deliberately generous.
+  lease-ttl-minutes: ${WORKER_LEASE_TTL_MINUTES:25}
+  lease-wait-seconds: ${WORKER_LEASE_WAIT_SECONDS:600}
+  lease-renew-seconds: ${WORKER_LEASE_RENEW_SECONDS:300}
+
+chrome:
+  lease:
+    # Kill switch for the shared-browser lease (see ChromeLease). False hands
+    # out no-op handles: use only when the lease mechanism itself misbehaves.
+    enabled: ${CHROME_LEASE_ENABLED:true}
 
 management:
   endpoints:

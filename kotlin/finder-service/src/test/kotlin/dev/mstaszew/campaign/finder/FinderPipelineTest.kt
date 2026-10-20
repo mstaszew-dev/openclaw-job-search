@@ -17,8 +17,10 @@ import dev.mstaszew.campaign.common.net.LlmClientException
 import dev.mstaszew.campaign.common.repo.EventRepository
 import dev.mstaszew.campaign.common.repo.JobListingRepository
 import dev.mstaszew.campaign.common.repo.JobStateRepository
+import dev.mstaszew.campaign.common.repo.ChromeLease
 import dev.mstaszew.campaign.common.repo.SkipRepository
 import dev.mstaszew.campaign.finder.collect.CollectedListing
+import dev.mstaszew.campaign.finder.collect.ListingCollector
 import dev.mstaszew.campaign.finder.policy.EligibilityPolicy
 import dev.mstaszew.campaign.finder.policy.EligibilityProperties
 import dev.mstaszew.campaign.finder.score.CvScorer
@@ -31,6 +33,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.support.SendResult
 import java.math.BigDecimal
+import java.time.Duration
 import java.util.concurrent.CompletableFuture
 
 class FinderPipelineTest {
@@ -62,6 +65,13 @@ class FinderPipelineTest {
         } returns CompletableFuture.completedFuture(mockk<SendResult<String, Any>>())
     }
 
+    private val leaseHandle = mockk<ChromeLease.Handle>(relaxUnitFun = true)
+
+    /** Default stub: the lease is granted so pipeline tests reach the collector. */
+    private val chromeLease = mockk<ChromeLease> {
+        every { acquire(any(), any(), any(), any(), any(), any()) } returns leaseHandle
+    }
+
     private fun scoringTransport(score: Int): ChatTransport = ChatTransport { _, _, _, _ ->
         """{"choices":[{"message":{"content":"{\"score\":$score,\"reason\":\"stack matches\"}"},"finish_reason":"stop"}]}"""
     }
@@ -70,6 +80,7 @@ class FinderPipelineTest {
         score: Int = 80,
         duplicate: Boolean = false,
         scorer: CvScorer? = null,
+        collector: ListingCollector = ListingCollector { emptyList() },
     ): FinderPipeline {
         every { listings.save(any()) } answers {
             val entity = arg<JobListingEntity>(0)
@@ -90,7 +101,7 @@ class FinderPipelineTest {
             ),
         )
         return FinderPipeline(
-            collector = { emptyList() },
+            collector = collector,
             listings = listings,
             jobState = jobState,
             skips = skips,
@@ -104,6 +115,8 @@ class FinderPipelineTest {
             mapper = com.fasterxml.jackson.databind.ObjectMapper().registerModule(
                 com.fasterxml.jackson.datatype.jsr310.JavaTimeModule(),
             ),
+            props = FinderProperties(),
+            chromeLease = chromeLease,
         )
     }
 
@@ -208,5 +221,46 @@ class FinderPipelineTest {
 
         assertThat(pipeline(scorer = garbageScorer).process(listing()))
             .isInstanceOf(FinderPipeline.Outcome.Enqueued::class.java)
+    }
+
+    /**
+     * Mutual exclusion with the worker on the shared Chrome. A busy browser
+     * defers the WHOLE run: no source is half-scanned while an apply is
+     * mid-flight, and the next window picks the scan back up.
+     */
+    @Test
+    fun `a busy browser defers the whole discovery run`() {
+        val collectCalls = mutableListOf<String>()
+        val collector = ListingCollector { source -> collectCalls.add(source); emptyList() }
+        every { chromeLease.acquire(any(), any(), any(), any(), any(), any()) } returns null
+
+        pipeline(collector = collector).run()
+
+        assertThat(collectCalls).isEmpty()
+    }
+
+    @Test
+    fun `discovery runs hold and release the browser lease`() {
+        val collectCalls = mutableListOf<String>()
+        val collector = ListingCollector { source -> collectCalls.add(source); emptyList() }
+
+        pipeline(collector = collector).run()
+
+        assertThat(collectCalls).containsExactly("nofluffjobs", "justjoin", "theprotocol")
+        // The whole finder acquire contract, pinned: instance-unique owner,
+        // discovery op, 30min ttl, no waiting (busy means skip the window),
+        // default 2s poll, renewal every 5min so a long scan is never stolen
+        // mid-run.
+        verify {
+            chromeLease.acquire(
+                match { it.startsWith("finder-") },
+                eq("discover"),
+                eq(Duration.ofMinutes(30)),
+                eq(Duration.ZERO),
+                eq(Duration.ofSeconds(2)),
+                eq(Duration.ofSeconds(300)),
+            )
+        }
+        verify { leaseHandle.release() }
     }
 }

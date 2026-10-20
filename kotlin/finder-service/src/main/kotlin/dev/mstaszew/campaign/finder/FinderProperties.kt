@@ -14,6 +14,14 @@ data class FinderProperties(
      * costs no tokens.
      */
     var scoringEnabled: Boolean = true,
+    /**
+     * Browser-lease hold time for one discovery pass. The watchdog renews
+     * while the scan runs, so this bounds only crash recovery: how long a
+     * dead finder wedges the browser. Kept well above the longest scan.
+     */
+    var leaseTtlMinutes: Long = 30,
+    /** Watchdog renewal cadence while a discovery pass is still running. */
+    var leaseRenewSeconds: Long = 300,
     /** Chrome CDP endpoint exposed by the lubuntu-agent pod (socat relay). */
     var browserCdpUrl: String = "http://127.0.0.1:9222",
     /** Full command that starts the Playwright MCP stdio server. */

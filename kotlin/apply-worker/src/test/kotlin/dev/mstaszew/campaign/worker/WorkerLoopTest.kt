@@ -11,6 +11,7 @@ import dev.mstaszew.campaign.common.messaging.JobMessage
 import dev.mstaszew.campaign.common.repo.EventRepository
 import dev.mstaszew.campaign.common.repo.JobListingRepository
 import dev.mstaszew.campaign.common.repo.JobStateRepository
+import dev.mstaszew.campaign.common.repo.ChromeLease
 import dev.mstaszew.campaign.worker.apply.ApplyResult
 import dev.mstaszew.campaign.worker.apply.BrowserAgent
 import dev.mstaszew.campaign.worker.apply.Recorder
@@ -22,6 +23,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.support.Acknowledgment
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
 import java.util.Optional
@@ -52,6 +54,12 @@ class WorkerLoopTest {
     private val dedup = mockk<DedupService>()
     private val recorder = mockk<Recorder>(relaxed = true)
     private val browserAgent = mockk<BrowserAgent>(relaxed = true)
+    private val leaseHandle = mockk<ChromeLease.Handle>(relaxUnitFun = true)
+
+    /** Default stub: the lease is granted so live-mode tests reach the browser. */
+    private val chromeLease = mockk<ChromeLease> {
+        every { acquire(any(), any(), any(), any(), any(), any()) } returns leaseHandle
+    }
     private val kafka = mockk<KafkaTemplate<String, Any>>(relaxed = true)
 
     /**
@@ -98,6 +106,7 @@ class WorkerLoopTest {
         dedup = dedup,
         recorder = recorder,
         browserAgent = browserAgent,
+        chromeLease = chromeLease,
         props = WorkerProperties(applyMode = applyMode, workerId = "w1"),
         tx = tx,
         kafka = kafka,
@@ -233,6 +242,7 @@ class WorkerLoopTest {
             dedup = dedup,
             recorder = recorder,
             browserAgent = browserAgent,
+            chromeLease = chromeLease,
             props = WorkerProperties(applyMode = "shadow", workerId = "w1", maxAttempts = 1),
             tx = tx,
             kafka = kafka,
@@ -244,5 +254,74 @@ class WorkerLoopTest {
         verify { kafka.send(dev.mstaszew.campaign.common.messaging.Topics.JOBS_DLQ, "acme", any<Any>()) }
         assertThat(ack.count).isEqualTo(1)
         assertThat(stored.last().status).isEqualTo(JobStatus.DEAD)
+    }
+
+    /**
+     * Browser mutual exclusion. The finder and this worker drive ONE shared
+     * Chrome over CDP; live applies must hold the lease for the whole browser
+     * loop and release it no matter how the loop ends.
+     */
+    @Test
+    fun `live apply holds and releases the browser lease around the apply`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { chromeLease.acquire(any(), any(), any(), any(), any(), any()) } returns leaseHandle
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Failed("browser not reachable in test")
+
+        loop("live").onMessage(job, ack)
+
+        // Full acquire contract, pinned: instance-unique owner (never a bare
+        // shared worker-id), apply op, the configured ttl/wait/renew trio and
+        // the default 2s poll.
+        verify {
+            chromeLease.acquire(
+                match { it.startsWith("worker:w1-") },
+                eq("apply"),
+                eq(Duration.ofMinutes(25)),
+                eq(Duration.ofSeconds(600)),
+                eq(Duration.ofSeconds(2)),
+                eq(Duration.ofSeconds(300)),
+            )
+        }
+        verify { leaseHandle.release() }
+        assertThat(ack.count).isEqualTo(1)
+    }
+
+    @Test
+    fun `live apply releases the lease even when the apply throws`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { chromeLease.acquire(any(), any(), any(), any(), any(), any()) } returns leaseHandle
+        every { browserAgent.run(any(), any(), any(), any(), any()) } throws RuntimeException("boom")
+
+        loop("live").onMessage(job, ack)
+
+        verify { leaseHandle.release() }
+        assertThat(ack.count).isEqualTo(0)
+    }
+
+    /**
+     * The finder's scan beat us to the browser. Deferring beats failing: the
+     * offset stays uncommitted, so the broker redelivers after the normal
+     * backoff instead of this job being lost or dead-lettered.
+     */
+    @Test
+    fun `a busy browser defers the job without committing or opening a tab`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { chromeLease.acquire(any(), any(), any(), any(), any(), any()) } returns null
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 0) { browserAgent.run(any(), any(), any(), any(), any()) }
+        assertThat(ack.count).isEqualTo(0)
+    }
+
+    @Test
+    fun `shadow mode never asks for the browser lease`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+
+        loop().onMessage(job, ack)
+
+        verify(exactly = 0) { chromeLease.acquire(any(), any(), any(), any(), any(), any()) }
+        assertThat(ack.count).isEqualTo(1)
     }
 }

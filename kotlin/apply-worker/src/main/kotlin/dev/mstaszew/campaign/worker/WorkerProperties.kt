@@ -23,4 +23,16 @@ data class WorkerProperties(
      * file chooser; same host the Playwright MCP is pointed at.
      */
     var cdpUrl: String = "http://127.0.0.1:9222",
+    /**
+     * Browser-lease knobs (see ChromeLease). The base ttl is far above the
+     * typical apply (a few minutes) but below it the renewal watchdog never
+     * lets the lease lapse: renews land every leaseRenewSeconds, so the ttl
+     * only matters after a crash, bounding how long a dead worker can wedge
+     * the finder's scans. The wait budget is how long a candidate may queue
+     * for the browser (a finder scan) before the job is deferred for
+     * redelivery instead of applied.
+     */
+    var leaseTtlMinutes: Long = 25,
+    var leaseWaitSeconds: Long = 600,
+    var leaseRenewSeconds: Long = 300,
 )

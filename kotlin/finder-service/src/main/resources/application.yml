@@ -33,8 +33,18 @@ finder:
   # false = collect and produce, but never call the gateway. Costs no tokens.
   scoring-enabled: ${FINDER_SCORING_ENABLED:true}
   browser-cdp-url: ${BROWSER_CDP_URL:http://127.0.0.1:9222}
+  # Mutual exclusion on the shared Chrome. A busy browser defers the whole
+  # discovery window; renewal covers a scan that outlives the base ttl.
+  lease-ttl-minutes: ${FINDER_LEASE_TTL_MINUTES:30}
+  lease-renew-seconds: ${FINDER_LEASE_RENEW_SECONDS:300}
   mcp-command: ${FINDER_MCP_COMMAND:node @playwright/mcp/cli.js --cdp-endpoint http://127.0.0.1:9222}
   collect-stacks: ${FINDER_COLLECT_STACKS:java,kotlin,php,node,react}
 
 finder.policy:
   pln-b2b-floor: ${POLICY_PLN_B2B_FLOOR:15000}
+
+chrome:
+  lease:
+    # Kill switch for the shared-browser lease (see ChromeLease). False hands
+    # out no-op handles: use only when the lease mechanism itself misbehaves.
+    enabled: ${CHROME_LEASE_ENABLED:true}
