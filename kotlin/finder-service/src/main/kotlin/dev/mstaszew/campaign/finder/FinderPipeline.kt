@@ -32,6 +32,7 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.support.TransactionTemplate
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * One discovery run: collect -> upsert -> dedup -> eligibility -> score ->
@@ -64,6 +65,13 @@ class FinderPipeline(
 
     private val log = LoggerFactory.getLogger(FinderPipeline::class.java)
 
+    // One listing can surface on several filter pages in a single window; two
+    // Kafka records for one id each burn an apply attempt downstream. Cleared
+    // at the start of every run so the next window decides fresh. A concurrent
+    // set because process() is also callable from other threads; correctness
+    // of a single window still assumes the scheduler is the only writer.
+    private val seenThisWindow: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
     // Instance-unique lease identity: two finder replicas sharing the bare
     // "finder" owner would pass the same-owner refresh branch of the lease,
     // enter a held browser, and each release would drop the other's lease.
@@ -85,6 +93,7 @@ class FinderPipeline(
             return
         }
         try {
+            seenThisWindow.clear()
             for (source in listOf("nofluffjobs", "justjoin", "theprotocol")) {
                 val collected = try {
                     collector.collect(source)
@@ -106,6 +115,12 @@ class FinderPipeline(
     }
 
     fun process(item: CollectedListing): Outcome {
+        val id = "${item.source}:${item.sourceJobId}"
+        if (!seenThisWindow.add(id)) {
+            log.info("listing {} was already handled in this window; skipping", id)
+            return Outcome.Duplicate("window-scan", id)
+        }
+
         val listing = upsert(item)
 
         val decision = dedup.check(

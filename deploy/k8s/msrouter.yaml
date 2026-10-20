@@ -9,19 +9,18 @@
 # The Director is OFF: this pod is only the gateway. The campaign Kafka lives
 # in kafka.campaign.svc, not in the director's environment.
 #
-# PAUSED (operator, 2026-10-08): replicas 0. Every CV score the finder asks for
-# costs gateway tokens and shadow mode needs no scored decisions, so the pod
-# stays down. FINDER_SCORING_ENABLED=false in finder.yaml is the matching
-# switch: the finder still collects and produces, it just skips the chat call.
-# To resume: set replicas back to 1 here, set FINDER_SCORING_ENABLED=true in
-# finder.yaml, then rollout restart both deployments.
+# LIVE (operator, 2026-10-20): replicas 1, gateways resumed for the k3s
+# cutover. APPLY_MODE=live in worker.yaml needs this gateway: every apply
+# step calls it. Rollback (shadow mode, no token spend): replicas 0 here,
+# FINDER_SCORING_ENABLED=false in finder.yaml, APPLY_MODE=shadow in
+# worker.yaml, then rollout restart both deployments.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: msrouter
   namespace: campaign
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }   # never lose the gateway during restart
   selector:

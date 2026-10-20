@@ -1,5 +1,6 @@
 package dev.mstaszew.campaign.common.net
 
+import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import java.net.URI
@@ -11,7 +12,17 @@ import java.time.Duration
 /** One chat turn for the OpenAI-compatible gateway (msrouter /v1). */
 data class ChatMessage(val role: String, val content: String)
 
-data class ChatResult(val content: String, val finishReason: String?)
+/** An OpenAI function-tool schema handed to the gateway with the request. */
+data class ToolSpec(val name: String, val description: String, val parameters: JsonNode)
+
+/** One native tool_call parsed out of the gateway response. */
+data class LlmToolCall(val name: String, val arguments: JsonNode)
+
+data class ChatResult(
+    val content: String,
+    val finishReason: String?,
+    val toolCalls: List<LlmToolCall> = emptyList(),
+)
 
 fun interface ChatTransport {
     fun post(url: String, token: String?, body: String, timeout: Duration): String
@@ -68,15 +79,31 @@ class LlmClient(
         temperature: Double = 0.2,
         maxTokens: Int = 1500,
         timeout: Duration = Duration.ofSeconds(240),
+        tools: List<ToolSpec>? = null,
     ): ChatResult {
-        val body = mapper.writeValueAsString(
-            mapOf(
-                "model" to model,
-                "messages" to messages.map { mapOf("role" to it.role, "content" to it.content) },
-                "temperature" to temperature,
-                "max_tokens" to maxTokens,
-            ),
+        val payload = linkedMapOf<String, Any>(
+            "model" to model,
+            "messages" to messages.map { mapOf("role" to it.role, "content" to it.content) },
+            "temperature" to temperature,
+            "max_tokens" to maxTokens,
         )
+        // Native tool schemas, the Python agent's contract: with tools on the
+        // request the gateway returns proper tool_calls; without them free-tier
+        // models improvise tool calls as prose in whatever template they were
+        // trained on and nothing can parse them reliably.
+        if (!tools.isNullOrEmpty()) {
+            payload["tools"] = tools.map {
+                mapOf(
+                    "type" to "function",
+                    "function" to mapOf(
+                        "name" to it.name,
+                        "description" to it.description,
+                        "parameters" to it.parameters,
+                    ),
+                )
+            }
+        }
+        val body = mapper.writeValueAsString(payload)
         var lastError: Exception? = null
         repeat(attempts) { attempt ->
             try {
@@ -86,6 +113,7 @@ class LlmClient(
                 return ChatResult(
                     content = choice.path("message").path("content").asText(""),
                     finishReason = choice.path("finish_reason").asText(null),
+                    toolCalls = parseToolCalls(choice.path("message").path("tool_calls")),
                 )
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
@@ -101,4 +129,33 @@ class LlmClient(
         }
         throw LlmClientException("chat failed after $attempts attempts", lastError)
     }
+
+    /**
+     * Native tool_calls: [{"id":..,"function":{"name":..,"arguments":"<json
+     * string>"}}]. Free-tier gateways sometimes return arguments that are not
+     * valid JSON; that degrades to an empty object so the caller sees the tool
+     * name and can fail the STEP, not the whole loop with a parse exception.
+     */
+    private fun parseToolCalls(node: JsonNode): List<LlmToolCall> =
+        if (!node.isArray) emptyList()
+        else node.map { call ->
+            val function = call.path("function")
+            val rawArguments = function.path("arguments")
+            // Standard wire format is a JSON-encoded string; some free-tier
+            // gateways inline the object. Malformed text degrades to an empty
+            // object so the caller sees the tool name and can fail the STEP,
+            // not the whole loop with a parse exception.
+            val arguments = when {
+                rawArguments.isObject -> rawArguments
+                else -> try {
+                    mapper.readTree(rawArguments.asText(""))
+                } catch (e: JsonProcessingException) {
+                    mapper.createObjectNode()
+                }
+            }
+            LlmToolCall(
+                name = function.path("name").asText(""),
+                arguments = if (arguments.isObject) arguments else mapper.createObjectNode(),
+            )
+        }
 }

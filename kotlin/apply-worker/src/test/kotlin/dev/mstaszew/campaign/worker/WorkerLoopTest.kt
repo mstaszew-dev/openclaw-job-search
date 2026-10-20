@@ -7,7 +7,9 @@ import dev.mstaszew.campaign.common.domain.EventEntity
 import dev.mstaszew.campaign.common.domain.JobListingEntity
 import dev.mstaszew.campaign.common.domain.JobStateDocument
 import dev.mstaszew.campaign.common.domain.JobStatus
+import dev.mstaszew.campaign.common.messaging.DeadLetter
 import dev.mstaszew.campaign.common.messaging.JobMessage
+import dev.mstaszew.campaign.common.messaging.Topics
 import dev.mstaszew.campaign.common.repo.EventRepository
 import dev.mstaszew.campaign.common.repo.JobListingRepository
 import dev.mstaszew.campaign.common.repo.JobStateRepository
@@ -313,6 +315,76 @@ class WorkerLoopTest {
 
         verify(exactly = 0) { browserAgent.run(any(), any(), any(), any(), any()) }
         assertThat(ack.count).isEqualTo(0)
+    }
+
+    /**
+     * The attempt counter is per LISTING id, but Kafka may carry several
+     * records for one id (finder re-scans the same listing on two filter
+     * pages). Past the bound, re-opening the browser is just more failures
+     * for an id that already burned its shots: straight to the DLQ.
+     */
+    @Test
+    fun `a delivery past the attempt bound dead-letters without opening the browser`() {
+        every { jobState.beginAttempt(any()) } returns 4 // maxAttempts is 3
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Failed("browser must not open")
+        val deadSlot = slot<DeadLetter>()
+        every { kafka.send(Topics.JOBS_DLQ, "acme", capture(deadSlot)) } returns
+            CompletableFuture.completedFuture(mockk(relaxed = true))
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 0) { browserAgent.run(any(), any(), any(), any(), any()) }
+        verify { kafka.send(Topics.JOBS_DLQ, "acme", any<Any>()) }
+        verify { jobState.save(match { it.id == "justjoin:jj-1" && it.status == JobStatus.DEAD }) }
+        // The DLQ record is the operator's only triage artifact for this
+        // incident class; it must carry the real bound and reason.
+        assertThat(deadSlot.captured.attempts).isEqualTo(4)
+        assertThat(deadSlot.captured.lastError).contains("attempt bound 3")
+        assertThat(ack.count).isEqualTo(1)
+    }
+
+    /**
+     * The attempt guard exists to keep the BROWSER closed for a listing that
+     * already burned its shots. Shadow never opens the browser anyway, so an
+     * over-bound delivery there takes the ordinary shadow path: no recorder
+     * writes, no DLQ churn, just the release event.
+     */
+    @Test
+    fun `shadow mode over-bound deliveries are simply shadow-released`() {
+        every { jobState.beginAttempt(any()) } returns 4 // maxAttempts is 3
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+
+        loop("shadow").onMessage(job, ack)
+
+        verify(exactly = 0) { browserAgent.run(any(), any(), any(), any(), any()) }
+        verify(exactly = 0) { recorder.recordSkippedDuplicate(any(), any(), any()) }
+        verify(exactly = 0) { kafka.send(any<String>(), any<String>(), any<Any>()) }
+        verify { events.save(match { it.action == "shadow_released" }) }
+        verify { jobState.save(match { it.id == "justjoin:jj-1" && it.status == JobStatus.SHADOW_RELEASED }) }
+        assertThat(ack.count).isEqualTo(1)
+    }
+
+    /**
+     * A crash between the portal submission and the offset commit redelivers
+     * a job that is already in the applications ledger. Past the attempt
+     * bound that redelivery must be classified SKIPPED_DUPLICATE - the dedup
+     * read is a Mongo query, not a browser turn - because DEAD would hide a
+     * real submission from the operator.
+     */
+    @Test
+    fun `an over-bound duplicate redelivery is recorded as skipped, not dead`() {
+        every { jobState.beginAttempt(any()) } returns 4 // maxAttempts is 3
+        every { dedup.check(any()) } returns DuplicateDecision(true, MatchedOn.ID, "justjoin:jj-1")
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 0) { browserAgent.run(any(), any(), any(), any(), any()) }
+        verify(exactly = 0) { kafka.send(any<String>(), any<String>(), any<Any>()) }
+        verify { recorder.recordSkippedDuplicate(any(), "justjoin:jj-1", "dedupe:ID") }
+        verify { jobState.save(match { it.id == "justjoin:jj-1" && it.status == JobStatus.SKIPPED_DUPLICATE }) }
+        assertThat(ack.count).isEqualTo(1)
     }
 
     @Test

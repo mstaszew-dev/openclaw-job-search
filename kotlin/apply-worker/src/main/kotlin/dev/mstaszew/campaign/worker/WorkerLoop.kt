@@ -87,6 +87,15 @@ class WorkerLoop(
     fun onMessage(job: JobMessage, ack: Acknowledgment) {
         val attempt = recordAttempt(job)
         try {
+            // The attempt bound exists to keep the BROWSER closed for a
+            // listing that already burned its shots; shadow never opens the
+            // browser, so an over-bound delivery there takes the ordinary
+            // shadow path. Inside the try so a dedup failure on this path
+            // follows the same error policy as any other failure.
+            if (attempt > props.maxAttempts && props.applyMode == "live") {
+                overBound(job, attempt, ack)
+                return
+            }
             when (props.applyMode) {
                 "live" -> liveApply(job)
                 else -> shadowRelease(job)
@@ -96,39 +105,71 @@ class WorkerLoop(
             val message = e.message?.take(300) ?: e::class.simpleName.orEmpty()
             log.warn("job {} attempt {} failed: {}", job.id, attempt, message)
             if (attempt >= props.maxAttempts) {
-                // Await the dead-letter write before committing. A fire-and-forget
-                // send followed by a commit loses the message from BOTH topics
-                // if the DLQ broker is briefly unreachable, and job_state would
-                // still read DEAD, so the loss would be invisible.
-                val deadLettered = try {
-                    kafka.send(Topics.JOBS_DLQ, job.companyKey, DeadLetter(job, attempt, message, Instant.now()))
-                        .get(DLQ_SEND_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                    null
-                } catch (e: InterruptedException) {
-                    // Shutdown, or the poll-interval watchdog. runCatching would
-                    // swallow the interrupt flag and leave the consumer running
-                    // a message it can no longer finish.
-                    Thread.currentThread().interrupt()
-                    log.error("interrupted while dead-lettering job {}; leaving the offset uncommitted", job.id)
-                    return
-                } catch (e: Exception) {
-                    e
-                }
-                if (deadLettered != null) {
-                    log.error(
-                        "job {} exhausted but the dead-letter write failed; leaving the offset uncommitted",
-                        job.id,
-                        deadLettered,
-                    )
-                    return
-                }
-                failJob(job, message)
-                ack.acknowledge()
+                deadLetter(job, attempt, message, ack)
             } else {
                 // No commit: the broker redelivers after the backoff below.
                 backoff(attempt)
             }
         }
+    }
+
+    /**
+     * Live mode only (the caller's guard checks applyMode): the counter is
+     * per LISTING id and multiple Kafka records can carry one id (finder
+     * re-scans a listing on another filter page). Past the bound the browser
+     * must not open again - but a redelivery of an already-submitted job
+     * (crash between the portal POST and the offset commit) must surface as
+     * SKIPPED_DUPLICATE, not DEAD: the dedup read is a Mongo query, not a
+     * browser turn, so it stays cheap on the dead path.
+     */
+    private fun overBound(job: JobMessage, attempt: Int, ack: Acknowledgment) {
+        val listing = listingFor(job)
+        val decision = dedup.check(candidateFor(job, listing))
+        if (decision.duplicate) {
+            log.info(
+                "live: {} is a duplicate ({}); over-bound redelivery recorded as skipped",
+                job.id,
+                decision.matchedOn,
+            )
+            recorder.recordSkippedDuplicate(listing, job.id, "dedupe:${decision.matchedOn}")
+            markTerminal(job, JobStatus.SKIPPED_DUPLICATE)
+            ack.acknowledge()
+            return
+        }
+        deadLetter(job, attempt, "attempt bound ${props.maxAttempts} already burned for this listing", ack)
+    }
+
+    /**
+     * Await the dead-letter write before committing. A fire-and-forget send
+     * followed by a commit loses the message from BOTH topics if the DLQ
+     * broker is briefly unreachable, and job_state would still read DEAD, so
+     * the loss would be invisible.
+     */
+    private fun deadLetter(job: JobMessage, attempt: Int, message: String, ack: Acknowledgment) {
+        val deadLettered = try {
+            kafka.send(Topics.JOBS_DLQ, job.companyKey, DeadLetter(job, attempt, message, Instant.now()))
+                .get(DLQ_SEND_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            null
+        } catch (e: InterruptedException) {
+            // Shutdown, or the poll-interval watchdog. runCatching would
+            // swallow the interrupt flag and leave the consumer running
+            // a message it can no longer finish.
+            Thread.currentThread().interrupt()
+            log.error("interrupted while dead-lettering job {}; leaving the offset uncommitted", job.id)
+            return
+        } catch (e: Exception) {
+            e
+        }
+        if (deadLettered != null) {
+            log.error(
+                "job {} exhausted but the dead-letter write failed; leaving the offset uncommitted",
+                job.id,
+                deadLettered,
+            )
+            return
+        }
+        failJob(job, message)
+        ack.acknowledge()
     }
 
     /**

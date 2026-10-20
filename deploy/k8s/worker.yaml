@@ -40,11 +40,10 @@ spec:
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: kafka.campaign.svc.cluster.local:9092
             - name: APPLY_MODE
-              # shadow | live (cutover flips this). live NEEDS the msrouter
-              # gateway (msrouter.yaml replicas 1): every apply step calls it, so
-              # while the gateway is paused each message burns maxAttempts x
-              # step time plus retry backoff and ends in the DLQ.
-              value: "shadow"
+              # shadow | live. LIVE since the 2026-10-20 cutover: applies drive
+              # the shared Chrome for real. Rollback = "shadow" + restart; the
+              # gateway must stay up while live (see msrouter.yaml).
+              value: "live"
             - name: MSROUTER_URL
               value: http://msrouter.campaign.svc.cluster.local:3000/v1
             - name: WORKER_MCP_COMMAND

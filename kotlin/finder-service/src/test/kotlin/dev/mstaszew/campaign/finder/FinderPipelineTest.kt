@@ -168,6 +168,45 @@ class FinderPipelineTest {
         verify(exactly = 0) { events.save(any()) }
     }
 
+    /**
+     * One listing can surface on several filter pages in the same window, and
+     * two Kafka records for one id each burn an apply attempt downstream
+     * (observed live: attempts 5 against maxAttempts 3, 2026-10-20). Within
+     * one discovery window a listing is handled exactly once.
+     */
+    @Test
+    fun `a listing collected twice in one window is handled once`() {
+        val pipe = pipeline()
+
+        val first = pipe.process(listing())
+        val second = pipe.process(listing())
+
+        assertThat(first).isInstanceOf(FinderPipeline.Outcome.Enqueued::class.java)
+        assertThat(second).isInstanceOf(FinderPipeline.Outcome.Duplicate::class.java)
+        verify(exactly = 1) { kafka.send(any<String>(), any<String>(), any<Any>()) }
+        // The second scan must not re-pay for scoring either.
+        assertThat(second).extracting("matchedOn").isEqualTo("window-scan")
+    }
+
+    /**
+     * Pins the seenThisWindow.clear() lifecycle: the within-window dedupe
+     * must not survive across runs, or a listing whose first apply attempt
+     * failed could never be re-enqueued and retried. Delete the clear() line
+     * in run() and this test fails.
+     */
+    @Test
+    fun `a second window can re-enqueue what the first window enqueued`() {
+        val collector = ListingCollector { source ->
+            if (source == "nofluffjobs") listOf(listing()) else emptyList()
+        }
+        val pipe = pipeline(collector = collector)
+
+        pipe.run()
+        pipe.run()
+
+        verify(exactly = 2) { kafka.send(Topics.JOBS, "funds-tech", any<JobMessage>()) }
+    }
+
     @Test
     fun `low score stops the enqueue`() {
         val outcome = pipeline(score = 30).process(listing())

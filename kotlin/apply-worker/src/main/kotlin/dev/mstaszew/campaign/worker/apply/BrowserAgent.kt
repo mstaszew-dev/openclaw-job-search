@@ -6,6 +6,7 @@ import dev.mstaszew.campaign.common.mcp.McpStdioClient
 import dev.mstaszew.campaign.common.net.ChatMessage
 import dev.mstaszew.campaign.common.net.LlmClient
 import dev.mstaszew.campaign.common.net.LlmClientException
+import dev.mstaszew.campaign.common.net.ToolSpec
 import dev.mstaszew.campaign.common.domain.JobListingEntity
 import dev.mstaszew.campaign.common.repo.JobListingRepository
 import org.slf4j.LoggerFactory
@@ -65,11 +66,23 @@ class BrowserAgent(
             val system = systemPrompt(listing, applicantProfileText)
             repeat(MAX_STEPS) {
                 val response = try {
-                    llm.chat(state.messages + ChatMessage("system", system), maxTokens = 1500, timeout = STEP_TIMEOUT)
+                    llm.chat(state.messages + ChatMessage("system", system), maxTokens = 1500, timeout = STEP_TIMEOUT, tools = TOOL_SCHEMAS)
                 } catch (e: LlmClientException) {
                     return ApplyResult.Failed("llm loop failed: ${e.message?.take(200)}")
                 }
-                val toolCall = parseToolCall(response.content)
+                val toolCall = response.toolCalls.firstOrNull { it.name.isNotBlank() }
+                    ?.let { selected ->
+                        // Free models sometimes fire several calls in one
+                        // turn; the loop acts on exactly one step at a time.
+                        val dropped = response.toolCalls
+                            .filter { it !== selected && it.name.isNotBlank() }
+                            .map { it.name }
+                        if (dropped.isNotEmpty()) {
+                            log.info("model offered {} tool calls; acting on {}, dropping {}", response.toolCalls.size, selected.name, dropped)
+                        }
+                        ToolCall(selected.name, selected.arguments)
+                    }
+                    ?: parseToolCall(response.content)
                     ?: return ApplyResult.Failed("model produced no tool call: ${response.content.take(150)}")
                 when (val dispatched = dispatch(browser, toolCall, state)) {
                     is ApplyResult -> return dispatched
@@ -209,5 +222,103 @@ class BrowserAgent(
         const val MAX_STEPS = 25
         val STEP_TIMEOUT: Duration = Duration.ofSeconds(90)
         val TOOL_TIMEOUT: Duration = Duration.ofSeconds(120)
+
+        private val SCHEMA_MAPPER = ObjectMapper()
+
+        /**
+         * The tools as native OpenAI function schemas. The prompt lists them
+         * too: the schema is what makes the gateway return parseable
+         * tool_calls, the prompt is what teaches the model WHEN to call what.
+         * The Python agent ran 1983 submissions on this contract.
+         *
+         * Property types mirror the consumers, not convenience: the six
+         * forwarded browser tools are validated by @playwright/mcp's own
+         * schemas (fill_form takes an ARRAY of field objects, wait_for takes
+         * a NUMBER), and a stringified shape burns a step on a tool error.
+         */
+        private fun obj(vararg props: Pair<String, JsonNode>, required: List<String> = emptyList()): JsonNode =
+            SCHEMA_MAPPER.createObjectNode().apply {
+                put("type", "object")
+                set<JsonNode>("properties", SCHEMA_MAPPER.createObjectNode().apply {
+                    props.forEach { (name, node) -> set<JsonNode>(name, node) }
+                })
+                if (required.isNotEmpty()) {
+                    set<JsonNode>("required", SCHEMA_MAPPER.createArrayNode().apply { required.forEach { add(it) } })
+                }
+            }
+
+        private fun str(desc: String): JsonNode =
+            SCHEMA_MAPPER.createObjectNode().put("type", "string").put("description", desc)
+
+        private fun num(desc: String): JsonNode =
+            SCHEMA_MAPPER.createObjectNode().put("type", "number").put("description", desc)
+
+        /** fill_form.fields per tools.py: an array of {target,name,type,value} objects. */
+        private fun fieldList(): JsonNode =
+            SCHEMA_MAPPER.createObjectNode().apply {
+                put("type", "array")
+                put("description", "Form fields to fill")
+                set<JsonNode>("items", SCHEMA_MAPPER.createObjectNode().apply {
+                    put("type", "object")
+                    set<JsonNode>("properties", SCHEMA_MAPPER.createObjectNode().apply {
+                        listOf("target", "name", "type", "value").forEach { putObject(it).put("type", "string") }
+                    })
+                })
+            }
+
+        val TOOL_SCHEMAS: List<ToolSpec> = listOf(
+            ToolSpec(
+                "browser_navigate",
+                "Open a URL in the single tab.",
+                obj("url" to str("absolute URL to open"), required = listOf("url")),
+            ),
+            ToolSpec("browser_snapshot", "Read the page as an accessibility tree.", obj()),
+            ToolSpec(
+                "browser_click",
+                "Click an element from the last snapshot.",
+                obj(
+                    "element" to str("element description from the snapshot"),
+                    "target" to str("element ref/id from the snapshot"),
+                    required = listOf("target"),
+                ),
+            ),
+            ToolSpec(
+                "browser_fill_form",
+                "Fill several fields at once.",
+                obj("fields" to fieldList(), required = listOf("fields")),
+            ),
+            ToolSpec(
+                "upload_cv",
+                "Upload the PL CV. Worker-side: it owns the canonical file path.",
+                obj(
+                    "selector" to str("optional clickable selector that opens the file chooser"),
+                    "cssInput" to str("optional CSS selector of the <input type=file>"),
+                ),
+            ),
+            ToolSpec(
+                "browser_evaluate",
+                "Run JavaScript in the page and return the result.",
+                obj("function" to str("JavaScript function body to evaluate")),
+            ),
+            ToolSpec(
+                "browser_wait_for",
+                "Wait for text to appear or for seconds to pass.",
+                obj("text" to str("text to wait for"), "time" to num("seconds to wait")),
+            ),
+            ToolSpec(
+                "record_submission",
+                "Record the application AFTER visible confirmation evidence. Terminal.",
+                obj(
+                    "confirmationUrl" to str("URL that proves the submission"),
+                    "confirmationText" to str("thank-you text visible on the page"),
+                    "ats" to str("ATS name, e.g. recruitee, workday"),
+                ),
+            ),
+            ToolSpec(
+                "skip_task",
+                "Abandon this listing with a reason. Terminal.",
+                obj("reason" to str("captcha | duplicate | portal-block"), "detail" to str("what happened")),
+            ),
+        )
     }
 }

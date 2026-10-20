@@ -28,5 +28,10 @@ COPY data ./data
 # clone would otherwise make a dead image that dies at MODULE_NOT_FOUND.
 RUN test -f dist/main.js || { echo "dist/main.js missing; npm run build in the msrouter checkout first" >&2; exit 1; }
 
+# The headless runtime opens .run/msrouter.log (repo-relative default) and
+# open(2) does not create parent directories: bake the directory into the
+# image instead of depending on the build context's untracked state.
+RUN mkdir -p /app/.run
+
 EXPOSE 3000
 CMD ["node", "dist/main.js"]
