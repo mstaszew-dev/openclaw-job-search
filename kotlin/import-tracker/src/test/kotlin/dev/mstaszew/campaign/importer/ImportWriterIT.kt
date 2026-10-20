@@ -102,6 +102,97 @@ class ImportWriterIT {
         assertThat(idHit).isEqualTo(1)
     }
 
+    /**
+     * tracker.json is the live source of truth: when it advances a row the
+     * k3s-era import left stale (attempted -> submitted, null -> real
+     * appliedAt), a re-import must repair the existing document instead of
+     * leaving it frozen at its first-inserted state.
+     */
+    @Test
+    fun `repairs an existing application row when the tracker advances it`() {
+        val stale = TrackerParser(mapper).parse(
+            """{"applications":[{"id":"x:stale","company":"Stale Co","companyKey":"stale-co",
+                 "status":"attempted"}],
+               "skipped":[],"blockers":[]}""",
+        )
+        val advanced = TrackerParser(mapper).parse(
+            """{"applications":[{"id":"x:stale","company":"Stale Co","companyKey":"stale-co",
+                 "status":"submitted","appliedAt":"2026-10-18T20:00:00Z",
+                 "confirmationUrl":"https://portal.example/confirm/1"}],
+               "skipped":[],"blockers":[]}""",
+        )
+
+        val first = withDb { ImportWriter(it).importAll(stale, emptyList()) }
+        assertThat(first.applicationsInserted).isEqualTo(1)
+
+        val createdAt = withDb { db ->
+            db.getCollection("applications").find(Document("_id", "x:stale")).first()!!
+                .getDate("createdAt").toInstant()
+        }
+        val updatedAt = withDb { db ->
+            db.getCollection("applications").find(Document("_id", "x:stale")).first()!!
+                .getDate("updatedAt").toInstant()
+        }
+
+        val second = withDb { ImportWriter(it).importAll(advanced, emptyList()) }
+        assertThat(second.applicationsInserted).isZero()
+        assertThat(second.applicationsUpdated).isEqualTo(1)
+
+        val repaired = withDb { db ->
+            db.getCollection("applications").find(Document("_id", "x:stale")).first()!!
+        }
+        assertThat(repaired.getString("status")).isEqualTo("SUBMITTED")
+        assertThat(repaired.getDate("appliedAt").toInstant())
+            .isEqualTo(java.time.Instant.parse("2026-10-18T20:00:00Z"))
+        assertThat(repaired.getString("confirmationUrl")).isEqualTo("https://portal.example/confirm/1")
+        // Mongo-owned bookkeeping survives the repair untouched.
+        assertThat(repaired.getDate("createdAt").toInstant()).isEqualTo(createdAt)
+        assertThat(repaired.getDate("updatedAt").toInstant()).isEqualTo(updatedAt)
+    }
+
+    /**
+     * A tracker variant that lacks confirmation evidence must never erase
+     * evidence a previous import already recorded (legacy attempted rows carry
+     * null confirmation fields; the k3s worker may have written the real ones).
+     */
+    @Test
+    fun `never nulls confirmation evidence on update`() {
+        val withEvidence = TrackerParser(mapper).parse(
+            """{"applications":[{"id":"x:ev","company":"Ev Co","companyKey":"ev-co",
+                 "status":"submitted","appliedAt":"2026-06-17T10:00:00Z",
+                 "confirmationUrl":"https://portal.example/confirm/9",
+                 "confirmationText":"application received"}],
+               "skipped":[],"blockers":[]}""",
+        )
+        val withoutEvidence = TrackerParser(mapper).parse(
+            """{"applications":[{"id":"x:ev","company":"Ev Co","companyKey":"ev-co",
+                 "status":"submitted","appliedAt":"2026-06-17T10:00:00Z"}],
+               "skipped":[],"blockers":[]}""",
+        )
+
+        withDb { ImportWriter(it).importAll(withEvidence, emptyList()) }
+        val second = withDb { ImportWriter(it).importAll(withoutEvidence, emptyList()) }
+
+        assertThat(second.applicationsUpdated).isZero()
+        val row = withDb { db ->
+            db.getCollection("applications").find(Document("_id", "x:ev")).first()!!
+        }
+        assertThat(row.getString("confirmationUrl")).isEqualTo("https://portal.example/confirm/9")
+        assertThat(row.getString("confirmationText")).isEqualTo("application received")
+    }
+
+    /** Repair semantics must not break the core promise: same file, zero writes. */
+    @Test
+    fun `rerun with unchanged tracker modifies nothing`() {
+        val model = TrackerParser(mapper).parse(fixture("fixture-tracker.json"))
+
+        withDb { ImportWriter(it).importAll(model, emptyList()) }
+        val second = withDb { ImportWriter(it).importAll(model, emptyList()) }
+
+        assertThat(second.applicationsInserted).isZero()
+        assertThat(second.applicationsUpdated).isZero()
+    }
+
     @Test
     fun `nested json is stored as a queryable subdocument`() {
         val model = TrackerParser(mapper).parse(fixture("fixture-tracker.json"))

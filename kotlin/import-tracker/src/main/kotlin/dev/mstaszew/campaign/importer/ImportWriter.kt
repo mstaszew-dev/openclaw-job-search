@@ -24,6 +24,7 @@ private object MapperHolder {
 
 data class ImportReport(
     val applicationsInserted: Int,
+    val applicationsUpdated: Int,
     val applicationsSkipped: Int,
     val skipsInserted: Int,
     val skipsSkipped: Int,
@@ -33,24 +34,35 @@ data class ImportReport(
 )
 
 /**
- * Idempotent Mongo writer: safe to re-run; documents already present are left
- * alone. Talks to the driver directly rather than through Spring, so the
- * importer keeps no application context and starts in well under a second.
+ * Idempotent Mongo writer. Talks to the driver directly rather than through
+ * Spring, so the importer keeps no application context and starts in well
+ * under a second.
  *
  * Idempotency maps from the Postgres version as follows:
  *
- * - `ON CONFLICT (id) DO NOTHING` becomes an upsert with $setOnInsert. For
- *   applications the filter is _id, which is already unique, so a second run
- *   matches and changes nothing.
- * - Skips and blockers had no natural key in Postgres, so the old code used
- *   `INSERT ... WHERE NOT EXISTS (six-way match)`. Here those same tuples
- *   become the upsert filter, which is the same condition expressed as one
- *   atomic operation rather than a check-then-insert that two concurrent
- *   importers could interleave.
+ * - `ON CONFLICT (id) DO NOTHING` becomes an upsert. Applications carry the
+ *   live tracker state, so a matched document is UPDATED with the tracker's
+ *   fields ($set) while Mongo-owned bookkeeping (_id, createdAt, updatedAt)
+ *   stays behind $setOnInsert: a re-import of an unchanged file matches
+ *   everywhere and writes nothing (modifiedCount 0), but a tracker that
+ *   advanced a row (attempted -> submitted, null -> real appliedAt) repairs
+ *   the stale document instead of leaving it frozen at first-insert. Before
+ *   2026-10-18 this was $setOnInsert-only, which left 4 rows stuck ATTEMPTED
+ *   and 31 rows with null appliedAt after the tracker had moved on.
+ *   Confirmation evidence is one-directional on purpose: an incoming null
+ *   never overwrites a recorded confirmationUrl/confirmationText/evidence,
+ *   because legacy attempted rows carry null there and must not erase what
+ *   the worker or an earlier import captured.
+ * - Skips and blockers are append-only facts, so they keep the strict
+ *   insert-only upsert: the old `INSERT ... WHERE NOT EXISTS (six-way match)`
+ *   became the upsert filter, the same condition expressed as one atomic
+ *   operation rather than a check-then-insert that two concurrent importers
+ *   could interleave.
  * - `IS NOT DISTINCT FROM ?` is literal `{field: null}` in the filter, because
  *   in Mongo a null matches a missing field - the NULL-safe equality the SQL
  *   reached for.
- * - Events stay all-or-nothing behind `count == 0`, since they have no key.
+ * - Events stay all-or-nothing behind the per-file digest, since they have no
+ *   key.
  *
  * The old one-big-transaction design is gone. Postgres rolled the whole
  * 1809-row import back on a single bad row, which is what turned the NUL
@@ -60,7 +72,7 @@ data class ImportReport(
 class ImportWriter(private val database: MongoDatabase) {
 
     fun importAll(model: TrackerModel, events: List<EventEntity>): ImportReport {
-        val apps = upsert(APPLICATIONS, model.applications.map(::applicationFilter), model.applications.map(::applicationDoc))
+        val apps = upsertApplications(model.applications)
         val skips = upsert(SKIPS, model.skips.map(::skipFilter), model.skips.map(::skipDoc))
         val blockers = upsert(BLOCKERS, model.blockers.map(::blockerFilter), model.blockers.map(::blockerDoc))
         // Events have no natural key, so idempotency needs an explicit marker.
@@ -83,8 +95,11 @@ class ImportWriter(private val database: MongoDatabase) {
             }
         }
         return ImportReport(
-            applicationsInserted = apps,
-            applicationsSkipped = model.applications.size - apps,
+            applicationsInserted = apps.upserted,
+            applicationsUpdated = apps.modified,
+            // upserted and modified are mutually exclusive per row, so the
+            // remainder is exactly the matched-but-unchanged set.
+            applicationsSkipped = model.applications.size - apps.upserted - apps.modified,
             skipsInserted = skips,
             skipsSkipped = model.skips.size - skips,
             blockersInserted = blockers,
@@ -93,13 +108,74 @@ class ImportWriter(private val database: MongoDatabase) {
         )
     }
 
+    private data class UpsertOutcome(val upserted: Int, val modified: Int)
+
     /**
-     * Upserts (filter, document) pairs and returns how many were genuinely
-     * inserted, which the driver reports directly as the batch's upsert count.
-     *
-     * $setOnInsert rather than a plain replace: a matched document must be
-     * left completely untouched, timestamps included, so a re-import cannot
-     * make a stale tracker row look freshly written.
+     * Applications upsert: $set the tracker-owned fields on match (the repair
+     * path), $setOnInsert only the Mongo-owned bookkeeping. Reporting splits
+     * the driver's bulk result into genuinely-inserted (upserts) and
+     * genuinely-changed (modifiedCount) so a no-op re-run reports both zero.
+     */
+    private fun upsertApplications(applications: List<ApplicationEntity>): UpsertOutcome {
+        if (applications.isEmpty()) return UpsertOutcome(0, 0)
+        var inserted = 0
+        var modified = 0L
+        applications.chunked(BATCH).forEach { batch ->
+            val models: List<WriteModel<Document>> = batch.map(::applicationUpdateModel)
+            val result = database.getCollection(APPLICATIONS)
+                .bulkWrite(models, BulkWriteOptions().ordered(false))
+            inserted += result.upserts.size
+            modified += result.modifiedCount
+        }
+        return UpsertOutcome(inserted, modified.toInt())
+    }
+
+    private fun applicationUpdateModel(a: ApplicationEntity): WriteModel<Document> {
+        val set = Document()
+            .append("source", a.source)
+            .append("sourceJobId", a.sourceJobId)
+            .append("company", a.company)
+            .append("companyKey", a.companyKey)
+            .append("roleTitle", a.roleTitle)
+            .append("roleKey", a.roleKey)
+            .append("url", a.url)
+            .append("region", a.region)
+            .append("remotePolicy", a.remotePolicy)
+            .append("salary", jsonOrNull(a.salary))
+            .append("stack", a.stack)
+            .append("applyMethod", a.applyMethod)
+            .append("ats", a.ats)
+            .append("status", a.status.name)
+            .append("appliedAt", a.appliedAt)
+            .append("followUps", jsonOrNull(a.followUps))
+            .append("notes", a.notes)
+        // One-directional evidence: a tracker variant without confirmation
+        // data must never erase what an earlier import or the worker recorded.
+        // (Incoming-null leaves the key untouched; on first insert the key is
+        // simply absent, which Mongo queries treat the same as null.)
+        a.confirmationUrl?.let { set.append("confirmationUrl", it) }
+        a.confirmationText?.let { set.append("confirmationText", it) }
+        a.evidence?.let { set.append("evidence", jsonOrNull(it)) }
+        return UpdateOneModel(
+            eq("_id", a.id),
+            Document()
+                .append("\$set", set)
+                .append(
+                    "\$setOnInsert",
+                    Document()
+                        .append("_id", a.id)
+                        .append("createdAt", a.createdAt)
+                        .append("updatedAt", a.updatedAt),
+                ),
+            UpdateOptions().upsert(true),
+        )
+    }
+
+    /**
+     * Insert-only upsert for append-only collections (skips, blockers):
+     * a matched document must be left completely untouched, timestamps
+     * included, so a re-import cannot make a stale tracker row look freshly
+     * written.
      */
     private fun upsert(collection: String, filters: List<Bson>, docs: List<Document>): Int {
         require(filters.size == docs.size) { "filter/document size mismatch for $collection" }
@@ -142,33 +218,6 @@ class ImportWriter(private val database: MongoDatabase) {
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
-
-    private fun applicationFilter(a: ApplicationEntity): Bson = eq("_id", a.id)
-
-    private fun applicationDoc(a: ApplicationEntity): Document = Document()
-        .append("_id", a.id)
-        .append("source", a.source)
-        .append("sourceJobId", a.sourceJobId)
-        .append("company", a.company)
-        .append("companyKey", a.companyKey)
-        .append("roleTitle", a.roleTitle)
-        .append("roleKey", a.roleKey)
-        .append("url", a.url)
-        .append("region", a.region)
-        .append("remotePolicy", a.remotePolicy)
-        .append("salary", jsonOrNull(a.salary))
-        .append("stack", a.stack)
-        .append("applyMethod", a.applyMethod)
-        .append("ats", a.ats)
-        .append("status", a.status.name)
-        .append("confirmationUrl", a.confirmationUrl)
-        .append("confirmationText", a.confirmationText)
-        .append("evidence", jsonOrNull(a.evidence))
-        .append("appliedAt", a.appliedAt)
-        .append("followUps", jsonOrNull(a.followUps))
-        .append("notes", a.notes)
-        .append("createdAt", a.createdAt)
-        .append("updatedAt", a.updatedAt)
 
     private fun skipFilter(s: SkipEntity): Bson = Document()
         .append("reason", s.reason.name)

@@ -10,7 +10,10 @@ import dev.mstaszew.campaign.common.domain.BlockerEntity
 import dev.mstaszew.campaign.common.domain.SkipEntity
 import dev.mstaszew.campaign.common.domain.SkipReason
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 data class TrackerStats(
@@ -28,15 +31,29 @@ data class TrackerModel(
     val stats: TrackerStats,
     /** Non-fatal anomalies (unparsable appliedAt, unknown status, odd stack shapes). */
     val warnings: List<String>,
+    /** How many applications[] entries collapsed into an earlier duplicate id. */
+    val duplicateIdsCollapsed: Int,
 )
 
-/** Maps tracker.json (the live Python campaign state) onto the Postgres entities. */
+/**
+ * Maps tracker.json (the live Python campaign state) onto the Postgres entities.
+ *
+ * applications[] is the live source of truth, so the parser collapses duplicate
+ * ids to the strongest variant before anything reaches Mongo: SUBMITTED beats
+ * ATTEMPTED (a confirmed submission outranks a later unconfirmed re-apply),
+ * then the later appliedAt wins (a re-apply supersedes the first submission),
+ * then the earlier file position wins (pure tie = keep what python wrote
+ * first). Without this the importer's unordered bulkWrite lets whichever
+ * variant executes first win the insert - observed live on 2026-10-18, where
+ * an ATTEMPTED re-apply variant raced in ahead of its SUBMITTED sibling.
+ */
 class TrackerParser(private val mapper: ObjectMapper) {
 
     fun parse(json: String): TrackerModel {
         val root = mapper.readTree(json)
         val warnings = mutableListOf<String>()
-        val applications = root.path("applications").mapNotNull { toApplication(it, warnings) }
+        val parsed = root.path("applications").mapNotNull { toApplication(it, warnings) }
+        val applications = collapseDuplicates(parsed)
         val skips = root.path("skipped").mapNotNull { toSkip(it) }
         val blockers = root.path("blockers").mapNotNull { toBlocker(it) }
         val stats = root.path("stats")
@@ -52,6 +69,7 @@ class TrackerParser(private val mapper: ObjectMapper) {
                 blockedManual = stats.path("blockedManual").asLong(0),
             ),
             warnings = warnings.toList(),
+            duplicateIdsCollapsed = parsed.size - applications.size,
         )
     }
 
@@ -67,13 +85,18 @@ class TrackerParser(private val mapper: ObjectMapper) {
 
         val company = n.path("company").asText("")
         val rawUrl = n.path("jobUrl").asText(n.path("listingUrl").asText(null))
-        val statusText = n.path("status").asText("submitted")
+        // tracker.py's own counters treat attempted_no_confirmation as a
+        // separate non-submitted bucket, so it must not inflate the submitted
+        // KPI here either; an application with no status at all is an
+        // unconfirmed apply until the tracker says otherwise.
+        val statusText = n.path("status").asText("")
         val status = when (statusText) {
-            "attempted" -> ApplicationStatus.ATTEMPTED
             "submitted" -> ApplicationStatus.SUBMITTED
+            "attempted", "attempted_no_confirmation" -> ApplicationStatus.ATTEMPTED
             else -> {
-                warnings.add("application $id: unknown status '$statusText', imported as SUBMITTED")
-                ApplicationStatus.SUBMITTED
+                val reason = if (statusText.isBlank()) "missing status" else "unknown status '$statusText'"
+                warnings.add("application $id: $reason, imported as ATTEMPTED")
+                ApplicationStatus.ATTEMPTED
             }
         }
         val appliedAtRaw = n.path("appliedAt").asText(null)
@@ -165,13 +188,43 @@ class TrackerParser(private val mapper: ObjectMapper) {
             ?: throw IllegalStateException("$kind row (company=${n.path("company").asText("?")}) has unparsable 'at' '$raw'")
     }
 
+    /**
+     * tracker.json carries several legacy timestamp shapes. Zone-less
+     * datetimes and date-only values are read as UTC: the tracker's writer
+     * emits aware-UTC ISO strings everywhere else, so a naive value is a
+     * legacy-UTC value, and a bare date pins the day without inventing a
+     * wall-clock time. Genuinely malformed strings ('+00001' offsets,
+     * '09-51-00Z') stay null under the unparsable-appliedAt warning.
+     */
     private fun JsonNode.stackList(): List<String> = when {
         isArray -> mapNotNull { it.asText(null)?.trim()?.takeIf(String::isNotEmpty) }
         isTextual && !asText().isBlank() -> listOf(asText().trim())
         else -> emptyList()
     }
 
+    private fun collapseDuplicates(parsed: List<ApplicationEntity>): List<ApplicationEntity> =
+        parsed.groupBy { it.id }.map { (_, variants) ->
+            variants.reduce { best, candidate ->
+                if (rankOf(candidate) > rankOf(best)) candidate else best
+            }
+        }
+
+    /** SUBMITTED outranks ATTEMPTED; a later appliedAt outranks an earlier one. */
+    private fun rankOf(a: ApplicationEntity): VariantRank =
+        VariantRank(
+            submitted = a.status == ApplicationStatus.SUBMITTED,
+            appliedAt = a.appliedAt ?: Instant.EPOCH,
+        )
+
+    private data class VariantRank(val submitted: Boolean, val appliedAt: Instant) : Comparable<VariantRank> {
+        override fun compareTo(other: VariantRank): Int =
+            submitted.compareTo(other.submitted).takeIf { it != 0 }
+                ?: appliedAt.compareTo(other.appliedAt)
+    }
+
     private fun String.parseInstant(): Instant? = runCatching { Instant.parse(this) }
         .recoverCatching { OffsetDateTime.parse(this, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant() }
+        .recoverCatching { LocalDateTime.parse(this, DateTimeFormatter.ISO_LOCAL_DATE_TIME).toInstant(ZoneOffset.UTC) }
+        .recoverCatching { LocalDate.parse(this, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay(ZoneOffset.UTC).toInstant() }
         .getOrNull()
 }

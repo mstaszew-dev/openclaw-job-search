@@ -41,7 +41,7 @@ fun main(args: Array<String>) {
         println(
             """
             import report:
-              applications: ${report.applicationsInserted} inserted, ${report.applicationsSkipped} already present (tracker applications[]: ${model.applications.size})
+              applications: ${report.applicationsInserted} inserted, ${report.applicationsUpdated} updated, ${report.applicationsSkipped} unchanged (tracker applications[]: ${model.applications.size} distinct, ${model.duplicateIdsCollapsed} duplicate entries collapsed)
               skips:        ${report.skipsInserted} inserted, ${report.skipsSkipped} already present (tracker skipped[]: ${model.skips.size})
               blockers:     ${report.blockersInserted} inserted, ${report.blockersSkipped} already present (tracker blockers[]: ${model.blockers.size})
               events:       ${report.eventsInserted} inserted
