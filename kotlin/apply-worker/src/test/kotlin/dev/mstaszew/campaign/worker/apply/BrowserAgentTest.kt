@@ -184,4 +184,88 @@ class BrowserAgentTest {
         // Int range, because Kafka's poll interval config is Type.INT.
         assertThat(BrowserAgent.parseMaxSteps("999999")).isEqualTo(10000)
     }
+
+    /**
+     * The 2026-10-21 cap-outs: a dead listing retried browser_navigate ~50x
+     * and a refused CV upload burned all 60 steps. The loop breaker must end
+     * the attempt after LOOP_BREAK_THRESHOLD consecutive failures of the SAME
+     * tool instead of paying the whole cap for a hopeless loop.
+     */
+    @Test
+    fun `loop breaker aborts after three consecutive failures of the same tool`() {
+        every { browser.callToolText(eq("browser_navigate"), any(), any()) } throws RuntimeException("net::ERR_DEAD")
+        val transport = ScriptedTransport(
+            listOf(toolCallResponse("browser_navigate", """{"url":"https://x/1"}""")),
+        )
+
+        val result = run(agent(transport, maxSteps = 10))
+
+        assertThat(result).isEqualTo(
+            ApplyResult.Failed(
+                "loop breaker: browser_navigate failed 3 consecutive times; " +
+                    "last error: tool browser_navigate failed: net::ERR_DEAD",
+            ),
+        )
+        verify(exactly = 3) { browser.callToolText(any(), any(), any()) }
+        verify(exactly = 0) { recorder.recordSubmitted(any(), any(), any()) }
+    }
+
+    /**
+     * A successful tool call in between (the model adapting by re-snapshotting,
+     * the standard recovery move) must reset the streak: only CONSECUTIVE
+     * same-tool failures are a loop. ScriptedTransport repeats its last
+     * entry, so the sequence here is fail, fail, reset, fail, fail, reset, ...
+     * and never reaches the threshold.
+     */
+    @Test
+    fun `a successful different tool between failures resets the streak`() {
+        every { browser.callToolText(eq("browser_navigate"), any(), any()) } throws RuntimeException("net::ERR_DEAD")
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+            ),
+        )
+
+        val result = run(agent(transport, maxSteps = 7))
+
+        assertThat(result).isEqualTo(ApplyResult.Failed("step cap 7 reached without outcome"))
+    }
+
+    /** A success of the failing tool itself is also a reset, not a streak continuation. */
+    @Test
+    fun `a success of the failing tool resets the streak`() {
+        var calls = 0
+        every { browser.callToolText(eq("browser_navigate"), any(), any()) } answers {
+            calls++
+            if (calls % 3 == 0) "landing page" else throw RuntimeException("flaky")
+        }
+        val transport = ScriptedTransport(
+            listOf(toolCallResponse("browser_navigate", """{"url":"https://x/1"}""")),
+        )
+
+        val result = run(agent(transport, maxSteps = 7))
+
+        assertThat(result).isEqualTo(ApplyResult.Failed("step cap 7 reached without outcome"))
+    }
+
+    /** The refused-upload pathology counts too: upload_cv failures feed the same streak. */
+    @Test
+    fun `upload_cv failures count toward the loop breaker`() {
+        every { cvUploader.upload(any(), any(), any(), any()) } throws RuntimeException("chooser refused")
+        val transport = ScriptedTransport(
+            listOf(toolCallResponse("upload_cv", """{"selector":"#file"}""")),
+        )
+
+        val result = run(agent(transport, maxSteps = 10))
+
+        assertThat(result).isInstanceOf(ApplyResult.Failed::class.java)
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("loop breaker: upload_cv failed 3 consecutive times")
+        verify(exactly = 3) { cvUploader.upload(any(), any(), any(), any()) }
+    }
 }

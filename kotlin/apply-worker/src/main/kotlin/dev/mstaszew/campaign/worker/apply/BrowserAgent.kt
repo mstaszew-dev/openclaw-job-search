@@ -35,8 +35,11 @@ sealed class ApplyResult {
  * evaluate) plus two worker-side tools: `record_submission` (captures
  * confirmation evidence; validated by SubmissionVerifier via the Recorder) and
  * `skip_task`. Bounded by a hard step cap so a looping model can never run
- * forever. There is no lease to renew: the consumer's max.poll.interval.ms,
- * not the application, is what keeps a long apply from being evicted.
+ * forever, and a loop breaker aborts the attempt after LOOP_BREAK_THRESHOLD
+ * consecutive failures of the same tool (2026-10-21: a dead listing retried
+ * browser_navigate and a refused upload each burned the whole cap). There is
+ * no lease to renew: the consumer's max.poll.interval.ms, not the
+ * application, is what keeps a long apply from being evicted.
  *
  * The three timing constants are public because KafkaWiring derives the
  * consumer's poll interval from them. They lived here as private values, which
@@ -97,7 +100,27 @@ class BrowserAgent(
                     ?: return out(step, ApplyResult.Failed("model produced no tool call: ${response.content.take(150)}"))
                 when (val dispatched = dispatch(browser, toolCall, state)) {
                     is ApplyResult -> return out(step, dispatched)
-                    else -> state.messages += ChatMessage("user", dispatched.toString().take(4000))
+                    is ToolOutcome -> {
+                        // Consecutive-failure streak keyed by tool NAME, not
+                        // args: real retry loops vary the arguments (selectors
+                        // reordered, URLs re-encoded) while the failure stays
+                        // the same. Any success, or a failure of a different
+                        // tool, resets the streak.
+                        if (dispatched.failed && state.failingTool == dispatched.toolName) state.failureStreak += 1 else {
+                            state.failingTool = if (dispatched.failed) dispatched.toolName else null
+                            state.failureStreak = if (dispatched.failed) 1 else 0
+                        }
+                        state.messages += ChatMessage("user", dispatched.text.take(4000))
+                        if (state.failureStreak >= LOOP_BREAK_THRESHOLD) {
+                            return out(
+                                step,
+                                ApplyResult.Failed(
+                                    "loop breaker: ${dispatched.toolName} failed $LOOP_BREAK_THRESHOLD " +
+                                        "consecutive times; last error: ${dispatched.text.take(150)}",
+                                ),
+                            )
+                        }
+                    }
                 }
             }
             return out(maxSteps, ApplyResult.Failed("step cap $maxSteps reached without outcome"))
@@ -105,6 +128,10 @@ class BrowserAgent(
     }
 
     private class LoopState(val jobId: String, val listing: JobListingEntity, val cvPath: String) {
+        /** Loop-breaker state: the tool name of the current failure streak and its length. */
+        var failingTool: String? = null
+        var failureStreak: Int = 0
+
         val messages = mutableListOf<ChatMessage>(
             ChatMessage(
                 "user",
@@ -114,6 +141,14 @@ class BrowserAgent(
         )
         var lastSnapshot: String = ""
     }
+
+    /**
+     * A non-terminal tool result fed back to the model. `failed` marks the
+     * tool's own failure (exception, or an upload_cv "Error: ..." verdict), as
+     * opposed to a successful call whose TEXT reports a page-level problem -
+     * only the former may count toward the loop breaker.
+     */
+    private data class ToolOutcome(val toolName: String, val text: String, val failed: Boolean)
 
     /** Wraps the per-task MCP client lifecycle. */
     private class McpStdioClientClient(private val factory: () -> McpStdioClient) : AutoCloseable {
@@ -211,28 +246,37 @@ class BrowserAgent(
                 } catch (e: Exception) {
                     if (e is InterruptedException) Thread.currentThread().interrupt()
                     "Error: upload_cv failed: ${e.message?.take(200)}"
+                }.let { text ->
+                    // "Error: ..." is upload_cv's fixed failure verdict
+                    // (refused chooser, missing CV file); it is the loop fuel
+                    // of the 2026-10-21 darize cap-out.
+                    ToolOutcome("upload_cv", text, failed = text.startsWith("Error"))
                 }
             else -> browserTool(browser, call, state)
         }
 
-    private fun browserTool(browser: McpStdioClientClient, call: ToolCall, state: LoopState): String =
+    private fun browserTool(browser: McpStdioClientClient, call: ToolCall, state: LoopState): ToolOutcome =
         try {
-            if (call.name == "browser_snapshot") {
+            val text = if (call.name == "browser_snapshot") {
                 browser.client.callToolText("browser_snapshot", mapper.createObjectNode(), TOOL_TIMEOUT)
                     .also { state.lastSnapshot = it }
                     .take(8000)
             } else {
                 browser.client.callToolText(call.name, call.arguments, TOOL_TIMEOUT).take(4000)
             }
+            ToolOutcome(call.name, text, failed = false)
         } catch (e: Exception) {
             log.warn("tool {} failed: {}", call.name, e.message)
-            "tool ${call.name} failed: ${e.message?.take(300)}"
+            ToolOutcome(call.name, "tool ${call.name} failed: ${e.message?.take(300)}", failed = true)
         }
 
     companion object {
         val EFFECTIVE_MAX_STEPS: Int = AgentLoopBounds.effectiveMaxSteps
         val STEP_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.STEP_TIMEOUT_MS)
         val TOOL_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.TOOL_TIMEOUT_MS)
+
+        /** Consecutive same-tool failures that end the attempt as Failed. */
+        const val LOOP_BREAK_THRESHOLD = 3
 
         fun parseMaxSteps(raw: String?): Int = AgentLoopBounds.parseMaxSteps(raw)
 
