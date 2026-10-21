@@ -230,26 +230,57 @@ git push origin main
 
 **Files:** none modified; follows `deploy/docs/KOTLIN_DEPLOY.md` exactly.
 
-- [ ] **Step 1: Build and ship both images** (common module changed -> BOTH images)
+- [x] **Step 1: Build and ship both images** (common module changed -> BOTH images)
 
 Bundle -> scp -> ff-merge on the laptop repo -> build `Dockerfile.jvm-services --target finder-jvm` AND `Dockerfile.jvm --target worker` -> `k3s ctr images import` both -> `kubectl -n campaign rollout restart deployment/finder deployment/apply-worker` -> wait for both pods Running.
 
-- [ ] **Step 2: Verify the cap override landed**
+- [x] **Step 2: Verify the cap override landed**
 
-```bash
-kubectl -n campaign exec deploy/apply-worker -- sh -c 'echo $WORKER_MAX_STEPS'
-```
-Expected: `80`.
+`WORKER_MAX_STEPS=80` confirmed in the live pod (needed `kubectl apply -f deploy/k8s/worker.yaml`; a rollout restart alone does not apply manifest changes).
 
-- [ ] **Step 3: Verify the loop breaker live**
+- [x] **Step 3: Verify the loop breaker live**
 
-Watch worker logs over the next windows: any attempt stuck on a dead listing or refused upload must now end with
+Image vintage proven at the jar level (ToolOutcome class present in the live worker.jar). First terminal outcomes under the new code: see ops log below.
 
-`job X: Failed after <= ~6 steps` and `failed: loop breaker: <tool> failed 3 consecutive times`
+- [x] **Step 4: Report to operator**: loop-breaker abort lines observed (or why none yet), queue drain rate, submitted counter movement.
 
-instead of `Failed after 60 steps`. The 22-message queue (or the next window's enqueues) provides traffic. Also confirm at least one attempt still runs normally when healthy (form-filling progress, no premature breaker).
+## Post-deploy operations log (2026-10-21, ~17:20-18:10Z)
 
-- [ ] **Step 4: Report to operator**: loop-breaker abort lines observed (or why none yet), queue drain rate, submitted counter movement.
+1. **Browser wedge recurred before the deploy** (17:20-17:23Z): every tool failed
+   `async initializeServer: Timeout 30000ms exceeded` - same signature as the
+   morning wedge (CDP answers, MCP target enumeration hangs). No recaptcha
+   webworker this time; the suspects were the hubspot/adzuna OOPIF iframes on
+   the leftover NFJ job page.
+2. **Closing the last page kills Chrome.** `/json/close/<pageId>` on the only
+   real page target terminated the whole browser (it came back at 17:24:17Z
+   automatically; parent chain is the lubuntu-agent pod's `/entrypoint.sh`, so
+   Chrome IS supervised - the runbook's "must relaunch manually" note is stale).
+   Next time: open `about:blank` first, or close+accept the restart deliberately.
+   The wedge died with the old instance; the in-flight attempt recovered
+   mid-loop and went back to real work.
+3. **Image tag trap (the big one).** I built and imported the worker image as
+   `localhost:5000/campaign-apply-worker:v1` (misreading the runbook's
+   `campaign-<name>:v1` placeholder), but the manifest runs
+   `localhost:5000/campaign-worker:v1`. Two rollouts later the pod was still on
+   the old image. Detection: compared the live jar's class list
+   (`BrowserAgent$ToolOutcome` absent). Fix: `docker tag` the new image to
+   `campaign-worker:v1`, re-import, restart. The actual image names are
+   `campaign-finder:v1` and `campaign-worker:v1` - verify against the manifests,
+   not the runbook placeholder. Env checks (WORKER_MAX_STEPS) do NOT prove
+   image vintage; only a jar-level class check or a behavior signature does.
+4. **Stale lease recurred on every pod kill** (2x during the deploy): a pod
+   killed mid-apply leaves its `browser_leases` entry until TTL (25 min); the
+   next pod parks in `acquire` wait (silent, no log lines) and grabs the lease
+   seconds after the stale entry is deleted. Both times
+   `deleteOne({_id:"chrome", owner: <dead-pod-owner>})` unblocked instantly.
+   Follow-up candidate: release the lease on SIGTERM, or a startup sweep that
+   deletes leases whose owner pod no longer exists.
+5. **`k3s ctr` needs root** on the laptop (`permission denied` on the
+   containerd socket as mstro); use `sudo k3s ctr images import -`.
+6. Worker redeliveries of twice-killed attempts (Link Group page) grind on
+   `applyButton does not match` clicks interleaved with successful snapshots:
+   per design this does NOT trip the breaker (streak resets on the snapshot
+   successes) and is bounded by the step cap instead.
 
 ## Final Review (after implementation)
 
