@@ -59,6 +59,19 @@ spec:
               value: http://192.168.18.13:30922
             - name: WORKER_ID
               valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            # Slack outcome posts to #jobcampaign (SlackNotifier). Same creds
+            # msrouter's director surface uses; optional: absent keys mean the
+            # notifier stays silent, the apply pipeline never blocks on Slack.
+            - name: SLACK_BOT_TOKEN
+              valueFrom: { secretKeyRef: { name: campaign-msrouter, key: SLACK_BOT_TOKEN, optional: true } }
+            - name: SLACK_CHANNEL
+              valueFrom: { secretKeyRef: { name: campaign-msrouter, key: SLACK_CHANNEL, optional: true } }
+            - name: SLACK_WEBHOOK
+              valueFrom: { secretKeyRef: { name: campaign-msrouter, key: SLACK_WEBHOOK, optional: true } }
+            # Step cap for the browser tool loop (AgentLoopBounds derives the
+            # Kafka poll budget from the same env). 60 = 3.5h bounded worst case.
+            - name: WORKER_MAX_STEPS
+              value: "60"
           ports: [{ containerPort: 8082 }]
           readinessProbe:
             httpGet: { path: /actuator/health/readiness, port: 8082 }
