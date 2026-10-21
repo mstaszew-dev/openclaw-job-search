@@ -284,4 +284,17 @@ Image vintage proven at the jar level (ToolOutcome class present in the live wor
 
 ## Final Review (after implementation)
 
-- [ ] Do not claim done until: full `./gradlew build` green, review findings addressed, pushed, deployed, and a `loop breaker` line observed in production logs (or an explicit note why none fired yet).
+- [x] Do not claim done until: full `./gradlew build` green, review findings addressed, pushed, deployed, and a `loop breaker` line observed in production logs (or an explicit note why none fired yet).
+
+**Production proof (18:20:39Z):**
+
+```
+job nofluffjobs:full-stack-engineer-python-react-azure-1dea-remote: Failed after 33 steps
+job ... failed: loop breaker: browser_click failed 3 consecutive times; last error: tool browser_click failed: ... TimeoutError ...
+```
+
+The breaker ended a mid-apply grind 47 steps short of the cap. First cap
+observation under the new code: the Limur junior job ran `Failed after 80
+steps` (18:17:59Z) - the raised cap live; its click failures were interleaved
+with successful snapshots, so per design the streak kept resetting and the cap
+was the correct backstop. Both terminal paths behaved as specified.
