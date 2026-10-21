@@ -3,6 +3,7 @@ package dev.mstaszew.campaign.worker.apply
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.mstaszew.campaign.common.mcp.McpStdioClient
+import dev.mstaszew.campaign.common.messaging.AgentLoopBounds
 import dev.mstaszew.campaign.common.net.ChatMessage
 import dev.mstaszew.campaign.common.net.LlmClient
 import dev.mstaszew.campaign.common.net.LlmClientException
@@ -48,6 +49,8 @@ class BrowserAgent(
     private val listings: JobListingRepository,
     private val cvUploader: CvUploader,
     private val mapper: ObjectMapper = ObjectMapper(),
+    /** Injected for tests; production resolves WORKER_MAX_STEPS via AgentLoopBounds. */
+    private val maxSteps: Int = AgentLoopBounds.effectiveMaxSteps,
 ) {
 
     private val log = LoggerFactory.getLogger(BrowserAgent::class.java)
@@ -64,11 +67,19 @@ class BrowserAgent(
         McpStdioClientClient(mcpFactory).use { browser ->
             val state = LoopState(jobId, listing, cvPathPl)
             val system = systemPrompt(listing, applicantProfileText)
-            repeat(MAX_STEPS) {
+
+            // Step telemetry: one line per terminal outcome, so cap sizing is
+            // driven by measured apply lengths instead of guesses.
+            fun out(step: Int, result: ApplyResult): ApplyResult {
+                log.info("job {}: {} after {} steps", jobId, result::class.simpleName, step)
+                return result
+            }
+
+            for (step in 1..maxSteps) {
                 val response = try {
                     llm.chat(state.messages + ChatMessage("system", system), maxTokens = 1500, timeout = STEP_TIMEOUT, tools = TOOL_SCHEMAS)
                 } catch (e: LlmClientException) {
-                    return ApplyResult.Failed("llm loop failed: ${e.message?.take(200)}")
+                    return out(step, ApplyResult.Failed("llm loop failed: ${e.message?.take(200)}"))
                 }
                 val toolCall = response.toolCalls.firstOrNull { it.name.isNotBlank() }
                     ?.let { selected ->
@@ -83,13 +94,13 @@ class BrowserAgent(
                         ToolCall(selected.name, selected.arguments)
                     }
                     ?: parseToolCall(response.content)
-                    ?: return ApplyResult.Failed("model produced no tool call: ${response.content.take(150)}")
+                    ?: return out(step, ApplyResult.Failed("model produced no tool call: ${response.content.take(150)}"))
                 when (val dispatched = dispatch(browser, toolCall, state)) {
-                    is ApplyResult -> return dispatched
+                    is ApplyResult -> return out(step, dispatched)
                     else -> state.messages += ChatMessage("user", dispatched.toString().take(4000))
                 }
             }
-            return ApplyResult.Failed("step cap $MAX_STEPS reached without outcome")
+            return out(maxSteps, ApplyResult.Failed("step cap $maxSteps reached without outcome"))
         }
     }
 
@@ -219,9 +230,14 @@ class BrowserAgent(
         }
 
     companion object {
-        const val MAX_STEPS = 25
-        val STEP_TIMEOUT: Duration = Duration.ofSeconds(90)
-        val TOOL_TIMEOUT: Duration = Duration.ofSeconds(120)
+        /** The stall guard message names the EFFECTIVE cap: operators read it. */
+        const val DEFAULT_MAX_STEPS = AgentLoopBounds.DEFAULT_MAX_STEPS
+
+        val EFFECTIVE_MAX_STEPS: Int = AgentLoopBounds.effectiveMaxSteps
+        val STEP_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.STEP_TIMEOUT_MS)
+        val TOOL_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.TOOL_TIMEOUT_MS)
+
+        fun parseMaxSteps(raw: String?): Int = AgentLoopBounds.parseMaxSteps(raw)
 
         private val SCHEMA_MAPPER = ObjectMapper()
 

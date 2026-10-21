@@ -21,6 +21,7 @@ import org.springframework.kafka.support.serializer.JsonDeserializer
 import org.springframework.kafka.support.serializer.JsonSerializer
 import org.springframework.util.backoff.FixedBackOff
 import org.springframework.util.backoff.FixedBackOff.UNLIMITED_ATTEMPTS
+import java.time.Duration
 
 /**
  * Producer and consumer wiring for the campaign pipeline.
@@ -138,21 +139,20 @@ class KafkaWiring {
         const val REDELIVERY_BACKOFF_MS = 1_000L
 
         /**
-         * Worst case of one apply: MAX_STEPS iterations, each of which waits up
-         * to STEP_TIMEOUT on the model and then up to TOOL_TIMEOUT on
-         * Playwright. 25 x (90 + 120) = 5250s, plus 10% margin, rounded up to
-         * whole minutes.
-         *
-         * The constants live in BrowserAgent (apply-worker), which this module
-         * cannot depend on, so they are duplicated here as numbers and the
-         * relationship between the two is pinned by PollBudgetTest.
+         * Worst case of one apply: effectiveMaxSteps iterations, each of which
+         * waits up to STEP_TIMEOUT on the model and then up to TOOL_TIMEOUT on
+         * Playwright, plus 30 minutes of margin. Derived from AgentLoopBounds
+         * (the same source the loop reads), so a WORKER_MAX_STEPS override
+         * raises this budget with the loop instead of drifting below it; the
+         * relationship is pinned by PollBudgetTest.
          */
-        const val MAX_POLL_INTERVAL_MS = 5_820_000
+        val MAX_POLL_INTERVAL_MS: Long =
+            AgentLoopBounds.worstCaseMs + Duration.ofMinutes(30).toMillis()
 
         /** The agent loop bounds this budget must cover, mirrored for the test. */
-        const val AGENT_MAX_STEPS = 25
-        const val AGENT_STEP_TIMEOUT_MS = 90_000L
-        const val AGENT_TOOL_TIMEOUT_MS = 120_000L
+        val AGENT_MAX_STEPS: Int = AgentLoopBounds.effectiveMaxSteps
+        const val AGENT_STEP_TIMEOUT_MS = AgentLoopBounds.STEP_TIMEOUT_MS
+        const val AGENT_TOOL_TIMEOUT_MS = AgentLoopBounds.TOOL_TIMEOUT_MS
 
         /** What the loop can actually take, with the margin applied. */
         val AGENT_WORST_CASE_MS: Long =

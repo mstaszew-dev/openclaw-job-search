@@ -58,7 +58,7 @@ class BrowserAgentTest {
     }
     private val mapper = ObjectMapper()
 
-    private fun agent(transport: ChatTransport) = BrowserAgent(
+    private fun agent(transport: ChatTransport, maxSteps: Int = BrowserAgent.EFFECTIVE_MAX_STEPS) = BrowserAgent(
         llm = LlmClient(
             baseUrl = "http://gateway.invalid/v1",
             apiKey = null,
@@ -71,6 +71,7 @@ class BrowserAgentTest {
         listings = listings,
         cvUploader = cvUploader,
         mapper = mapper,
+        maxSteps = maxSteps,
     )
 
     private fun run(agent: BrowserAgent) = agent.run(
@@ -151,5 +152,33 @@ class BrowserAgentTest {
 
         verify { browser.callToolText(eq("browser_snapshot"), any(), any()) }
         assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
+    }
+
+    /**
+     * The stall guard must report the EFFECTIVE cap (an operator requeueing
+     * from Slack reads this number), and the cap must be injectable so tests
+     * and the env override share one path.
+     */
+    @Test
+    fun `a non-terminal loop fails with the injected step cap in the message`() {
+        val transport = ScriptedTransport(
+            listOf(toolCallResponse("browser_navigate", """{"url":"https://x/1"}""")),
+        )
+
+        val result = run(agent(transport, maxSteps = 2))
+
+        assertThat(result).isEqualTo(ApplyResult.Failed("step cap 2 reached without outcome"))
+    }
+
+    @Test
+    fun `parseMaxSteps defaults to 60, clamps below one, and ignores garbage`() {
+        assertThat(BrowserAgent.parseMaxSteps(null)).isEqualTo(60)
+        assertThat(BrowserAgent.parseMaxSteps("")).isEqualTo(60)
+        assertThat(BrowserAgent.parseMaxSteps("  ")).isEqualTo(60)
+        assertThat(BrowserAgent.parseMaxSteps("250")).isEqualTo(250)
+        assertThat(BrowserAgent.parseMaxSteps(" 60 ")).isEqualTo(60)
+        assertThat(BrowserAgent.parseMaxSteps("abc")).isEqualTo(60)
+        assertThat(BrowserAgent.parseMaxSteps("0")).isEqualTo(1)
+        assertThat(BrowserAgent.parseMaxSteps("-5")).isEqualTo(1)
     }
 }

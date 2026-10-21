@@ -4,6 +4,7 @@ import dev.mstaszew.campaign.common.messaging.KafkaWiring
 import dev.mstaszew.campaign.worker.apply.BrowserAgent
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import java.time.Duration
 
 /**
  * Pins the consumer's poll budget against the agent loop it has to cover.
@@ -20,7 +21,7 @@ import org.junit.jupiter.api.Test
 class PollBudgetTest {
 
     private val worstCaseMs: Long =
-        BrowserAgent.MAX_STEPS * (BrowserAgent.STEP_TIMEOUT.toMillis() + BrowserAgent.TOOL_TIMEOUT.toMillis())
+        BrowserAgent.EFFECTIVE_MAX_STEPS * (BrowserAgent.STEP_TIMEOUT.toMillis() + BrowserAgent.TOOL_TIMEOUT.toMillis())
 
     @Test
     fun `poll interval covers the real worst case apply loop`() {
@@ -29,8 +30,20 @@ class PollBudgetTest {
 
     @Test
     fun `the mirrored constants in KafkaWiring still match the agent`() {
-        assertThat(KafkaWiring.AGENT_MAX_STEPS).isEqualTo(BrowserAgent.MAX_STEPS)
+        assertThat(KafkaWiring.AGENT_MAX_STEPS).isEqualTo(BrowserAgent.EFFECTIVE_MAX_STEPS)
         assertThat(KafkaWiring.AGENT_STEP_TIMEOUT_MS).isEqualTo(BrowserAgent.STEP_TIMEOUT.toMillis())
         assertThat(KafkaWiring.AGENT_TOOL_TIMEOUT_MS).isEqualTo(BrowserAgent.TOOL_TIMEOUT.toMillis())
+    }
+
+    /**
+     * The budget is derived from the SAME effective cap the loop reads (both
+     * come from WORKER_MAX_STEPS at process start), so an env override raises
+     * loop and budget together. What this pins is the shape of that
+     * derivation: at least 30 minutes of headroom above the worst case.
+     */
+    @Test
+    fun `the budget carries at least 30 minutes of headroom over the worst case`() {
+        assertThat(KafkaWiring.MAX_POLL_INTERVAL_MS.toLong())
+            .isGreaterThanOrEqualTo(worstCaseMs + Duration.ofMinutes(30).toMillis())
     }
 }

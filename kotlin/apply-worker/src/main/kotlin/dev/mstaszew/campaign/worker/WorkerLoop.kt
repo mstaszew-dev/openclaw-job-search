@@ -51,9 +51,10 @@ import java.util.concurrent.TimeUnit
  * - Failure is handled by NOT committing and returning, letting the broker
  *   redeliver. job_state.attempts bounds how long that can go on; once the
  *   bound is hit the message goes to campaign.jobs.dlq and we DO commit.
- * - max.poll.interval.ms (97 min) must stay above the worst-case agent loop
- *   (25 steps x (90s model + 120s Playwright) = 87.5 min) or a long apply gets
- *   the consumer evicted and redelivered while it is still running.
+ * - max.poll.interval.ms must stay above the worst-case agent loop. Both are
+ *   derived from AgentLoopBounds (WORKER_MAX_STEPS, default 60: 60 steps x
+ *   (90s model + 120s Playwright) = 3.5h + 30 min margin), so an env override
+ *   raises loop and budget together instead of evicting a still-running apply.
  */
 @Component
 @EnableConfigurationProperties(WorkerProperties::class)
