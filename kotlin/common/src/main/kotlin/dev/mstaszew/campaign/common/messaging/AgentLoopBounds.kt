@@ -24,7 +24,9 @@ object AgentLoopBounds {
     const val STEP_TIMEOUT_MS = 90_000L
     const val TOOL_TIMEOUT_MS = 120_000L
 
-    /** null/blank/garbage fall back to the default; clamped to [1, 10000]. */
+    /** null/blank/garbage fall back to the default; clamped to [1, 10000].
+     *  A numeric string beyond Int range parses as null, so it also takes
+     *  the default rather than the ceiling - safe either way. */
     fun parseMaxSteps(raw: String?): Int =
         raw?.trim()?.toIntOrNull()?.coerceIn(1, MAX_STEPS_CEILING) ?: DEFAULT_MAX_STEPS
 

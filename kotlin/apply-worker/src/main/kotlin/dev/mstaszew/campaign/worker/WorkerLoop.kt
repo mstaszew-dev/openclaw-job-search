@@ -19,6 +19,7 @@ import dev.mstaszew.campaign.common.repo.JobStateRepository
 import dev.mstaszew.campaign.worker.apply.ApplyResult
 import dev.mstaszew.campaign.worker.apply.BrowserAgent
 import dev.mstaszew.campaign.worker.apply.Recorder
+import dev.mstaszew.campaign.worker.apply.SlackNotifier
 import dev.mstaszew.campaign.worker.apply.SubmissionVerifier
 import org.slf4j.LoggerFactory
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -65,7 +66,7 @@ class WorkerLoop(
     private val dedup: DedupService,
     private val recorder: Recorder,
     private val browserAgent: BrowserAgent,
-    private val notifier: dev.mstaszew.campaign.worker.apply.SlackNotifier,
+    private val notifier: SlackNotifier,
     private val chromeLease: ChromeLease,
     private val props: WorkerProperties,
     private val tx: TransactionTemplate,
