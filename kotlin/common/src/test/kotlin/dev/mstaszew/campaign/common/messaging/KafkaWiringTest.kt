@@ -1,7 +1,9 @@
 package dev.mstaszew.campaign.common.messaging
 
+import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.boot.autoconfigure.kafka.KafkaProperties
 
 /**
  * The poll interval has to cover one entire worst-case apply, and nothing else
@@ -35,6 +37,25 @@ class KafkaWiringTest {
         // whole configuration exists to override.
         assertThat(KafkaWiring.MAX_POLL_INTERVAL_MS.toLong()).isGreaterThan(300_000L * 10)
     }
+
+    /**
+     * Kafka's MAX_POLL_INTERVAL_MS_CONFIG is declared Type.INT: putting a
+     * Long into the consumer config throws ConfigException when the
+     * ConsumerConfig is constructed, i.e. at first consumer creation - a
+     * CrashLoop, not a compile error. The overrides must survive a real
+     * ConfigDef parse with an Int in that slot.
+     */
+    @Test
+    fun `consumer overrides parse as a real Kafka consumer config`() {
+        val config = KafkaProperties().buildConsumerProperties(null)
+        KafkaWiring.consumerOverrides(config)
+
+        val parsed = ConsumerConfig(config)
+
+        assertThat(parsed.getInt(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG))
+            .isEqualTo(KafkaWiring.MAX_POLL_INTERVAL_MS.toInt())
+    }
+
 
     @Test
     fun `the message id is the shared dedupe keyspace with the python tracker`() {

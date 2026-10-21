@@ -180,5 +180,8 @@ class BrowserAgentTest {
         assertThat(BrowserAgent.parseMaxSteps("abc")).isEqualTo(60)
         assertThat(BrowserAgent.parseMaxSteps("0")).isEqualTo(1)
         assertThat(BrowserAgent.parseMaxSteps("-5")).isEqualTo(1)
+        // Upper clamp: an absurd cap must keep worstCaseMs + margin inside
+        // Int range, because Kafka's poll interval config is Type.INT.
+        assertThat(BrowserAgent.parseMaxSteps("999999")).isEqualTo(10000)
     }
 }

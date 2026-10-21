@@ -230,9 +230,6 @@ class BrowserAgent(
         }
 
     companion object {
-        /** The stall guard message names the EFFECTIVE cap: operators read it. */
-        const val DEFAULT_MAX_STEPS = AgentLoopBounds.DEFAULT_MAX_STEPS
-
         val EFFECTIVE_MAX_STEPS: Int = AgentLoopBounds.effectiveMaxSteps
         val STEP_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.STEP_TIMEOUT_MS)
         val TOOL_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.TOOL_TIMEOUT_MS)

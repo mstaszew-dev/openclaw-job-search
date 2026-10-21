@@ -18,7 +18,7 @@ class SlackNotifier(private val client: SlackClient) {
     private val log = LoggerFactory.getLogger(SlackNotifier::class.java)
 
     fun submission(company: String?, roleTitle: String?, source: String?) =
-        post("✅ campaign: submitted to ${company ?: "?"} - $roleTitle ($source)")
+        post("✅ campaign: submitted to ${company ?: "?"} - $roleTitle (${source ?: "?"})")
 
     fun blocked(jobId: String, reason: String) =
         post("🚧 campaign: blocked $jobId - $reason")

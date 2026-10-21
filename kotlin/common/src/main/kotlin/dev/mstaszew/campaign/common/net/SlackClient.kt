@@ -1,6 +1,7 @@
 package dev.mstaszew.campaign.common.net
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.slf4j.LoggerFactory
 import java.net.http.HttpClient
 import java.time.Duration
 
@@ -21,21 +22,29 @@ class SlackClient(
         HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build(),
     ),
 ) {
+    private val log = LoggerFactory.getLogger(SlackClient::class.java)
     private val mapper = ObjectMapper()
 
     fun postMessage(text: String): Boolean = try {
-        if (!botToken.isNullOrBlank() && !channel.isNullOrBlank()) {
-            val body = mapper.writeValueAsString(mapOf("channel" to channel, "text" to text))
-            val response = mapper.readTree(transport.post(CHAT_API, botToken, body, POST_TIMEOUT))
-            response["ok"]?.asBoolean() == true
-        } else if (!webhookUrl.isNullOrBlank()) {
-            val body = mapper.writeValueAsString(mapOf("text" to text))
-            transport.post(webhookUrl, null, body, POST_TIMEOUT)
-            true
-        } else {
-            true // no credentials configured: permanent no-op, not a failure
+        when {
+            !botToken.isNullOrBlank() && !channel.isNullOrBlank() -> {
+                val body = mapper.writeValueAsString(mapOf("channel" to channel, "text" to text))
+                val response = mapper.readTree(transport.post(CHAT_API, botToken, body, POST_TIMEOUT))
+                val delivered = response["ok"]?.asBoolean() == true
+                if (!delivered) log.warn("Slack post failed: {}", response["error"]?.asText() ?: response.toString().take(120))
+                delivered
+            }
+            // Channel missing is a wiring problem, not a dropped event: the
+            // webhook is bound to its channel already, so it stays correct.
+            !webhookUrl.isNullOrBlank() -> {
+                val body = mapper.writeValueAsString(mapOf("text" to text))
+                transport.post(webhookUrl, null, body, POST_TIMEOUT)
+                true
+            }
+            else -> true // nothing configured: permanent no-op, not a failure
         }
     } catch (e: Exception) {
+        log.warn("Slack post failed: {}", e.toString())
         false
     }
 

@@ -103,14 +103,7 @@ class KafkaWiring {
     ): ConcurrentKafkaListenerContainerFactory<String, JobMessage> {
         val factory = ConcurrentKafkaListenerContainerFactory<String, JobMessage>()
         factory.consumerFactory = DefaultKafkaConsumerFactory(
-            properties.buildConsumerProperties(null).apply {
-                put(ConsumerConfig.GROUP_ID_CONFIG, Topics.APPLY_GROUP)
-                put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer::class.java)
-                put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false)
-                put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1)
-                put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, MAX_POLL_INTERVAL_MS)
-                put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
-            },
+            properties.buildConsumerProperties(null).apply(KafkaWiring::consumerOverrides),
             StringDeserializer(),
             valueDeserializer(kafkaObjectMapper),
         ).apply {
@@ -137,6 +130,25 @@ class KafkaWiring {
     companion object {
         /** Short pause between container-driven redeliveries of an unexpected throw. */
         const val REDELIVERY_BACKOFF_MS = 1_000L
+
+        /**
+         * The consumer overrides the apply factory needs, extracted so tests
+         * can parse the exact map through Kafka's own ConfigDef (which is
+         * where a Long-in-an-INT-slot failure surfaces: ConfigException at
+         * first consumer creation, i.e. a CrashLoop, not a compile error).
+         */
+        internal fun consumerOverrides(config: MutableMap<String, Any>) {
+            config[ConsumerConfig.GROUP_ID_CONFIG] = Topics.APPLY_GROUP
+            config[ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG] = StringDeserializer::class.java
+            config[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG] = false
+            config[ConsumerConfig.MAX_POLL_RECORDS_CONFIG] = 1
+            // Type.INT slot: a Long here throws ConfigException at consumer
+            // creation. The AgentLoopBounds ceiling keeps the value inside
+            // Int range; toIntExact turns any future math drift into a loud
+            // boot failure instead of a silent truncation.
+            config[ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG] = Math.toIntExact(MAX_POLL_INTERVAL_MS)
+            config[ConsumerConfig.AUTO_OFFSET_RESET_CONFIG] = "earliest"
+        }
 
         /**
          * Worst case of one apply: effectiveMaxSteps iterations, each of which

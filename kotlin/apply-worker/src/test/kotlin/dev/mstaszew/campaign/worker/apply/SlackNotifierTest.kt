@@ -50,8 +50,8 @@ class SlackNotifierTest {
     @Test
     fun `submission with null company renders a question mark`() {
         val t = CapturingNotifierTransport()
-        notifier(t).submission(null, "Kotlin Dev", "theprotocol")
-        assertThat(postedText(t)).isEqualTo("✅ campaign: submitted to ? - Kotlin Dev (theprotocol)")
+        notifier(t).submission(null, "Kotlin Dev", null)
+        assertThat(postedText(t)).isEqualTo("✅ campaign: submitted to ? - Kotlin Dev (?)")
     }
 
     @Test
