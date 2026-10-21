@@ -53,8 +53,8 @@ import java.util.concurrent.TimeUnit
  *   redeliver. job_state.attempts bounds how long that can go on; once the
  *   bound is hit the message goes to campaign.jobs.dlq and we DO commit.
  * - max.poll.interval.ms must stay above the worst-case agent loop. Both are
- *   derived from AgentLoopBounds (WORKER_MAX_STEPS, default 60: 60 steps x
- *   (90s model + 120s Playwright) = 3.5h + 30 min margin), so an env override
+ *   derived from AgentLoopBounds (WORKER_MAX_STEPS, default 80: 80 steps x
+ *   (90s model + 120s Playwright) = 4.7h + 30 min margin), so an env override
  *   raises loop and budget together instead of evicting a still-running apply.
  */
 @Component

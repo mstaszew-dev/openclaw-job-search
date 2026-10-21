@@ -171,13 +171,13 @@ class BrowserAgentTest {
     }
 
     @Test
-    fun `parseMaxSteps defaults to 60, clamps below one, and ignores garbage`() {
-        assertThat(BrowserAgent.parseMaxSteps(null)).isEqualTo(60)
-        assertThat(BrowserAgent.parseMaxSteps("")).isEqualTo(60)
-        assertThat(BrowserAgent.parseMaxSteps("  ")).isEqualTo(60)
+    fun `parseMaxSteps defaults to 80, clamps below one, and ignores garbage`() {
+        assertThat(BrowserAgent.parseMaxSteps(null)).isEqualTo(80)
+        assertThat(BrowserAgent.parseMaxSteps("")).isEqualTo(80)
+        assertThat(BrowserAgent.parseMaxSteps("  ")).isEqualTo(80)
         assertThat(BrowserAgent.parseMaxSteps("250")).isEqualTo(250)
-        assertThat(BrowserAgent.parseMaxSteps(" 60 ")).isEqualTo(60)
-        assertThat(BrowserAgent.parseMaxSteps("abc")).isEqualTo(60)
+        assertThat(BrowserAgent.parseMaxSteps(" 80 ")).isEqualTo(80)
+        assertThat(BrowserAgent.parseMaxSteps("abc")).isEqualTo(80)
         assertThat(BrowserAgent.parseMaxSteps("0")).isEqualTo(1)
         assertThat(BrowserAgent.parseMaxSteps("-5")).isEqualTo(1)
         // Upper clamp: an absurd cap must keep worstCaseMs + margin inside

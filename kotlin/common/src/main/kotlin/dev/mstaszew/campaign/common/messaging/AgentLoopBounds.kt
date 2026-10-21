@@ -9,8 +9,8 @@ package dev.mstaszew.campaign.common.messaging
  * side, the only module that sees both.
  */
 object AgentLoopBounds {
-    /** 60 x (90s model + 120s Playwright) = 3.5h bounded worst case. */
-    const val DEFAULT_MAX_STEPS = 60
+    /** 80 x (90s model + 120s Playwright) = 4.7h bounded worst case. */
+    const val DEFAULT_MAX_STEPS = 80
 
     /**
      * Upper clamp chosen so worstCaseMs + margin still fits Kafka's Type.INT
