@@ -62,8 +62,29 @@ object CompanyKeyNormalizer {
         return null
     }
 
-    /** Keys that hide the real employer; never treated as a company match. */
-    val SENTINEL_KEYS = setOf("confidential", "anonymous", "חברה-חסויה")
+    /**
+     * Keys that hide the real employer; never treated as a company match.
+     * Besides the legacy confidential markers this carries the board UI chip
+     * vocabulary: card scrapers historically picked badge lines ("new",
+     * "viewed", "B2B", "Backend") as the company, and the first application
+     * recorded under a chip key company-matched every other chip-keyed
+     * listing, silently emptying the funnel (2026-10-21 outage: 545 listings
+     * blocked by one "new"-keyed application). "remote" is deliberately NOT a
+     * chip: Remote.com is a real employer. Generic words like "data", "mobile"
+     * and "qa" carry an accepted collision risk: a real employer would have to
+     * normalize to exactly that word for a false sentinel, and the failure
+     * mode is only a skipped company-dedupe for that one employer.
+     */
+    val CHIP_KEYS = setOf(
+        "new", "nowa", "nowe", "viewed", "start-asap", "quick-apply",
+        "easy-apply", "polecamy",
+        "b2b", "uop", "uod",
+        "backend", "frontend", "fullstack", "devops", "testing", "qa",
+        "mobile", "data", "ai-ml", "ml", "architecture", "hybrid",
+        "sprawdź-wynagrodzenie", "sprawdzisz-zarobki",
+    )
+
+    val SENTINEL_KEYS = setOf("confidential", "anonymous", "חברה-חסויה") + CHIP_KEYS
 
     fun isSentinelKey(companyKey: String): Boolean = companyKey in SENTINEL_KEYS
 }

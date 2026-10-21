@@ -59,4 +59,53 @@ class McpListingCollectorTest {
         assertThat(McpListingCollector.pageUrl("justjoin", "kotlin"))
             .isEqualTo("https://justjoin.it/all-remote/kotlin")
     }
+
+    @Test
+    fun `badge alternation covers the observed board chips`() {
+        // 2026-10-21: these exact strings were scraped as companies; the
+        // whole-line chip filter must know every one of them.
+        val alt = McpListingCollector.chipBadgeAlternation()
+        listOf(
+            "new", "nowa", "nowe", "viewed", "start asap", "quick apply",
+            "b2b", "uop", "backend", "frontend", "fullstack", "mobile",
+            "sprawdź wynagrodzenie", "sprawdzisz zarobki", "ai ml", "remote",
+        ).forEach { chip ->
+            assertThat(alt).contains(chip)
+        }
+    }
+
+    @Test
+    fun `alternation matches chip lines and never real company lines`() {
+        // JVM-engine semantics check over the same words the browser JS gets:
+        // strip the JS-only slash escaping first (Java regex rejects "\/").
+        val pattern = Regex(
+            "^(?:${McpListingCollector.chipBadgeAlternation().replace("\\/", "/")})$",
+            RegexOption.IGNORE_CASE,
+        )
+        listOf(
+            "NEW", "B2B", "Start ASAP", "AI/ML", "Sprawdź wynagrodzenie",
+            "Remote", "ML", "Hybrid", "Quick Apply",
+        ).forEach { chip ->
+            assertThat(pattern.matches(chip)).describedAs("chip line %s", chip).isTrue()
+        }
+        listOf("B2B Group", "Link Group", "DataArt", "Nowe horyzonty").forEach { company ->
+            assertThat(pattern.matches(company)).describedAs("company line %s", company).isFalse()
+        }
+    }
+
+    @Test
+    fun `extraction scripts embed the whole line chip filter`() {
+        // anchored alternation (^...$) so real companies like "B2B Group"
+        // survive; the legacy prefix rules stay untouched. The slash in the
+        // AI/ML branch must be JS-escaped or the regex literal (and with it
+        // every extraction) dies with a SyntaxError.
+        listOf("nofluffjobs", "theprotocol").forEach { source ->
+            val script = McpListingCollector.extractionScript(source)
+            assertThat(script).contains("chipNoise = /^(new|nowa|")
+            assertThat(script).contains("chipNoise.test(l)")
+            assertThat(script).contains("ai\\/ml")
+            // the unescaped slash would terminate the JS regex literal early
+            assertThat(script).doesNotContain("ai/ml")
+        }
+    }
 }

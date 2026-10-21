@@ -26,6 +26,58 @@ class CompanyKeyNormalizerTest {
     }
 
     @Test
+    fun `board chip keys are sentinels`() {
+        // 2026-10-21: theprotocol UI badges (new, viewed, start-asap,
+        // quick-apply) and nofluffjobs category/contract chips (backend,
+        // fullstack, b2b, uop, ...) were scraped as company names; the first
+        // application per chip key then company-matched every chip-keyed
+        // listing and silently emptied the funnel. Chip keys hide the real
+        // employer, so they must behave like "confidential".
+        val chips = listOf(
+            "new", "nowa", "nowe", "viewed", "start-asap", "quick-apply",
+            "easy-apply", "polecamy",
+            "b2b", "uop", "uod",
+            "backend", "frontend", "fullstack", "devops", "testing", "qa",
+            "mobile", "data", "ai-ml", "ml", "architecture", "hybrid",
+            "sprawdź-wynagrodzenie", "sprawdzisz-zarobki",
+        )
+        chips.forEach { key ->
+            assertThat(CompanyKeyNormalizer.isSentinelKey(key))
+                .describedAs("chip key %s", key)
+                .isTrue()
+        }
+        // real employers keep working company dedupe
+        assertThat(CompanyKeyNormalizer.isSentinelKey("ryb-tech")).isFalse()
+        assertThat(CompanyKeyNormalizer.isSentinelKey("link-group")).isFalse()
+        // "remote" is deliberately NOT a chip: Remote.com is a real employer
+        assertThat(CompanyKeyNormalizer.isSentinelKey("remote")).isFalse()
+    }
+
+    @Test
+    fun `scraped chip text normalizes into sentinel keys`() {
+        // DedupService sees normalize(scrapedText), so the sentinel behavior
+        // must survive the normalization round trip; a normalize() change that
+        // remaps a chip (e.g. "Start ASAP" to "startasap") must fail here.
+        val scraped = mapOf(
+            "New" to "new",
+            "B2B" to "b2b",
+            "UoP" to "uop",
+            "Start ASAP" to "start-asap",
+            "Quick Apply" to "quick-apply",
+            "AI/ML" to "ai-ml",
+            "Sprawdź wynagrodzenie" to "sprawdź-wynagrodzenie",
+        )
+        scraped.forEach { (text, key) ->
+            assertThat(CompanyKeyNormalizer.normalize(text))
+                .describedAs("normalize %s", text)
+                .isEqualTo(key)
+            assertThat(CompanyKeyNormalizer.isSentinelKey(CompanyKeyNormalizer.normalize(text)))
+                .describedAs("sentinel via normalize(%s)", text)
+                .isTrue()
+        }
+    }
+
+    @Test
     fun `strips at most two trailing legal forms`() {
         assertThat(CompanyKeyNormalizer.normalize("Bar Ltd LLC")).isEqualTo("bar")
         assertThat(CompanyKeyNormalizer.normalize("Baz GmbH AG SA")).isEqualTo("baz-gmbh")

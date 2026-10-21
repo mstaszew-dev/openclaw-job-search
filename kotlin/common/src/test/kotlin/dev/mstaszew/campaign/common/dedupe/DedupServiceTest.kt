@@ -82,6 +82,24 @@ class DedupServiceTest {
     }
 
     @Test
+    fun `chip key never matches by company even when an application holds it`() {
+        // 2026-10-21 outage: one application recorded under the scraped board
+        // chip "new" company-matched 545 listings sharing that key. Chip keys
+        // hide the real employer; they must take the sentinel path so the
+        // company branch is skipped entirely (both lookups below).
+        every { applications.findFirstByIdOrUrl("theprotocol:9", null) } returns null
+        every {
+            skips.findFirstByReasonAndSourceAndSourceJobId(SkipReason.DUPLICATE, "theprotocol", "9")
+        } returns null
+
+        val decision = service.check(Candidate("theprotocol", "9", "new", companyKey = "new"))
+
+        assertThat(decision.duplicate).isFalse()
+        verify(exactly = 0) { applications.findFirstByCompanyKey(any()) }
+        verify(exactly = 0) { skips.findFirstByReasonAndCompanyKey(any(), any()) }
+    }
+
+    @Test
     fun `matches application by normalized url when ids differ`() {
         every { applications.findFirstByIdOrUrl(any(), "https://x.com/old") } returns
             app("nofluffjobs:5", url = "https://x.com/old")

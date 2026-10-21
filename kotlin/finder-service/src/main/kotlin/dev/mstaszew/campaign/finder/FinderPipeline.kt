@@ -94,6 +94,7 @@ class FinderPipeline(
         }
         try {
             seenThisWindow.clear()
+            val summary = WindowSummary()
             for (source in listOf("nofluffjobs", "justjoin", "theprotocol")) {
                 val collected = try {
                     collector.collect(source)
@@ -101,14 +102,19 @@ class FinderPipeline(
                     log.warn("collector failed for {}: {}", source, e.message)
                     continue
                 }
+                // an empty batch is a silent collapse mode of its own (a board
+                // redesign or selector drift yields 0 items without an error)
+                log.info("collected {}: {} listings", source, collected.size)
                 for (item in collected) {
                     try {
-                        process(item)
+                        summary.record(process(item))
                     } catch (e: Exception) {
                         log.warn("listing {}:{} failed: {}", item.source, item.sourceJobId, e.message)
+                        summary.recordFailure()
                     }
                 }
             }
+            log.info(summary.line())
         } finally {
             lease.release()
         }
@@ -118,10 +124,10 @@ class FinderPipeline(
         val id = "${item.source}:${item.sourceJobId}"
         if (!seenThisWindow.add(id)) {
             log.info("listing {} was already handled in this window; skipping", id)
-            return Outcome.Duplicate("window-scan", id)
+            return Outcome.Duplicate(WindowSummary.WINDOW_SCAN_TAG, id)
         }
 
-        val listing = upsert(item)
+        val (listing, created) = upsert(item)
 
         val decision = dedup.check(
             Candidate(
@@ -134,7 +140,18 @@ class FinderPipeline(
                 region = listing.region,
             ),
         )
-        if (decision.duplicate) return Outcome.Duplicate(decision.matchedOn?.name, decision.matchedReference)
+        if (decision.duplicate) {
+            if (created) {
+                // A brand-new listing deduped on first sight is the signature
+                // of a mass-block (e.g. a chip-keyed company match): say so
+                // loudly, this exact pattern once ran silently for 17 hours.
+                log.info(
+                    "fresh listing {} deduped on {} ({}); check for a mass-block",
+                    id, decision.matchedOn, decision.matchedReference,
+                )
+            }
+            return Outcome.Duplicate(decision.matchedOn?.name, decision.matchedReference)
+        }
 
         val verdict = eligibility.check(listing)
         if (!verdict.eligible) {
@@ -200,13 +217,14 @@ class FinderPipeline(
         return Outcome.Enqueued(score.score, score.reason)
     }
 
-    private fun upsert(item: CollectedListing): JobListingEntity {
+    /** Returns the stored listing and whether this run created it. */
+    private fun upsert(item: CollectedListing): Pair<JobListingEntity, Boolean> {
         val companyKey = CompanyKeyNormalizer.normalize(item.company)
         val existing = listings.findBySourceAndSourceJobId(item.source, item.sourceJobId)
         if (existing != null) {
-            return listings.save(existing.apply { updateListing(this, item) })
+            return Pair(listings.save(existing.apply { updateListing(this, item) }), false)
         }
-        return listings.save(item.toEntity(companyKey))
+        return Pair(listings.save(item.toEntity(companyKey)), true)
     }
 
     /** Salary and filter skips are bookkeeping (they never match in dedup). */

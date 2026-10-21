@@ -2,6 +2,7 @@ package dev.mstaszew.campaign.finder.collect
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.mstaszew.campaign.common.dedupe.CompanyKeyNormalizer
 import dev.mstaszew.campaign.common.mcp.McpClientException
 import dev.mstaszew.campaign.common.mcp.McpStdioClient
 import dev.mstaszew.campaign.common.net.LlmClientException
@@ -147,9 +148,10 @@ class McpListingCollector(
                 const id = href.split('/').filter(Boolean).pop() || '';
                 const lines = (a.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
                 const uiNoise = /^(zapisz|zapis|zł|pln|zdaln|premia|bon)|^\d|\d[-–]\d|\/full\//i;
+                const chipNoise = /^(__BADGES__)$/i;
                 const titleLine = lines[0];
                 const company = lines.slice(1).find(l =>
-                    l.length > 1 && l !== titleLine && !uiNoise.test(l)) || '';
+                    l.length > 1 && l !== titleLine && !uiNoise.test(l) && !chipNoise.test(l)) || '';
                 if (!id || seen.has(id) || lines.length === 0) return;
                 seen.set(id, {
                     remote: true,
@@ -169,10 +171,28 @@ class McpListingCollector(
          * Best-effort: a board redesign degrades to an empty batch.
          */
         fun extractionScript(source: String): String = when (source) {
-            "nofluffjobs" -> CARD_SCRIPT.replace("__SELECTOR__", "'a[href*=\"/pl/job/\"]'")
-            "justjoin" -> CARD_SCRIPT.replace("__SELECTOR__", "'a[href*=\"/offers/\"]'")
-            "theprotocol" -> CARD_SCRIPT.replace("__SELECTOR__", "'a[href*=\"/praca/\"]'")
+            "nofluffjobs" -> scriptFor("'a[href*=\"/pl/job/\"]'")
+            "justjoin" -> scriptFor("'a[href*=\"/offers/\"]'")
+            "theprotocol" -> scriptFor("'a[href*=\"/praca/\"]'")
             else -> throw IllegalArgumentException("unknown board source: $source")
         }
+
+        /**
+         * Whole-line board chip words for the card text filter, built from the
+         * dedupe chip vocabulary (hyphens become spaces in rendered card text)
+         * plus extractor-only extras: "remote" is a chip line here but stays a
+         * real-employer key in dedupe (Remote.com), and "AI/ML" is the
+         * slash-rendered variant of the "ai-ml" chip. Anchored `^...$` so real
+         * company lines like "B2B Group" survive. The slash is escaped for the
+         * JS regex literal this is interpolated into.
+         */
+        internal fun chipBadgeAlternation(): String =
+            (CompanyKeyNormalizer.CHIP_KEYS.map { it.replace('-', ' ') } + "remote" + "ai/ml")
+                .joinToString("|")
+                .replace("/", "\\/")
+
+        private fun scriptFor(selector: String): String = CARD_SCRIPT
+            .replace("__SELECTOR__", selector)
+            .replace("__BADGES__", chipBadgeAlternation())
     }
 }
