@@ -20,9 +20,18 @@
 #
 # Targeted changes afterwards:
 #   docker build -f deploy/docker/Dockerfile.jvm-services --target <finder-jvm|api-jvm> \
-#     -t localhost:5000/campaign-<name>:v1 kotlin/
+#     -t localhost:5000/campaign-<finder|api>:v1 kotlin/
 #   docker build -f deploy/docker/Dockerfile.jvm --target <worker|importer> \
-#     -t localhost:5000/campaign-<name>:v1 kotlin/
+#     -t localhost:5000/campaign-<worker|importer>:v1 kotlin/
+#   IMAGE NAMES ARE EXACT (kubectl tags, not derivable from the target name):
+#     finder-jvm -> campaign-finder:v1    api-jvm -> campaign-api:v1
+#     worker     -> campaign-worker:v1    importer -> campaign-importer:v1
+#   A tag like campaign-apply-worker:v1 imports fine and deploys NOTHING -
+#   IfNotPresent keeps the old campaign-worker:v1 and the pod runs stale code.
+#   Prove image vintage by unzipping the live jar (a new class from the commit)
+#   or a behavior signature; env checks do not count. Import needs root:
+#   sudo k3s ctr images import -. A rollout restart re-pods but does NOT apply
+#   manifest edits - run kubectl apply -f <manifest> for env/image changes.
 #   docker build -f deploy/docker/Dockerfile.msrouter -t localhost:5000/msrouter:k3s-headless-v1 \
 #     /home/mstro/k3s-pod-data/agent-home/apps/msrouter   # k3s-headless branch
 #   docker save <img>:<tag> | k3s ctr images import -
