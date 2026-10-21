@@ -250,16 +250,18 @@ campaign's guards plus human-runbook requeue cover that need today.
 
 ## Step cap and poll budget
 
-`WORKER_MAX_STEPS` (default 60) caps the browser tool loop. Both the loop and
+`WORKER_MAX_STEPS` (default 80) caps the browser tool loop. Both the loop and
 the Kafka `max.poll.interval.ms` derive from `AgentLoopBounds` in common, so
-an override raises them together (worst case 60 x 210s = 3.5h, +30 min
-margin). Each terminal outcome logs its step count; size the cap from that
+an override raises them together (worst case 80 x 210s = 4.7h, +30 min
+margin). A loop breaker also ends the attempt as Failed after 3 consecutive
+failures of the same tool, so a stuck retry loop burns ~3 steps instead of
+the cap. Each terminal outcome logs its step count; size the cap from that
 telemetry, not from guesses. 250 would bound a stalled apply at 14.6h and is
 deliberately not the default.
 
 Per-application budgets move only on evidence, never preemptively: if
 `⚠️ ... step cap reached without outcome` posts cluster in #jobcampaign,
-raise `WORKER_MAX_STEPS` (60 -> 90 is the first move; `WORKER_MAX_ATTEMPTS`
+raise `WORKER_MAX_STEPS` (80 -> 110 is the first move; `WORKER_MAX_ATTEMPTS`
 stays). If `💀 ... attempt bound burned` posts cluster instead, raise
 `WORKER_MAX_ATTEMPTS` (3 -> 5). Both are env-only changes (placeholders in
 application.yml) plus a rollout restart - no rebuild. With neither text
