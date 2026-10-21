@@ -60,6 +60,26 @@ Review subagent: APPROVE after fixes. Applied: BLOCKER 1 (the `ai/ml` branch mus
 
 ## Task 5: Deploy + end-to-end verification
 
-- [ ] Laptop: bundle -> ff-merge -> build BOTH images (`--target worker`, `--target finder`) -> import -> rollout restart finder + worker.
-- [ ] Watch the next window (<=15 min): finder log shows `collected` lines + `window summary` with enqueued >= 1; worker consumes; submissions resume; Slack posts carry the stats footer.
-- [ ] Report to user: root cause, fix, proof of resumed progress; justjoin collector yields 0 listings ever (selector drift) - logged as follow-up, not in this scope.
+- [x] Laptop: bundle -> ff-merge -> build BOTH images (`--target worker`, `--target finder`) -> import -> rollout restart finder + worker. (Done 13:42:58Z; images at `361ab45`.)
+- [x] Watch the next window (<=15 min): finder log shows `collected` lines + `window summary` with enqueued >= 1; worker consumes; submissions resume; Slack posts carry the stats footer. (Window 13:43Z: enqueued=7, first in 17h, zero mass-block lines. Window 15:01Z: seen=365 deduped=50 ineligible=74 lowScore=0 enqueued=22 failed=0 - backlog draining; new listings carry real keys, e.g. `torpol`, `phz-sm-lacpol`.)
+- [x] Report to user: root cause, fix, proof of resumed progress; justjoin collector yields 0 listings ever (selector drift) - logged as follow-up, not in this scope.
+
+## Review Outcome (post-implementation)
+
+All BLOCKER/SHOULD/NICE findings addressed and shipped in `361ab45`: `ai\/ml` slash-escaping pinned by tests, JVM-regex semantics test, ml+hybrid sentinels, remote extractor-only, `WindowSummary.WINDOW_SCAN_TAG`, round-trip normalize pins, ID/URL summary cases.
+
+## Post-deploy operations log (2026-10-21, same session)
+
+Three operational blockers were diagnosed and cleared while verifying the funnel; none are regressions of this change:
+
+1. **Stale Chrome lease** (cleared 14:26:50Z): the pre-fix worker pod died at 14:18 holding `browser_leases` (`_id: "chrome"`, 25-min TTL). The restarted worker's first claim waited silently on the lease. Deleted the doc; new owner acquired in seconds. Future hardening candidate: on worker boot, steal leases whose owner pod name no longer exists.
+2. **Playwright init wedge** (cleared ~14:33Z): every `connectOverCDP` (worker MCP, fresh pod, laptop host) timed out in `initializeServer` while raw CDP answered in 5-20 ms from everywhere. Root cause: a nofluffjobs tab poisoned by a recaptcha challenge (OOPIF iframes + unclosable `recaptcha/api2/webworker.js` target) stalled Playwright's auto-attach. `Target.closeTarget` on that one page fixed it; Playwright connected in 138 ms. The apply that hit the captcha recorded the open blocker (`blockersOpen=1`, upvanta listing).
+3. **Queue drain confirmed**: consumer lag 7 -> 0 by 15:00, then 22 fresh enqueues queued at 15:10. Worker observed actively form-filling on live portals (msrouter ~38 step calls / 7 min).
+
+Pre-existing frictions observed, logged as follow-ups (not in this scope):
+
+- **Dead listings burn the step cap**: `ERR_HTTP_RESPONSE_CODE_FAILURE` on navigate (removed posting) retried ~50x to the 60-step cap (~10 min wasted). Candidate: early-abort after N consecutive navigate HTTP failures.
+- **Free-model flakiness**: `model produced no tool call` (prose instead of tool call) killed 2 of ~6 attempts; invented selectors waste further steps. Economics of the `mst/free` pool; consider a fallback model or retry-on-babble step policy.
+- **nofluffjobs CV upload friction**: `browser_file_upload` modal-state refusals fall back to CDP; works but burns steps.
+- **justjoin collector**: 0 listings ever (selector drift) - unchanged follow-up.
+- **Chip-residue cost, accepted**: one wasted attempt on an already-submitted job (darize; listing key frozen as `b2b` vs app key `darize` missed company dedupe; URL normalize also missed). Bounded by worker-side dedupe + Gmail 60-day net.
