@@ -2,6 +2,7 @@ package dev.mstaszew.campaign.worker
 
 import dev.mstaszew.campaign.common.net.LlmClient
 import dev.mstaszew.campaign.common.net.SlackClient
+import dev.mstaszew.campaign.worker.apply.StatsClient
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -30,5 +31,11 @@ class WorkerConfig {
         botToken = System.getenv("SLACK_BOT_TOKEN"),
         channel = System.getenv("SLACK_CHANNEL"),
         webhookUrl = System.getenv("SLACK_WEBHOOK"),
+    )
+
+    /** In-cluster campaign-api for the Slack stats footer; default is the cluster DNS name. */
+    @Bean
+    fun statsClient() = StatsClient(
+        baseUrl = System.getenv("CAMPAIGN_API_URL") ?: "http://campaign-api.campaign.svc.cluster.local:8080",
     )
 }

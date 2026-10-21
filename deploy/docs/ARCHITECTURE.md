@@ -221,6 +221,10 @@ first, incoming webhook only when no bot token exists, and missing credentials
 is a permanent silent success. Every post is fire-and-forget: a Slack outage
 is logged and swallowed, never propagated into the apply pipeline. Messages
 report persisted facts, so each notifier call sits after the repo writes.
+Every message also carries a live campaign line - `📊 submitted/target,
+remaining`, plus `N blockers open` when any exist - fetched at post time
+from campaign-api `GET /api/v1/stats` (`StatsClient`, `CAMPAIGN_API_URL`).
+A stats outage drops only that footer line, never the post itself.
 
 Credentials come from the `campaign-msrouter` secret (`SLACK_BOT_TOKEN`,
 `SLACK_CHANNEL`, `SLACK_WEBHOOK`, all optional) - the same values the Mac's

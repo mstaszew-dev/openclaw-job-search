@@ -72,6 +72,8 @@ spec:
             # Kafka poll budget from the same env). 60 = 3.5h bounded worst case.
             - name: WORKER_MAX_STEPS
               value: "60"
+            - name: CAMPAIGN_API_URL
+              value: http://campaign-api.campaign.svc.cluster.local:8080
           ports: [{ containerPort: 8082 }]
           readinessProbe:
             httpGet: { path: /actuator/health/readiness, port: 8082 }
