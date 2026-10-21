@@ -56,6 +56,7 @@ class WorkerLoopTest {
     private val dedup = mockk<DedupService>()
     private val recorder = mockk<Recorder>(relaxed = true)
     private val browserAgent = mockk<BrowserAgent>(relaxed = true)
+    private val notifier = mockk<dev.mstaszew.campaign.worker.apply.SlackNotifier>(relaxUnitFun = true)
     private val leaseHandle = mockk<ChromeLease.Handle>(relaxUnitFun = true)
 
     /** Default stub: the lease is granted so live-mode tests reach the browser. */
@@ -108,6 +109,7 @@ class WorkerLoopTest {
         dedup = dedup,
         recorder = recorder,
         browserAgent = browserAgent,
+        notifier = notifier,
         chromeLease = chromeLease,
         props = WorkerProperties(applyMode = applyMode, workerId = "w1"),
         tx = tx,
@@ -206,6 +208,55 @@ class WorkerLoopTest {
         verify { jobState.save(match { it.id == "justjoin:jj-1" && it.status == JobStatus.SUBMITTED }) }
     }
 
+    @Test
+    fun `live mode posts a Slack submission when the confirmation verifies`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Submitted(
+                confirmationUrl = "https://recruitee.com/accepted",
+                confirmationText = null,
+                ats = "recruitee",
+            )
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 1) { notifier.submission("Acme", "Java Dev", "justjoin") }
+    }
+
+    @Test
+    fun `live mode posts a Slack failure when the apply fails`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Failed("step cap 25 reached without outcome")
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 1) { notifier.failed("justjoin:jj-1", "step cap 25 reached without outcome") }
+    }
+
+    @Test
+    fun `live mode posts a Slack block when the portal blocks the apply`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Blocked("captcha wall", "challenge at step 4")
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 1) { notifier.blocked("justjoin:jj-1", "captcha wall") }
+    }
+
+    @Test
+    fun `live mode posts nothing to Slack for a duplicate`() {
+        every { dedup.check(any()) } returns DuplicateDecision(duplicate = true)
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 0) { notifier.submission(any(), any(), any()) }
+        verify(exactly = 0) { notifier.failed(any(), any()) }
+        verify(exactly = 0) { notifier.blocked(any(), any()) }
+        verify(exactly = 0) { notifier.deadLettered(any(), any()) }
+    }
+
     /**
      * The commit-after-write contract. Auto-commit would lose the job here; a
      * failure below the bound must leave the offset uncommitted so the broker
@@ -248,12 +299,14 @@ class WorkerLoopTest {
             props = WorkerProperties(applyMode = "shadow", workerId = "w1", maxAttempts = 1),
             tx = tx,
             kafka = kafka,
+            notifier = notifier,
             mapper = com.fasterxml.jackson.databind.ObjectMapper(),
         )
 
         loop.onMessage(job, ack)
 
         verify { kafka.send(dev.mstaszew.campaign.common.messaging.Topics.JOBS_DLQ, "acme", any<Any>()) }
+        verify(exactly = 1) { notifier.deadLettered("justjoin:jj-1", "still broken") }
         assertThat(ack.count).isEqualTo(1)
         assertThat(stored.last().status).isEqualTo(JobStatus.DEAD)
     }

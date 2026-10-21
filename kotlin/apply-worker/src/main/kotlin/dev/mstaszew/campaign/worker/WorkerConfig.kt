@@ -1,6 +1,7 @@
 package dev.mstaszew.campaign.worker
 
 import dev.mstaszew.campaign.common.net.LlmClient
+import dev.mstaszew.campaign.common.net.SlackClient
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -16,5 +17,18 @@ class WorkerConfig {
         baseUrl = props.msrouterUrl,
         apiKey = props.msrouterApiKey,
         model = props.msrouterModel,
+    )
+
+    /**
+     * Credentials arrive through the environment (secretKeyRef in worker.yaml
+     * maps the campaign-msrouter secret); nulls are legal and mean silence.
+     * Env is read here, at the explicit wiring site, like every other
+     * environment knob in this service.
+     */
+    @Bean
+    fun slackClient() = SlackClient(
+        botToken = System.getenv("SLACK_BOT_TOKEN"),
+        channel = System.getenv("SLACK_CHANNEL"),
+        webhookUrl = System.getenv("SLACK_WEBHOOK"),
     )
 }

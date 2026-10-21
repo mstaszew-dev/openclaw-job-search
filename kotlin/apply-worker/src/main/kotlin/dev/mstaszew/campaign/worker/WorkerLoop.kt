@@ -64,6 +64,7 @@ class WorkerLoop(
     private val dedup: DedupService,
     private val recorder: Recorder,
     private val browserAgent: BrowserAgent,
+    private val notifier: dev.mstaszew.campaign.worker.apply.SlackNotifier,
     private val chromeLease: ChromeLease,
     private val props: WorkerProperties,
     private val tx: TransactionTemplate,
@@ -169,6 +170,10 @@ class WorkerLoop(
             return
         }
         failJob(job, message)
+        // After the DLQ write and the terminal job_state update: Slack reports
+        // persisted facts, not intentions. The notifier itself swallows all
+        // failures, so this cannot break the commit that follows.
+        notifier.deadLettered(job.id, message)
         ack.acknowledge()
     }
 
@@ -336,13 +341,22 @@ class WorkerLoop(
                 // confirmation evidence did not verify.
                 val verdict = SubmissionVerifier.evaluate(result.confirmationUrl, result.confirmationText)
                 markTerminal(job, if (verdict.valid) JobStatus.SUBMITTED else JobStatus.ATTEMPTED)
+                if (verdict.valid) {
+                    notifier.submission(listing.company, listing.roleTitle, listing.source)
+                } else {
+                    notifier.failed(job.id, "submission evidence did not verify")
+                }
                 log.info("job {}: recorded (valid={})", job.id, verdict.valid)
             }
             is ApplyResult.DuplicateNow -> recorder.recordSkippedDuplicate(listing, job.id, result.detail)
-            is ApplyResult.Blocked -> recorder.recordBlocked(listing, job.id, result.reason, result.detail)
+            is ApplyResult.Blocked -> {
+                recorder.recordBlocked(listing, job.id, result.reason, result.detail)
+                notifier.blocked(job.id, result.reason)
+            }
             is ApplyResult.Failed -> {
                 log.warn("job {} failed: {}", job.id, result.detail)
                 markTerminal(job, JobStatus.FAILED, result.detail)
+                notifier.failed(job.id, result.detail)
             }
         }
     }
