@@ -44,35 +44,35 @@ class SlackNotifierTest {
         val t = CapturingNotifierTransport()
         notifier(t).submission("UoP", "Fullstack Developer (Java, Angular, LLM)", "nofluffjobs")
         assertThat(postedText(t))
-            .isEqualTo("✅ campaign: submitted to UoP — Fullstack Developer (Java, Angular, LLM) (nofluffjobs)")
+            .isEqualTo("✅ campaign: submitted to UoP - Fullstack Developer (Java, Angular, LLM) (nofluffjobs)")
     }
 
     @Test
     fun `submission with null company renders a question mark`() {
         val t = CapturingNotifierTransport()
         notifier(t).submission(null, "Kotlin Dev", "theprotocol")
-        assertThat(postedText(t)).isEqualTo("✅ campaign: submitted to ? — Kotlin Dev (theprotocol)")
+        assertThat(postedText(t)).isEqualTo("✅ campaign: submitted to ? - Kotlin Dev (theprotocol)")
     }
 
     @Test
     fun `blocked posts the construction line with the reason`() {
         val t = CapturingNotifierTransport()
         notifier(t).blocked("theprotocol:abc123", "captcha wall at step 4")
-        assertThat(postedText(t)).isEqualTo("🚧 campaign: blocked theprotocol:abc123 — captcha wall at step 4")
+        assertThat(postedText(t)).isEqualTo("🚧 campaign: blocked theprotocol:abc123 - captcha wall at step 4")
     }
 
     @Test
     fun `failed posts the warning line with the error`() {
         val t = CapturingNotifierTransport()
         notifier(t).failed("nofluffjobs:xyz", "step cap 25 reached without outcome")
-        assertThat(postedText(t)).isEqualTo("⚠️ campaign: apply failed nofluffjobs:xyz — step cap 25 reached without outcome")
+        assertThat(postedText(t)).isEqualTo("⚠️ campaign: apply failed nofluffjobs:xyz - step cap 25 reached without outcome")
     }
 
     @Test
     fun `deadLettered posts the skull line with the error`() {
         val t = CapturingNotifierTransport()
         notifier(t).deadLettered("nofluffjobs:xyz", "attempt bound burned")
-        assertThat(postedText(t)).isEqualTo("💀 campaign: dead-lettered nofluffjobs:xyz — attempt bound burned")
+        assertThat(postedText(t)).isEqualTo("💀 campaign: dead-lettered nofluffjobs:xyz - attempt bound burned")
     }
 
     @Test
