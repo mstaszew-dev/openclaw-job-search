@@ -29,6 +29,13 @@
 #   # :v1 / :k3s-headless-v1 never change tag: after every image rebuild run
 #   kubectl -n campaign rollout restart deploy/<name>
 #
+# Slack credentials (#jobcampaign posts from the worker): the three SLACK_*
+# keys live in the campaign-msrouter secret. When the Mac's msrouter .env
+# rotates them, merge-sync the secret (never replace it - it holds all
+# provider keys) and verify by sha256, not by printing:
+#   grep -E '^SLACK_(BOT_TOKEN|CHANNEL|WEBHOOK)=' <mac>/.env | <merge into
+#     secret campaign-msrouter>   # then compare sha256 of both sides
+#
 # Nodes (not built here; pull from Docker Hub like postgres:16-alpine did):
 #   mongo:7, apache/kafka:3.7.1
 #

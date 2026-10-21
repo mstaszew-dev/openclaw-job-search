@@ -210,6 +210,39 @@ after resolution, but the derived skip rows are NOT reconstructible from
 them once deleted (backup: laptop
 `campaign-data/backups/blockers-skips-20261020.json`, pre+post states).
 
+## Slack communication (#jobcampaign)
+
+The worker posts four outcome classes to the `#jobcampaign` Slack channel via
+`SlackNotifier` -> `SlackClient` (common): valid submissions, new portal
+blocks, apply failures (step-cap stalls included), and dead-letters.
+Duplicates and skips stay silent. Delivery semantics are ported from
+msrouter's director surface (`deliverToSlack`): bot token + `chat.postMessage`
+first, incoming webhook only when no bot token exists, and missing credentials
+is a permanent silent success. Every post is fire-and-forget: a Slack outage
+is logged and swallowed, never propagated into the apply pipeline. Messages
+report persisted facts, so each notifier call sits after the repo writes.
+
+Credentials come from the `campaign-msrouter` secret (`SLACK_BOT_TOKEN`,
+`SLACK_CHANNEL`, `SLACK_WEBHOOK`, all optional) - the same values the Mac's
+`~/ZCodeProject/msrouter/.env` carries; verify equality by sha256, never by
+printing them.
+
+The msrouter director itself stays disabled in-cluster
+(`DIRECTOR_INTERVAL_MINUTES=-1`): its worker-supervision role is obsolete on
+k3s (the worker is a Deployment), and its Slack-communication role is what
+`SlackNotifier` replaces. Its approval-round-trip (`pollSlackMessages`
+matching approve/reject replies against pending patches) is NOT ported; the
+campaign's guards plus human-runbook requeue cover that need today.
+
+## Step cap and poll budget
+
+`WORKER_MAX_STEPS` (default 60) caps the browser tool loop. Both the loop and
+the Kafka `max.poll.interval.ms` derive from `AgentLoopBounds` in common, so
+an override raises them together (worst case 60 x 210s = 3.5h, +30 min
+margin). Each terminal outcome logs its step count; size the cap from that
+telemetry, not from guesses. 250 would bound a stalled apply at 14.6h and is
+deliberately not the default.
+
 ## Known limitations
 
 - No in-flight abort on lost lease (see above).
