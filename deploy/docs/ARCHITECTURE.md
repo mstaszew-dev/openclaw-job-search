@@ -226,6 +226,16 @@ remaining`, plus `N blockers open` when any exist - fetched at post time
 from campaign-api `GET /api/v1/stats` (`StatsClient`, `CAMPAIGN_API_URL`).
 A stats outage drops only that footer line, never the post itself.
 
+Because outcome posts are rare when the funnel is dry, the worker also posts
+an hourly digest (`SlackStatsReporter`): the same `📊 submitted/target,
+remaining` (+ blockers) grammar on a schedule - prefixed `campaign:` since
+the digest line stands alone - so the channel stays a campaign
+dashboard even when nothing fires. The first digest lands ~45s after pod
+start, so every deploy proves the Slack wiring with a fresh count. The
+interval is `WORKER_STATS_REPORT_INTERVAL_SECONDS` (default 3600); a stats
+outage skips a tick (the numbers are the content, so there is no bare post
+to fall back on) and the next tick retries.
+
 Credentials come from the `campaign-msrouter` secret (`SLACK_BOT_TOKEN`,
 `SLACK_CHANNEL`, `SLACK_WEBHOOK`, all optional) - the same values the Mac's
 `~/ZCodeProject/msrouter/.env` carries; verify equality by sha256, never by
@@ -246,6 +256,16 @@ an override raises them together (worst case 60 x 210s = 3.5h, +30 min
 margin). Each terminal outcome logs its step count; size the cap from that
 telemetry, not from guesses. 250 would bound a stalled apply at 14.6h and is
 deliberately not the default.
+
+Per-application budgets move only on evidence, never preemptively: if
+`⚠️ ... step cap reached without outcome` posts cluster in #jobcampaign,
+raise `WORKER_MAX_STEPS` (60 -> 90 is the first move; `WORKER_MAX_ATTEMPTS`
+stays). If `💀 ... attempt bound burned` posts cluster instead, raise
+`WORKER_MAX_ATTEMPTS` (3 -> 5). Both are env-only changes (placeholders in
+application.yml) plus a rollout restart - no rebuild. With neither text
+appearing (the state since the 2026-10-20 live cutover: 0 dead, 0 DLQ,
+0 open blockers), the budgets are not the bottleneck; a dry funnel is a
+discovery problem, not a ticks-per-application problem.
 
 ## Known limitations
 

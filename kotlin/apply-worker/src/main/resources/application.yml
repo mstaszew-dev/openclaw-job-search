@@ -39,6 +39,10 @@ worker:
   lease-ttl-minutes: ${WORKER_LEASE_TTL_MINUTES:25}
   lease-wait-seconds: ${WORKER_LEASE_WAIT_SECONDS:600}
   lease-renew-seconds: ${WORKER_LEASE_RENEW_SECONDS:300}
+  # Hourly campaign digest to #jobcampaign (SlackStatsReporter). The first
+  # post lands 45s after startup, so every deploy proves the Slack wiring
+  # with a fresh count right away.
+  stats-report-interval-seconds: ${WORKER_STATS_REPORT_INTERVAL_SECONDS:3600}
 
 chrome:
   lease:
