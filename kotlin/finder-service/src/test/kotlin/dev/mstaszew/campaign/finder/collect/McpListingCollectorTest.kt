@@ -1,5 +1,9 @@
 package dev.mstaszew.campaign.finder.collect
 
+import dev.mstaszew.campaign.common.mcp.McpStdioClient
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -106,6 +110,30 @@ class McpListingCollectorTest {
             assertThat(script).contains("ai\\/ml")
             // the unescaped slash would terminate the JS regex literal early
             assertThat(script).doesNotContain("ai/ml")
+        }
+    }
+
+    /**
+     * Tab hygiene: the board page (and its OOPIF iframes - hubspot chat, ad
+     * trackers) outlives the MCP session, and those targets stall every later
+     * playwright-mcp connectOverCDP at init (the 2026-10-22 wedge:
+     * "initializeServer timeout" with ws connected). Each collect must blank
+     * its tab on the way out.
+     */
+    @Test
+    fun `collect blanks the tab afterwards so leftover iframes cannot wedge later spawns`() {
+        val client = mockk<McpStdioClient>(relaxUnitFun = true) {
+            every { callToolText(any(), any(), any()) } returns "### Result\n[]"
+        }
+
+        McpListingCollector({ client }, stacks = listOf("java", "react")).collect("nofluffjobs")
+
+        verify(exactly = 1) {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                any(),
+            )
         }
     }
 }

@@ -123,6 +123,80 @@ class CvUploaderTest {
     }
 
     @Test
+    fun `re-arms the chooser once when the first upload finds no modal state`() {
+        val fallback = cdp()
+        var uploads = 0
+        val browser = mcp(
+            click = { "clicked" },
+            fileUpload = {
+                if (uploads++ == 0) throw McpClientException("can only be used when there is related modal state")
+                else "chooser accepted the file"
+            },
+        )
+        writeCv()
+
+        val result = uploader(fallback).upload(browser, cv.toString(), selector = "ref-upload-3")
+
+        assertThat(result).isEqualTo("CV uploaded (${cv.fileName}): chooser accepted the file")
+        verify(exactly = 2) { browser.callToolText(eq("browser_click"), any(), any()) }
+        verify(exactly = 2) { browser.callToolText(eq("browser_file_upload"), any(), any()) }
+        verify(exactly = 0) { fallback.setFileInputFiles(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `a refused upload without a selector goes straight to the CDP fallback`() {
+        val fallback = cdp()
+        val browser = mcp(fileUpload = { throw McpClientException("no modal state") })
+        writeCv()
+
+        val result = uploader(fallback).upload(browser, cv.toString())
+
+        assertThat(result).startsWith("CV uploaded (${cv.fileName}) via CDP")
+        verify(exactly = 1) { browser.callToolText(eq("browser_file_upload"), any(), any()) }
+        verify(exactly = 0) { browser.callToolText(eq("browser_click"), any(), any()) }
+    }
+
+    @Test
+    fun `a failed re-click still reaches the CDP fallback instead of aborting`() {
+        val fallback = cdp()
+        var clicks = 0
+        val browser = mcp(
+            click = {
+                if (clicks++ == 0) "clicked"
+                else throw McpClientException("overlay intercepted the re-click")
+            },
+            fileUpload = { throw McpClientException("no modal state") },
+        )
+        writeCv()
+
+        val result = uploader(fallback).upload(browser, cv.toString(), selector = "ref-upload-3")
+
+        assertThat(result).startsWith("CV uploaded (${cv.fileName}) via CDP")
+        verify(exactly = 2) { browser.callToolText(eq("browser_click"), any(), any()) }
+        verify(exactly = 1) { browser.callToolText(eq("browser_file_upload"), any(), any()) }
+        verify(exactly = 1) { fallback.setFileInputFiles(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `both upload refusals survive into the combined error detail`() {
+        var n = 0
+        val browser = mcp(
+            click = { "clicked" },
+            fileUpload = { throw McpClientException("refusal-${++n}") },
+        )
+        val uploader = uploader(cdp(result = "Error: CDP fallback failed (boom)"))
+        writeCv()
+
+        val result = uploader.upload(browser, cv.toString(), selector = "ref-upload-3")
+
+        assertThat(result).startsWith("Error: CV upload failed via chooser")
+        assertThat(result).contains("refusal-1")
+        assertThat(result).contains("refusal-2")
+        assertThat(result).contains("and via CDP")
+        assertThat(result).contains(cv.toString())
+    }
+
+    @Test
     fun `falls back to CDP with the active tab URL when the chooser refuses`() {
         val fallback = cdp()
         val browser = mcp(

@@ -206,7 +206,8 @@ class BrowserAgentTest {
                     "last error: tool browser_navigate failed: net::ERR_DEAD",
             ),
         )
-        verify(exactly = 3) { browser.callToolText(any(), any(), any()) }
+        // 3 model navigations + 1 post-attempt page blank (tab hygiene)
+        verify(exactly = 4) { browser.callToolText(any(), any(), any()) }
         verify(exactly = 0) { recorder.recordSubmitted(any(), any(), any()) }
     }
 
@@ -267,5 +268,80 @@ class BrowserAgentTest {
         assertThat((result as ApplyResult.Failed).detail)
             .startsWith("loop breaker: upload_cv failed 3 consecutive times")
         verify(exactly = 3) { cvUploader.upload(any(), any(), any(), any()) }
+    }
+
+    /**
+     * Tab hygiene: an attempt leaves its job page open, and job pages carry
+     * OOPIF iframes (adzuna/hubspot) that stall every later playwright-mcp
+     * connectOverCDP at init (the 2026-10-22 wedge: "initializeServer
+     * timeout" with ws connected). Each attempt must blank its tab on the
+     * way out.
+     */
+    @Test
+    fun `attempt end blanks the tab so leftover iframes cannot wedge the next spawn`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://nfj.com/applied","confirmationText":"submitted","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        verify {
+            browser.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                eq(BrowserAgent.PAGE_CLEANUP_TIMEOUT),
+            )
+        }
+    }
+
+    /**
+     * The 2026-10-22 drought pathology: free-tier backends emit fill_form
+     * fields as an object map {label: value}, playwright-mcp rejects the
+     * shape, and the loop breaker kills the attempt after 3 identical zod
+     * errors. The coercer must normalize between the model and the MCP
+     * server, inferring field types from the last snapshot.
+     */
+    @Test
+    fun `fill_form map-shaped arguments are coerced before the mcp call`() {
+        every { browser.callToolText(eq("browser_snapshot"), any(), any()) } returns
+            """[f2b3] textbox "Imie i nazwisko"
+               |[f6f7] combobox "Forma zatrudnienia"
+            """.trimMargin()
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse(
+                    "browser_fill_form",
+                    """{"fields": {"Forma zatrudnienia": "B2B", "Wynagrodzenie": 15000}}""",
+                ),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://nfj.com/applied","confirmationText":"submitted","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        verify {
+            browser.callToolText(
+                eq("browser_fill_form"),
+                match { args ->
+                    val fields = args.path("fields")
+                    fields.isArray &&
+                        fields[0].path("name").asText() == "Forma zatrudnienia" &&
+                        fields[0].path("type").asText() == "combobox" &&
+                        fields[1].path("value").asText() == "15000"
+                },
+                any(),
+            )
+        }
     }
 }

@@ -58,13 +58,41 @@ class CvUploader(
             }
         }
 
-        val chooserError: String? = try {
-            val args = mapper.createObjectNode().apply { putArray("paths").add(cvPath) }
-            val accepted = browser.callToolText("browser_file_upload", args, TOOL_TIMEOUT)
-            return "CV uploaded (${file.name}): $accepted"
-        } catch (e: Exception) {
-            e.message?.take(200)
+        // One re-arms attempt: the first click can land before the control's
+        // handler is wired (late hydration) and playwright-mcp then refuses
+        // the upload with "can only be used when there is related modal
+        // state". A second click is cheap; the CDP fallback stays the last
+        // resort because it needs a plain main-frame input[type=file].
+        // Step-budget note: the worst case here is click + upload + re-click
+        // + upload + evaluate = 5 x TOOL_TIMEOUT (600s) against the 210s a
+        // step is modeled for in AgentLoopBounds; the consumer poll margin
+        // (+30 min, KafkaWiring) absorbs the difference, which is acceptable
+        // for a once-per-attempt tool rather than widening the model.
+        val chooserErrors = mutableListOf<String>()
+        val attempts = if (selector == null) 1 else 2
+        for (attempt in 1..attempts) {
+            if (attempt > 1) {
+                val target = requireNotNull(selector) { "retry implies a selector" }
+                try {
+                    browser.callToolText(
+                        "browser_click",
+                        mapper.createObjectNode().apply { put("target", target) },
+                        TOOL_TIMEOUT,
+                    )
+                } catch (e: Exception) {
+                    chooserErrors.add("re-click failed: ${e.message?.take(100)}")
+                    break
+                }
+            }
+            try {
+                val args = mapper.createObjectNode().apply { putArray("paths").add(cvPath) }
+                val accepted = browser.callToolText("browser_file_upload", args, TOOL_TIMEOUT)
+                return "CV uploaded (${file.name}): $accepted"
+            } catch (e: Exception) {
+                chooserErrors.add(e.message?.take(100) ?: "unknown refusal")
+            }
         }
+        val chooserError = chooserErrors.joinToString("; ").take(200)
 
         // The chooser refused or never opened (drop zones). CDP fallback needs
         // the tab the MCP is actually driving; read it, but a failed read just

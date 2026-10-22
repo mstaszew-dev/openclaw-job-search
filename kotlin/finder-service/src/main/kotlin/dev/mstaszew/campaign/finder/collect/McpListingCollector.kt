@@ -28,17 +28,36 @@ class McpListingCollector(
         val out = mutableListOf<CollectedListing>()
         clientFactory().use { client ->
             client.initialize("finder-service", "0.1.0")
-            for (stack in stacks) {
-                try {
-                    out += collectStack(client, source, stack)
-                } catch (e: Exception) {
-                    when (e) {
-                        is McpClientException, is LlmClientException -> log.warn(
-                            "collect {} stack {} failed: {}",
-                            source, stack, e.message,
-                        )
-                        else -> throw e
+            try {
+                for (stack in stacks) {
+                    try {
+                        out += collectStack(client, source, stack)
+                    } catch (e: Exception) {
+                        when (e) {
+                            is McpClientException, is LlmClientException -> log.warn(
+                                "collect {} stack {} failed: {}",
+                                source, stack, e.message,
+                            )
+                            else -> throw e
+                        }
                     }
+                }
+            } finally {
+                // Tab hygiene, on every exit: the board page keeps OOPIF
+                // iframes (hubspot chat, ad trackers) alive after this MCP
+                // session ends, and those targets stall every later
+                // playwright-mcp connectOverCDP at init (the 2026-10-22
+                // wedge: async initializeServer timeout with ws connected).
+                // Blanking the tab destroys the iframes without closing the
+                // shared Chrome; best-effort, never blocks the run.
+                runCatching {
+                    client.callToolText(
+                        "browser_navigate",
+                        mapper.createObjectNode().apply { put("url", "about:blank") },
+                        CLEANUP_TIMEOUT,
+                    )
+                }.onFailure { e ->
+                    log.warn("collect {}: post-collect page blank failed: {}", source, e.message?.take(120))
                 }
             }
         }
@@ -132,6 +151,9 @@ class McpListingCollector(
 
     companion object {
         private val log = LoggerFactory.getLogger(McpListingCollector::class.java)
+
+        /** Post-collect blank navigate bound well below the tool timeout. */
+        private val CLEANUP_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         fun pageUrl(source: String, stack: String): String = when (source) {
             "nofluffjobs" -> "https://nofluffjobs.com/pl/$stack?criteria=cityId%3Dremote"

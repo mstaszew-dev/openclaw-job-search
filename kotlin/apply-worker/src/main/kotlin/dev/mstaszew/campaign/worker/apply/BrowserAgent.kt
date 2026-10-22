@@ -44,6 +44,10 @@ sealed class ApplyResult {
  * The three timing constants are public because KafkaWiring derives the
  * consumer's poll interval from them. They lived here as private values, which
  * meant the poll budget could silently drift below the loop it has to cover.
+ * PAGE_CLEANUP_TIMEOUT is deliberately NOT part of that budget: the
+ * post-attempt blank navigate (see McpStdioClientClient.close) runs after the
+ * outcome is decided, and its 5s worst case rides the same consumer poll
+ * margin that absorbs tool-level retries (KafkaWiring keeps +30 min of slack).
  */
 @Component
 class BrowserAgent(
@@ -67,7 +71,7 @@ class BrowserAgent(
     ): ApplyResult {
         val listing = listings.findById(listingId).orElse(null)
             ?: return ApplyResult.Failed("listing $listingId vanished")
-        McpStdioClientClient(mcpFactory).use { browser ->
+        McpStdioClientClient(mcpFactory, jobId, mapper).use { browser ->
             val state = LoopState(jobId, listing, cvPathPl)
             val system = systemPrompt(listing, applicantProfileText)
 
@@ -151,9 +155,35 @@ class BrowserAgent(
     private data class ToolOutcome(val toolName: String, val text: String, val failed: Boolean)
 
     /** Wraps the per-task MCP client lifecycle. */
-    private class McpStdioClientClient(private val factory: () -> McpStdioClient) : AutoCloseable {
+    private class McpStdioClientClient(
+        private val factory: () -> McpStdioClient,
+        private val jobId: String,
+        private val mapper: ObjectMapper,
+    ) : AutoCloseable {
+        private val log = LoggerFactory.getLogger(McpStdioClientClient::class.java)
         val client: McpStdioClient = factory().also { it.initialize("apply-worker", "0.1.0") }
-        override fun close() = client.close()
+
+        override fun close() {
+            // Tab hygiene, on EVERY exit path (decided outcomes via use{} and
+            // recorder exceptions alike): the attempt's tab outlives this MCP
+            // session, and job pages keep OOPIF iframes (adzuna/hubspot) alive
+            // in the shared Chrome. Those targets stall every later
+            // playwright-mcp connectOverCDP at init (the 2026-10-22 wedge:
+            // async initializeServer timeout with ws connected). Blanking the
+            // tab destroys the iframes without closing the browser; 5s bound
+            // and best-effort because a wedged browser must not stall the
+            // queue.
+            try {
+                client.callToolText(
+                    "browser_navigate",
+                    mapper.createObjectNode().apply { put("url", "about:blank") },
+                    PAGE_CLEANUP_TIMEOUT,
+                )
+            } catch (e: Exception) {
+                log.warn("job {}: post-attempt page blank failed: {}", jobId, e.message?.take(120))
+            }
+            client.close()
+        }
     }
 
     private fun systemPrompt(listing: JobListingEntity, profile: String) = """
@@ -279,6 +309,9 @@ class BrowserAgent(
         val EFFECTIVE_MAX_STEPS: Int = AgentLoopBounds.effectiveMaxSteps
         val STEP_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.STEP_TIMEOUT_MS)
         val TOOL_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.TOOL_TIMEOUT_MS)
+
+        /** Post-attempt blank navigate bound well below the tool timeout. */
+        val PAGE_CLEANUP_TIMEOUT: Duration = Duration.ofSeconds(5)
 
         /** Consecutive same-tool failures that end the attempt as Failed. */
         const val LOOP_BREAK_THRESHOLD = 3
