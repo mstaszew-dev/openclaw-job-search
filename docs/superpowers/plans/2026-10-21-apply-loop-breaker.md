@@ -356,6 +356,60 @@ Image vintage proven at the jar level (ToolOutcome class present in the live wor
     1 clean page. Durable fix candidate: close the attempt/collect page when
     done so stale tabs cannot accumulate between windows.
 
+## Post-deploy operations log (2026-10-22 evening, ~16:45-19:40Z)
+
+13. **First submission of the new build: 1991/2100.** inteca (Software
+    Engineer Java/AI, NFJ) went SUBMITTED at 17:27:43Z - the FIRST attempt
+    after the 17:14Z Chrome restart, on the ArgCoerce build deployed 15:00Z.
+    The fill_form coercion held (zero fill_form zod errors all evening). The
+    18:12Z window breakdown: 4 attempts died fast on the wedge (browser_
+    navigate initializeServer timeouts x3 -> breaker), one 65-step attempt
+    filled its form fully and died at upload_cv (`browser_file_upload can
+    only be used when there is related modal state` - the click never armed
+    a chooser), one Blocked (model skip_task). One residual zod error on
+    browser_evaluate: the model emitted no recognized script key at all
+    (nothing to coerce; left as is).
+14. **Wedge root cause proven by direct probe.** From the worker pod,
+    playwright's connectOverCDP to the NodePort hangs >15s whenever the
+    browser carries the NFJ job-page OOPIF iframes (adzuna app_complete +
+    hubspot chat); after a clean restart it connects in 172ms. Signature in
+    MCP logs: `ws connected` then `async initializeServer: Timeout 30000ms`.
+    The finder starved on the same thing (seen=0 in every window since
+    ~16:00Z; 45 WARNs/2h). Also: closing a single page via
+    `/json/close/<id>` crashed Chrome entirely (0 processes, CDP refused,
+    ~17:12Z) - do not use it; recovery is the pod restart.
+15. **Session restore is a wedge amplifier, and a kill-loop quoting trap.**
+    A crash-exit Chrome restores the poisoned tabs on relaunch: wiping
+    `Default/Sessions*` must happen AFTER the kill and BEFORE the watchdog
+    relaunch (watchdog restarts Chrome within seconds). Second trap: the
+    /proc kill loop's grep pattern (`^[0-9]+$.`) got mangled through the
+    ssh/kubectl/sh -c quoting layers and matched NOTHING, so Chrome never
+    died and the "restored" 3 pages were the same zombie browser. Working
+    recipe: `kill -9 $(pgrep -f "google-chrom[e]")` (bracket trick so the
+    probing shell cannot self-match), then rm the session dirs, then let
+    the watchdog or a manual start bring Chrome up.
+16. **Flock stall (runbook failure mode 2) recurred at 19:14Z.** Watchdog
+    logged `restarting user stack` every 60s while /tmp/user-stack.log
+    never moved - pod-user-start.sh exits on the stale flock. Recovery per
+    runbook: rm /tmp/user-stack.lock, then manual start
+    (`su agent -c 'DISPLAY=:99 /home/agent/pod-user-start.sh ...'`); Chrome
+    up in ~12s with 1 clean page. The bounded-wait flock fix is still open
+    for owner sign-off, as is the memory-limit raise (3Gi -> 5-6Gi).
+17. **Durable fix shipped: tab hygiene at unit end (fea028b).** Worker
+    BrowserAgent blanks its tab (navigate about:blank, 5s bound, best
+    effort) in the per-task MCP client close() - covers every exit path
+    including recorder exceptions; finder McpListingCollector does the same
+    (10s bound) in a finally around the stacks loop. Job-page iframes die
+    with the page while Chrome stays up, breaking the poison-next-spawn
+    cycle; session restore also becomes harmless (clean exit, no tabs).
+    Plus CvUploader re-arms the chooser once (re-click + upload) when a
+    selector was given and the first upload finds no modal state - rescues
+    the 65-step form-filled-then-died class. Reviewed fresh-context (4
+    SHOULDs addressed: cleanup on exception paths, retry-branch tests,
+    step-budget note, warn-level cleanup failures); tests: 20 worker + 6
+    collector. Deployed to both apply-worker and finder after this entry.
+
+
 ## Final Review (after implementation)
 
 - [x] Do not claim done until: full `./gradlew build` green, review findings addressed, pushed, deployed, and a `loop breaker` line observed in production logs (or an explicit note why none fired yet).

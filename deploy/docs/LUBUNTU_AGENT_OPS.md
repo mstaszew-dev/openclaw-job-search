@@ -44,17 +44,36 @@ every 60s for anything that dies.
    `oom_kill <n>`. The 2026-10-21 outage was exactly this: Chrome hung at
    04:03Z, and a restart crash-looped because session restore tried to
    bring back 43 targets inside the same limit.
+   Root cause of the recurring "wedge" (confirmed 2026-10-22 by probe):
+   job pages keep out-of-process iframe targets (adzuna app_complete,
+   hubspot chat) alive, and every later playwright-mcp connectOverCDP
+   hangs at init while they exist (`ws connected` then
+   `async initializeServer: Timeout 30000ms`; 172ms on a clean browser).
+   Shipped fix: worker and finder blank their tab (about:blank) at unit
+   end, so the iframes die with the page. Until it deployed, only a
+   restart cleared it.
 2. **Stale flock makes self-healing a silent no-op.** `pod-user-start.sh`
    starts with `flock -n 9 || exit 0`. One wedged invocation holds
    `/tmp/user-stack.lock` forever, and every watchdog tick after that exits
    0 without starting anything. Signature: WATCHDOG "restarting user stack"
    every 60s while `/tmp/chrome.log` mtime never moves. (Same signature
    visible on 2026-10-08 with pyagent - the stall predates this runbook.)
+   Recurred 2026-10-22 19:14Z; rm lock + manual start recovered in ~12s.
 3. **Probes that lie.** `pgrep -f "remote-debugging-port=9223"` matches any
    process whose cmdline contains that string - including the probing
    shell itself. A "CHROME-BACK" answer from such a probe can be a false
    positive. Verify with `/json/version` or a /proc cmdline scan for
-   `/usr/bin/google-chrome *` instead.
+   `/usr/bin/google-chrome *` instead. Conversely, the /proc kill loop
+   from the recovery procedure DIES silently when driven through quoting
+   layers (`ssh ... kubectl exec ... sh -c "..."`): the `$` anchors get
+   eaten and the grep matches nothing, so Chrome survives while every
+   later step "succeeds". Through quoting layers use
+   `kill -9 $(pgrep -f "google-chrom[e]")` - the bracket keeps the probing
+   shell from self-matching; verify death via `/json/version` refusing.
+4. **Never close single pages via `/json/close/<id>`.** Measured
+   2026-10-22 ~17:12Z: the targeted close crashed Chrome outright (0
+   processes, CDP refused). Recovery is this runbook's restart; the
+   shipped tab-hygiene fix (failure mode 1) removes the need.
 
 ## Recovery procedure (no pod restart)
 
@@ -63,7 +82,10 @@ filesystem, so a new pod needs interactive re-auth.
 
 ```sh
 # inside the pod (kubectl -n default exec -i lubuntu-agent-<id> -- sh):
-# 1. kill any chrome, clear restore payload so it boots small
+# 1. kill any chrome, clear restore payload so it boots small.
+#    ORDER MATTERS: rm AFTER the kill and WITHOUT a pause - the watchdog
+#    relaunches Chrome within seconds and a crash-exit Chrome restores the
+#    poisoned tabs from the session files (seen 2026-10-22).
 for p in $(ls /proc | grep -E '^[0-9]+$'); do
   cmd=$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null)
   case "$cmd" in /usr/bin/google-chrome*) kill -9 $p;; esac
