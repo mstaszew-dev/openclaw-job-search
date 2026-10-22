@@ -439,6 +439,42 @@ Image vintage proven at the jar level (ToolOutcome class present in the live wor
     escalated to 3-step navigate deaths (iteamly 21:56Z) while this entry
     was written.
 
+### Late-night addendum (2026-10-22, ~22:40-23:45Z)
+
+- Deploy window 22:47:57Z (lease-free gate held): Chrome killed + session
+  wipe + worker rollout together. Chrome came back ~40s later WITH the
+  freeze flags (verified in /proc/<pid>/cmdline: all four + blocklist);
+  the tab hygiene left the browser at 1 page / 5 targets.
+- IMAGE-GC TRAP: the rollout stuck in ImagePullBackOff - kubelet image GC
+  (disk >85%) had evicted the fresh `k3s ctr` import within minutes and
+  even the old image; kubelet then tried to PULL localhost:5000 (no
+  registry). `docker builder prune -af` reclaimed 62.5GB (86% -> 61%),
+  re-import, crictl verified, delete-pod -> rolled out 22:55Z. Recorded in
+  KOTLIN_DEPLOY.md.
+- First attempt on the new build (matrix-global-services NFJ, 22:55-23:05,
+  40 steps): the PROMPT FIX WORKS - the model passed `#file` as selector
+  (no more selector-less calls). New failure exposed by the new caps: the
+  pre-click on #file TIMED OUT (locator resolved, click never completed -
+  hidden input[type=file] behind a styled dropzone), and the early-return
+  "could not open the file chooser" preempted the CDP fallback 3x (loop
+  breaker). But setFileInputFiles is precisely the tool for hidden inputs.
+  Fix (e9e8f78c, TDD, RED reproduced the production text verbatim): any
+  pre-click failure is recorded and falls through - upload (refused, no
+  chooser) -> CDP fallback with the host-correlated scan. No re-click
+  after a failed click. Rolled 23:20:57Z (worker only; Chrome stays).
+- Idle-not-broken: after a worker restart, Kafka retry timers die with
+  the pod and recovery relies on finder re-discovery (known gap, runbook
+  hardening). The worker sat silent 23:21-23:45 while the finder held the
+  browser 23:23-~23:31; msrouter request log confirmed zero LLM calls in
+  that stretch (no hidden attempt). Lease heartbeat (expiresAt advancing)
+  is the cheap "attempt in progress" probe; jstack via kill -3 works when
+  the log is quiet.
+- Laptop clone note: its git origin is the LOCAL bundle file
+  (campaign-data/kotlin-dist.bundle), so sync = scp bundle + cp over that
+  path + `git pull origin main`; pulling the fresh /tmp bundle directly
+  also works.
+
+
 
 ## Final Review (after implementation)
 

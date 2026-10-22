@@ -32,6 +32,13 @@
 #   or a behavior signature; env checks do not count. Import needs root:
 #   sudo k3s ctr images import -. A rollout restart re-pods but does NOT apply
 #   manifest edits - run kubectl apply -f <manifest> for env/image changes.
+#   DISK-PRESSURE TRAP (2026-10-22 23:xxZ): at >85% disk the kubelet image GC
+#   evicts every image no container references - a fresh import can vanish
+#   within minutes and the new pod lands in ImagePullBackOff (kubelet then
+#   tries to PULL localhost:5000/... which has no registry). Check df -h /
+#   first; reclaim with `docker builder prune -af` (62GB on 2026-10-22, disk
+#   86% -> 61%); after import VERIFY with `sudo k3s crictl images | grep
+#   campaign-worker` BEFORE restarting the deployment.
 #   docker build -f deploy/docker/Dockerfile.msrouter -t localhost:5000/msrouter:k3s-headless-v1 \
 #     /home/mstro/k3s-pod-data/agent-home/apps/msrouter   # k3s-headless branch
 #   docker save <img>:<tag> | k3s ctr images import -
