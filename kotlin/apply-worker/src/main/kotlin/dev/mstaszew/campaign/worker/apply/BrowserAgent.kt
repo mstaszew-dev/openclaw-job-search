@@ -262,7 +262,12 @@ class BrowserAgent(
                     .also { state.lastSnapshot = it }
                     .take(8000)
             } else {
-                browser.client.callToolText(call.name, call.arguments, TOOL_TIMEOUT).take(4000)
+                // Free-tier backends routinely emit schema-shaped-wrong
+                // arguments (fields as a map, evaluate script aliases); the
+                // coercer normalizes the known shapes before they burn a step
+                // on a zod error (and three of them trip the loop breaker).
+                val wire = ArgCoerce.normalize(call.name, call.arguments, state.lastSnapshot)
+                browser.client.callToolText(call.name, wire, TOOL_TIMEOUT).take(4000)
             }
             ToolOutcome(call.name, text, failed = false)
         } catch (e: Exception) {
