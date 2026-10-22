@@ -212,6 +212,43 @@ class BrowserAgentTest {
     }
 
     /**
+     * The 2026-10-22 upload_cv deaths were undebuggable: the loop-breaker line
+     * cut the combined chooser+CDP error at 150 chars, exactly before the CDP
+     * detail. A long last error must keep its tail.
+     */
+    @Test
+    fun `loop breaker keeps the tail of a long last error`() {
+        val longError = "tool browser_file_upload failed: " + "x".repeat(400) + " CDP-TAIL-5150"
+        every { browser.callToolText(eq("browser_navigate"), any(), any()) } throws RuntimeException(longError)
+        val transport = ScriptedTransport(
+            listOf(toolCallResponse("browser_navigate", """{"url":"https://x/1"}""")),
+        )
+
+        val result = run(agent(transport, maxSteps = 10))
+
+        assertThat(result).isInstanceOf(ApplyResult.Failed::class.java)
+        assertThat((result as ApplyResult.Failed).detail).contains("CDP-TAIL-5150")
+    }
+
+    /**
+     * Review S1: the worst-case combined upload error runs ~1100 chars and
+     * its CDP section starts past char 600, so a 600 cap cuts exactly before
+     * the detail this change set exists to expose.
+     */
+    @Test
+    fun `loop breaker keeps the cdp detail of a worst-case combined upload error`() {
+        val longError = "tool browser_file_upload failed: " + "x".repeat(700) + " CDP-TAIL-9902"
+        every { browser.callToolText(eq("browser_navigate"), any(), any()) } throws RuntimeException(longError)
+        val transport = ScriptedTransport(
+            listOf(toolCallResponse("browser_navigate", """{"url":"https://x/1"}""")),
+        )
+
+        val result = run(agent(transport, maxSteps = 10))
+
+        assertThat((result as ApplyResult.Failed).detail).contains("CDP-TAIL-9902")
+    }
+
+    /**
      * A successful tool call in between (the model adapting by re-snapshotting,
      * the standard recovery move) must reset the streak: only CONSECUTIVE
      * same-tool failures are a loop. ScriptedTransport repeats its last

@@ -94,6 +94,49 @@ class CvUploaderTest {
         verify(exactly = 0) { fallback.setFileInputFiles(any(), any(), any(), any()) }
     }
 
+    /**
+     * The 2026-10-22 NFJ deaths (media-adtech, darize, upvanta x2) were
+     * undebuggable: take(100)/take(150) cut the combined chooser+CDP error
+     * exactly before the real refusal and the real CDP detail. Both tails
+     * must survive into the returned error text.
+     */
+    @Test
+    fun `combined error keeps long chooser and cdp details visible`() {
+        val longRefusal = "tool browser_file_upload failed: " + "x".repeat(140) + " CHOOSER-TAIL-4711"
+        val browser = mcp(
+            fileUpload = { throw McpClientException(longRefusal) },
+            evaluate = { "https://form.erecruiter.example/form/1" },
+        )
+        writeCv()
+        val cdpDetail = "d".repeat(280) + " CDP-TAIL-9902"
+
+        val result = uploader(cdp("Error: CDP fallback failed ($cdpDetail)")).upload(browser, cv.toString())
+
+        assertThat(result).contains("CHOOSER-TAIL-4711")
+        assertThat(result).contains("CDP-TAIL-9902")
+    }
+
+    /**
+     * Review B1: when the model arms the chooser with its own click,
+     * playwright-mcp refuses our pre-click with "does not handle the modal
+     * state". The chooser is armed in that case, so the upload must proceed
+     * instead of dying on the early-return error.
+     */
+    @Test
+    fun `a modal-state click refusal means the chooser is already armed and the upload proceeds`() {
+        val browser = mcp(
+            click = { throw McpClientException("Error: Tool \"browser_click\" does not handle the modal state.") },
+            fileUpload = { "chooser accepted the file" },
+        )
+        writeCv()
+
+        val result = uploader(cdp()).upload(browser, cv.toString(), selector = "ref-upload-3")
+
+        assertThat(result).isEqualTo("CV uploaded (${cv.fileName}): chooser accepted the file")
+        verify(exactly = 1) { browser.callToolText(eq("browser_click"), any(), any()) }
+        verify(exactly = 1) { browser.callToolText(eq("browser_file_upload"), any(), any()) }
+    }
+
     @Test
     fun `clicks the upload control first when a selector is given`() {
         val browser = mcp(click = { "clicked" }, fileUpload = { "accepted" })

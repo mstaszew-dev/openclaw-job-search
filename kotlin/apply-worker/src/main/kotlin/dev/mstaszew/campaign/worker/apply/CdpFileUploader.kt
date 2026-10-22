@@ -22,12 +22,18 @@ fun interface CdpCommand {
     fun command(method: String, params: ObjectNode): JsonNode
 }
 
+/** Outcome of the input scan: a unique owning page, or a refusal detail. */
+internal data class InputScan(val owner: JsonNode?, val detail: String)
+
 /**
  * Ports cv_upload.py's set_file_input_via_cdp: for drop zones that never open
  * a native chooser, resolve the tab the MCP is actually driving by URL match
  * against /json/list (first-page-wins uploaded a CV into an unrelated tab once
  * already), then DOM.getDocument -> DOM.querySelector -> DOM.setFileInputFiles
- * -> DOM.getAttributes. Never throws: every failure is an Error string so a
+ * -> DOM.getAttributes. When the URL match fails, the pages sharing the
+ * evaluated url's host are probed for the input and a UNIQUE owner is used;
+ * zero owners, several owners, or no evaluated url to correlate against is a
+ * refusal, never a guess. Never throws: every failure is an Error string so a
  * broken upload degrades one application, not the tick.
  */
 @Component
@@ -40,16 +46,110 @@ class CdpFileUploader(
 
     fun setFileInputFiles(cdpUrl: String, filePath: String, cssInput: String, pageUrl: String?): String = try {
         val targets = fetchJson(cdpUrl.trimEnd('/') + "/json/list")
-        val page = matchPageTarget(targets, pageUrl)
-            ?: return "Error: CDP fallback failed (no page target)"
+        val pages = targets.filter { it.path("type").asText("") == "page" }
+        val page: JsonNode = matchPageTarget(targets, pageUrl) ?: run {
+            val scan = scanForInput(pages, host = hostOf(pageUrl ?: "")) { target ->
+                probeHasInput(target, cssInput)
+            }
+            val owner = scan.owner
+            if (owner == null) {
+                return "Error: CDP fallback failed (no page target for ${pageUrl ?: "the evaluated url"}; ${scan.detail})"
+            }
+            log.info(
+                "URL match failed ({}); input scan picked {}",
+                pageUrl,
+                owner.path("url").asText(""),
+            )
+            owner
+        }
         val wsUrl = page.path("webSocketDebuggerUrl").asText("")
         if (wsUrl.isBlank()) return "Error: CDP fallback failed (no page target)"
-        CdpWsSession.connect(wsUrl).use { session ->
+        CdpWsSession.connect(http, wsUrl).use { session ->
             setFileInputFilesWith({ m, p -> session.command(m, p) }, filePath, cssInput)
         }
     } catch (e: Exception) {
         if (e is InterruptedException) Thread.currentThread().interrupt()
         err("${e.javaClass.simpleName}: ${e.message?.take(200)}")
+    }
+
+    /** Registrable host of [url], or null when it cannot be parsed. */
+    internal fun hostOf(url: String): String? = try {
+        URI(url).host?.lowercase()
+    } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * Unique-input-owner scan for the no-URL-match case: probe the pages that
+     * share [host] with the evaluated url and proceed only on a single owner.
+     * No host (the evaluate failed), no same-host page, zero owners, or
+     * several owners is a refusal, never a guess: a stale form from an
+     * earlier attempt is a real scenario and uniqueness alone is not tab
+     * identity. Probe failures are counted into [InputScan.detail] instead of
+     * reading as "input absent" (a wedged CDP must not look like a form
+     * problem).
+     */
+    internal fun scanForInput(pages: List<JsonNode>, host: String?, probe: (JsonNode) -> Boolean): InputScan {
+        if (host.isNullOrBlank()) {
+            return InputScan(null, "input scan refused: no evaluated url to correlate against")
+        }
+        val candidates = pages.filter { hostOf(it.path("url").asText("")) == host }
+        if (candidates.isEmpty()) {
+            return InputScan(null, "input scan refused: no open page on $host")
+        }
+        var errors = 0
+        var lastError: String? = null
+        val hits = candidates.take(MAX_SCAN_PROBES).mapNotNull { page ->
+            try {
+                if (probe(page)) page else null
+            } catch (e: Exception) {
+                if (e is InterruptedException) Thread.currentThread().interrupt()
+                errors += 1
+                lastError = "${e.javaClass.simpleName}: ${e.message?.take(120)}"
+                null
+            }
+        }
+        val suffix = if (errors > 0) "; $errors/${candidates.size} probes errored (last: $lastError)" else ""
+        return when (hits.size) {
+            1 -> InputScan(hits[0], "unique page with the input")
+            0 -> InputScan(null, "no page had the input$suffix")
+            else -> InputScan(null, "input found on ${hits.size} pages$suffix")
+        }
+    }
+
+    /**
+     * True when [cssInput] resolves to a node in this command channel's
+     * document. CDP errors throw (the scan counts them); only a genuine
+     * "selector matches nothing" reads as false.
+     */
+    internal fun hasInput(command: CdpCommand, cssInput: String): Boolean {
+        val doc = command.command("DOM.getDocument", obj { put("depth", 0) })
+        if (doc.path("error").isObject) {
+            throw IllegalStateException("DOM.getDocument: ${doc.path("error").path("message").asText("unknown")}")
+        }
+        val root = doc.path("result").path("root").path("nodeId").asLong(0)
+        if (root == 0L) return false
+        val found = command.command(
+            "DOM.querySelector",
+            obj { put("nodeId", root); put("selector", cssInput) },
+        )
+        if (found.path("error").isObject) {
+            throw IllegalStateException("DOM.querySelector: ${found.path("error").path("message").asText("unknown")}")
+        }
+        return found.path("result").path("nodeId").asLong(0) != 0L
+    }
+
+    /**
+     * One-shot probe over the target's own websocket session with a short
+     * deadline (a wedged target must not stall the scan); failures propagate
+     * for the scan to count.
+     */
+    private fun probeHasInput(target: JsonNode, cssInput: String): Boolean {
+        val ws = target.path("webSocketDebuggerUrl").asText("")
+        if (ws.isBlank()) throw IllegalStateException("page target has no webSocketDebuggerUrl")
+        CdpWsSession.connect(http, ws, PROBE_TIMEOUT).use { session ->
+            return hasInput({ m, p -> session.command(m, p) }, cssInput)
+        }
     }
 
     /**
@@ -191,7 +291,7 @@ class CdpFileUploader(
         companion object {
             private val TIMEOUT = Duration.ofSeconds(15)
 
-            fun connect(url: String): CdpWsSession {
+            fun connect(client: HttpClient, url: String, timeout: Duration = TIMEOUT): CdpWsSession {
                 val session = CdpWsSession()
                 val listener = object : WebSocket.Listener {
                     override fun onText(ws: WebSocket, data: CharSequence, last: Boolean): CompletionStage<*>? {
@@ -205,14 +305,11 @@ class CdpFileUploader(
                         session.fail(error)
                     }
                 }
-                val ws = HttpClient.newBuilder()
-                    .connectTimeout(TIMEOUT)
-                    .build()
-                    .newWebSocketBuilder()
-                    .connectTimeout(TIMEOUT)
+                val ws = client.newWebSocketBuilder()
+                    .connectTimeout(timeout)
                     .buildAsync(URI.create(url), listener)
                 try {
-                    session.ws = ws.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS)
+                    session.ws = ws.get(timeout.toSeconds(), TimeUnit.SECONDS)
                 } catch (e: Exception) {
                     // .get(timeout) does not cancel the handshake; abort the
                     // socket if it completes late so the shared Chrome never
@@ -227,5 +324,9 @@ class CdpFileUploader(
 
     companion object {
         private val TIMEOUT: Duration = Duration.ofSeconds(15)
+
+        /** Probes ride a short deadline: a wedged target must not stall the scan. */
+        private val PROBE_TIMEOUT: Duration = Duration.ofSeconds(4)
+        private const val MAX_SCAN_PROBES = 8
     }
 }

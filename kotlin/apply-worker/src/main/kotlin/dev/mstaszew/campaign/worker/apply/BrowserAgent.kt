@@ -120,7 +120,11 @@ class BrowserAgent(
                                 step,
                                 ApplyResult.Failed(
                                     "loop breaker: ${dispatched.toolName} failed $LOOP_BREAK_THRESHOLD " +
-                                        "consecutive times; last error: ${dispatched.text.take(150)}",
+                                        // 1200: a worst-case combined upload_cv error
+                                        // (chooser 550 + CDP 400 + wrapper) runs ~1100
+                                        // chars and the CDP section starts past 600;
+                                        // shorter caps cut exactly before it.
+                                        "consecutive times; last error: ${dispatched.text.take(1200)}",
                                 ),
                             )
                         }
@@ -206,7 +210,9 @@ class BrowserAgent(
         $profile
 
         Tools: browser_navigate(url), browser_snapshot(), browser_click(element, target),
-        browser_fill_form(fields), upload_cv(selector, cssInput), browser_evaluate(function),
+        browser_fill_form(fields), upload_cv(selector, cssInput) - always pass the ref of
+        the CV upload control as selector; upload_cv clicks it itself, so never click it
+        first, browser_evaluate(function),
         browser_wait_for(time|text), record_submission(confirmationUrl, confirmationText, ats),
         skip_task(reason, detail).
         Call exactly one tool per turn.
@@ -302,7 +308,10 @@ class BrowserAgent(
             ToolOutcome(call.name, text, failed = false)
         } catch (e: Exception) {
             log.warn("tool {} failed: {}", call.name, e.message)
-            ToolOutcome(call.name, "tool ${call.name} failed: ${e.message?.take(300)}", failed = true)
+            // 800: tonight's upload_cv deaths were undebuggable because this
+            // cap cut the MCP refusal JSON (real reason lives past char 300)
+            // before the loop breaker or the model ever saw it.
+            ToolOutcome(call.name, "tool ${call.name} failed: ${e.message?.take(800)}", failed = true)
         }
 
     companion object {

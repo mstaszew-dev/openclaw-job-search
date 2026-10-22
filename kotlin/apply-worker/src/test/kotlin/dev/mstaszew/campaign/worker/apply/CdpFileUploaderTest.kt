@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 /**
  * Ports cv_upload.py's set_file_input_via_cdp logic: resolve the tab the MCP
@@ -114,6 +115,151 @@ class CdpFileUploaderTest {
         )
 
         assertThat(uploader.matchPageTarget(mixed, pageUrl = "https://apply.example.com/job")).isNull()
+    }
+
+    // --- scanForInput: which tab gets the CV when the URL match fails ---
+    // Candidates are host-correlated against the evaluated url: a stale form
+    // from an earlier attempt must never win as the unique owner, and probe
+    // failures are counted instead of being read as "input absent".
+
+    private fun pageNodes(vararg pairs: Pair<String, String>): List<JsonNode> =
+        pairs.map { (ws, url) -> mapper.readTree(pageTarget(ws, url)) }
+
+    @Test
+    fun `input scan picks the single same-host page that has the input`() {
+        val uploader = CdpFileUploader()
+        val pages = pageNodes(
+            "ws://a" to "https://form.erecruiter.example/form/1",
+            "ws://mine" to "https://form.erecruiter.example/form/2",
+            "ws://c" to "https://y.example.com/form/3",
+        )
+
+        val scan = uploader.scanForInput(pages, host = "form.erecruiter.example") {
+            it.path("webSocketDebuggerUrl").asText() == "ws://mine"
+        }
+
+        assertThat(scan.owner?.path("webSocketDebuggerUrl")?.asText()).isEqualTo("ws://mine")
+    }
+
+    @Test
+    fun `input scan probes only pages sharing the evaluated host`() {
+        val uploader = CdpFileUploader()
+        val pages = pageNodes(
+            "ws://a" to "https://form.erecruiter.example/form/1",
+            "ws://stale" to "https://stale.example.com/form/9",
+        )
+        val probed = mutableListOf<String>()
+
+        val scan = uploader.scanForInput(pages, host = "form.erecruiter.example") {
+            probed.add(it.path("webSocketDebuggerUrl").asText())
+            true
+        }
+
+        assertThat(probed).containsExactly("ws://a")
+        assertThat(scan.owner?.path("webSocketDebuggerUrl")?.asText()).isEqualTo("ws://a")
+    }
+
+    @Test
+    fun `input scan is refused when there is no evaluated url to correlate against`() {
+        val uploader = CdpFileUploader()
+
+        val scan = uploader.scanForInput(pageNodes("ws://a" to "https://x.example.com"), host = null) { true }
+
+        assertThat(scan.owner).isNull()
+        assertThat(scan.detail).contains("refused")
+    }
+
+    @Test
+    fun `input scan is refused when no open page shares the evaluated host`() {
+        val uploader = CdpFileUploader()
+
+        val scan = uploader.scanForInput(pageNodes("ws://a" to "https://x.example.com"), host = "form.erecruiter.example") { true }
+
+        assertThat(scan.owner).isNull()
+        assertThat(scan.detail).contains("form.erecruiter.example")
+    }
+
+    @Test
+    fun `input scan refuses when no probed page has the input`() {
+        val uploader = CdpFileUploader()
+        val pages = pageNodes("ws://a" to "https://x.example.com/1", "ws://b" to "https://x.example.com/2")
+
+        val scan = uploader.scanForInput(pages, host = "x.example.com", probe = { false })
+
+        assertThat(scan.owner).isNull()
+        assertThat(scan.detail).contains("no page had the input")
+    }
+
+    @Test
+    fun `input scan refuses when several same-host pages have the input`() {
+        val uploader = CdpFileUploader()
+        val pages = pageNodes(
+            "ws://a" to "https://form.example.com/1",
+            "ws://b" to "https://form.example.com/2",
+            "ws://c" to "https://form.example.com/3",
+        )
+
+        val scan = uploader.scanForInput(pages, host = "form.example.com") {
+            it.path("webSocketDebuggerUrl").asText() != "ws://c"
+        }
+
+        assertThat(scan.owner).isNull()
+        assertThat(scan.detail).contains("2 pages")
+    }
+
+    @Test
+    fun `input scan counts probe errors instead of reading them as absent`() {
+        val uploader = CdpFileUploader()
+        val pages = pageNodes("ws://a" to "https://x.example.com/1", "ws://b" to "https://x.example.com/2")
+
+        val scan = uploader.scanForInput(pages, host = "x.example.com") { throw IllegalStateException("socket gone") }
+
+        assertThat(scan.owner).isNull()
+        assertThat(scan.detail).contains("2/2 probes errored")
+        assertThat(scan.detail).contains("socket gone")
+    }
+
+    // --- hasInput: the per-page DOM probe ---
+
+    @Test
+    fun `dom probe finds a present input`() {
+        seen.clear()
+        val uploader = CdpFileUploader()
+        val command = scripted(
+            mapOf(
+                "DOM.getDocument" to reply("""{"result":{"root":{"nodeId":7}}}"""),
+                "DOM.querySelector" to reply("""{"result":{"nodeId":42}}"""),
+            ),
+        )
+
+        assertThat(uploader.hasInput(command, "input[name=\"cvFiles\"]")).isTrue()
+    }
+
+    @Test
+    fun `dom probe misses when the selector matches nothing`() {
+        seen.clear()
+        val uploader = CdpFileUploader()
+        val miss = scripted(
+            mapOf(
+                "DOM.getDocument" to reply("""{"result":{"root":{"nodeId":7}}}"""),
+                "DOM.querySelector" to reply("""{"result":{"nodeId":0}}"""),
+            ),
+        )
+
+        assertThat(uploader.hasInput(miss, "input[type=file]")).isFalse()
+    }
+
+    @Test
+    fun `dom probe surfaces a cdp error instead of reading it as absent`() {
+        seen.clear()
+        val uploader = CdpFileUploader()
+        val broken = scripted(
+            mapOf(
+                "DOM.getDocument" to reply("""{"error":{"message":"session gone"}}"""),
+            ),
+        )
+
+        assertThrows<IllegalStateException> { uploader.hasInput(broken, "input[type=file]") }
     }
 
     // --- setFileInputFilesWith: the CDP command sequence ---

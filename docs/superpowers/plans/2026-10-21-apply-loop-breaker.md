@@ -408,6 +408,36 @@ Image vintage proven at the jar level (ToolOutcome class present in the live wor
     SHOULDs addressed: cleanup on exception paths, retry-branch tests,
     step-budget note, warn-level cleanup failures); tests: 20 worker + 6
     collector. Deployed to both apply-worker and finder after this entry.
+18. **upload_cv double-failure fixed: CDP unique-input scan + error-visibility
+    caps (2026-10-22 evening).** Five attempts died at upload_cv (media-adtech
+    x2 via redelivery, darize, upvanta x2): the model calls upload_cv without
+    selector and without arming a chooser (refusal: "no related modal
+    state"), and the CDP fallback refused too - live inspection proved the
+    erecruiter input[name=cvFiles] is a plain visible main-frame input, so
+    the failure was matchPageTarget getting a pageUrl whose tab had since
+    navigated (NFJ job page -> form.erecruiter.pl). Debuggability bug on top:
+    take(100)/take(150)/take(300) cut every error exactly before the real
+    detail. Fix (after fresh-context review, 2 BLOCKER + 4 SHOULD addressed):
+    CdpFileUploader scans the pages sharing the evaluated url's HOST for the
+    cssInput when the URL match fails and proceeds only on a UNIQUE owner
+    (no host, no same-host page, 0 or 2+ owners refuse - uniqueness alone is
+    not tab identity; probe failures are counted into the detail instead of
+    reading as "input absent"; probes ride a 4s deadline; the shared
+    HttpClient backs the ws sessions); caps raised (chooser errors 250, join
+    550, final message 550/400, dispatch wrapper 800, loop breaker 1200);
+    prompt says pass the upload control's ref as selector and never click it
+    first (review B1: a model click arms the chooser and playwright-mcp then
+    refuses upload_cv's own click - CvUploader now falls through to the
+    upload on that refusal). TokenRouter research:
+    live catalog = exactly z-ai/glm-5.3-free (no backend channel, dead id);
+    the email-advertised MiniMax-M3.1-Flash is gated for our token ("token
+    has no access" - needs a fresh token on tokenrouter.com); laptop
+    msrouter.env now sets the glm id (parked 404, self-heals), secret
+    rebuilt, msrouter restarted 21:50Z. Freeze flags staged in
+    pod-user-start.sh (backgrounding-occluded/renderer-backgrounding/
+    timer-throttling/MemorySaver) for the next Chrome restart - the wedge
+    escalated to 3-step navigate deaths (iteamly 21:56Z) while this entry
+    was written.
 
 
 ## Final Review (after implementation)

@@ -46,6 +46,8 @@ class CvUploader(
         if (!file.isFile) return "Error: CV not found at $cvPath"
         if (file.length() == 0L) return "Error: CV at $cvPath is empty (0 bytes)"
 
+        val chooserErrors = mutableListOf<String>()
+        var chooserPreArmed = false
         if (selector != null) {
             try {
                 browser.callToolText(
@@ -54,7 +56,16 @@ class CvUploader(
                     TOOL_TIMEOUT,
                 )
             } catch (e: Exception) {
-                return "Error: could not open the file chooser ($selector): ${e.message?.take(200)}"
+                // The model sometimes arms the chooser with its own click;
+                // playwright-mcp then refuses ours with "does not handle the
+                // modal state". The chooser is armed in that case, so fall
+                // through to the upload instead of dying here.
+                if ((e.message ?: "").contains("does not handle the modal state")) {
+                    chooserPreArmed = true
+                    chooserErrors.add("pre-click skipped: chooser already armed")
+                } else {
+                    return "Error: could not open the file chooser ($selector): ${e.message?.take(200)}"
+                }
             }
         }
 
@@ -68,8 +79,7 @@ class CvUploader(
         // step is modeled for in AgentLoopBounds; the consumer poll margin
         // (+30 min, KafkaWiring) absorbs the difference, which is acceptable
         // for a once-per-attempt tool rather than widening the model.
-        val chooserErrors = mutableListOf<String>()
-        val attempts = if (selector == null) 1 else 2
+        val attempts = if (selector == null || chooserPreArmed) 1 else 2
         for (attempt in 1..attempts) {
             if (attempt > 1) {
                 val target = requireNotNull(selector) { "retry implies a selector" }
@@ -80,7 +90,9 @@ class CvUploader(
                         TOOL_TIMEOUT,
                     )
                 } catch (e: Exception) {
-                    chooserErrors.add("re-click failed: ${e.message?.take(100)}")
+                    // 250: keep the MCP refusal past the JSON wrapper so the
+                    // real reason ("related modal state" etc.) stays visible.
+                    chooserErrors.add("re-click failed: ${e.message?.take(250)}")
                     break
                 }
             }
@@ -89,10 +101,10 @@ class CvUploader(
                 val accepted = browser.callToolText("browser_file_upload", args, TOOL_TIMEOUT)
                 return "CV uploaded (${file.name}): $accepted"
             } catch (e: Exception) {
-                chooserErrors.add(e.message?.take(100) ?: "unknown refusal")
+                chooserErrors.add(e.message?.take(250) ?: "unknown refusal")
             }
         }
-        val chooserError = chooserErrors.joinToString("; ").take(200)
+        val chooserError = chooserErrors.joinToString("; ").take(550)
 
         // The chooser refused or never opened (drop zones). CDP fallback needs
         // the tab the MCP is actually driving; read it, but a failed read just
@@ -110,8 +122,11 @@ class CvUploader(
 
         val fallback = cdp.setFileInputFiles(props.cdpUrl, cvPath, cssInput, activeUrl)
         if (!fallback.startsWith("Error")) return "CV uploaded (${file.name}) $fallback"
-        return "Error: CV upload failed via chooser (${chooserError?.take(150)}) and via CDP " +
-            "(${fallback.take(150)}). Attach the CV manually: $cvPath"
+        // 550/400: the 2026-10-22 NFJ deaths were undebuggable because the
+        // caps cut the text exactly before the CDP fallback detail. Slack
+        // truncates at its own edge regardless; logs must keep the reason.
+        return "Error: CV upload failed via chooser (${chooserError}) and via CDP " +
+            "(${fallback.take(400)}). Attach the CV manually: $cvPath"
     }
 
     companion object {
