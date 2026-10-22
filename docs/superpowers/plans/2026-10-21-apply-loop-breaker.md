@@ -318,6 +318,44 @@ Image vintage proven at the jar level (ToolOutcome class present in the live wor
    fresh Chrome in ~25s with one clean `about:blank`. Verify by page count
    before the next window.
 
+## Post-deploy operations log (2026-10-22 afternoon, ~13:20-16:30Z)
+
+10. **The chain head whack-a-mole.** With poolside rate-limited, the routing
+    chain's healthy head serves the campaign - first `openrouter/free`
+    (a per-turn alias that resolves to a RANDOM upstream free model; keys 1-4
+    served the whole grind), and after dropping that, `opencodego`
+    (beam-free/longcat). Every provider ahead of `cline` serves unproven
+    models with new failure signatures (`model produced no tool call`,
+    `Ref f19e110 not found`, broken `browser_evaluate` JS). Env-only fix:
+    emptied every pre-cline model id (ZAI/TOKENROUTER/OPENCODEGO/GROQ/
+    UNOROUTER/GEMINI/OPENROUTER MODEL lines; API keys untouched) so the
+    campaign pod's chain is cline-only: poolside + 4 backups. When all are
+    rate-limited the request fails fast instead of burning 80 steps on
+    roulette garbage - that preserves the attempt budget.
+11. **The real drought mechanism: fill_form argument fidelity.** With
+    poolside serving again (13:55Z+), attempts ground 30-80 steps but still
+    produced 0 submissions; the dominant killer was
+    `browser_fill_form: Invalid arguments` x3 -> loop breaker. Probes with
+    the worker's exact text-JSON protocol showed the model emits `fields` as
+    an OBJECT MAP `{label: value}` (poolside 6/6, flint 3/6) where
+    playwright-mcp 0.0.83 requires an ARRAY of `{target,name,type,value}`
+    objects with a required type enum, and omits `function` for
+    browser_evaluate. Yesterday's successes (02:07Z, 07:15Z) ran the same
+    toolset (01:49Z deploy), so today's poolside backend is degraded, not the
+    toolset change. Fix: `ArgCoerce` (b5baba4) - deterministic pre-dispatch
+    normalization (map -> typed array with snapshot-inferred types, type
+    synonyms, value stringification, single-field wrap, evaluate aliases);
+    schema-valid and uncoercible input pass through unchanged so failures
+    stay loud. Reviewed (5 SHOULDs addressed), tested (10 unit + 1 agent
+    level), deployed 15:00Z. Note: minimax/inkling/gemma-4-31b backups were
+    all HTTP 500 dead upstreams during the afternoon probe window.
+12. **Browser wedge recurred again (4th time in 36h) at 16:01-16:06Z** with 9
+    stale tabs from the day's attempts: every collector failed
+    `initializeServer: Timeout 30000ms` and the 16:0xZ windows collected
+    seen=0. Same restart recipe (lubuntu-agent pod, default namespace) ->
+    1 clean page. Durable fix candidate: close the attempt/collect page when
+    done so stale tabs cannot accumulate between windows.
+
 ## Final Review (after implementation)
 
 - [x] Do not claim done until: full `./gradlew build` green, review findings addressed, pushed, deployed, and a `loop breaker` line observed in production logs (or an explicit note why none fired yet).
