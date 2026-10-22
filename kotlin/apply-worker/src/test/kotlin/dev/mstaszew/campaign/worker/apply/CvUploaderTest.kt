@@ -154,15 +154,27 @@ class CvUploaderTest {
         }
     }
 
+    /**
+     * A failed pre-click (hidden input timing out the click, stale ref, etc.)
+     * must never preempt the CDP fallback: setFileInputFiles handles inputs
+     * the click path cannot. The flow-through is click fail -> upload refused
+     * (no chooser was armed) -> CDP fallback.
+     */
     @Test
-    fun `aborts when the chooser click fails`() {
-        val browser = mcp(click = { throw McpClientException("no such ref") })
+    fun `falls through to the upload and the cdp fallback when the chooser click fails`() {
+        val fallback = cdp()
+        val browser = mcp(
+            click = { throw McpClientException("tool browser_click failed: TimeoutError: browserBackend.callTool: Timeout 5000ms exceeded.") },
+            fileUpload = { throw McpClientException("tool browser_file_upload failed: can only be used when there is related modal state present.") },
+            evaluate = { "https://form.example.com/apply" },
+        )
         writeCv()
 
-        val result = uploader(cdp()).upload(browser, cv.toString(), selector = "ref-upload-3")
+        val result = uploader(fallback).upload(browser, cv.toString(), selector = "#file")
 
-        assertThat(result).startsWith("Error: could not open the file chooser (ref-upload-3)")
-        verify(exactly = 0) { browser.callToolText(eq("browser_file_upload"), any(), any()) }
+        assertThat(result).isEqualTo("CV uploaded (${cv.fileName}) via CDP setFileInputFiles on input[type=file]")
+        verify(exactly = 1) { browser.callToolText(eq("browser_click"), any(), any()) }
+        verify(exactly = 1) { fallback.setFileInputFiles(any(), any(), any(), any()) }
     }
 
     @Test

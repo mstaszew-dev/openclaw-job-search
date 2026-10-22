@@ -48,6 +48,7 @@ class CvUploader(
 
         val chooserErrors = mutableListOf<String>()
         var chooserPreArmed = false
+        var clickFailed = false
         if (selector != null) {
             try {
                 browser.callToolText(
@@ -56,30 +57,33 @@ class CvUploader(
                     TOOL_TIMEOUT,
                 )
             } catch (e: Exception) {
-                // The model sometimes arms the chooser with its own click;
-                // playwright-mcp then refuses ours with "does not handle the
-                // modal state". The chooser is armed in that case, so fall
-                // through to the upload instead of dying here.
+                // A modal-state refusal means the model armed the chooser with
+                // its own click; anything else means no chooser opened. A
+                // failed pre-click must never preempt the CDP fallback (hidden
+                // inputs time the click out while setFileInputFiles handles
+                // them fine), so both cases fall through to the upload.
                 if ((e.message ?: "").contains("does not handle the modal state")) {
                     chooserPreArmed = true
                     chooserErrors.add("pre-click skipped: chooser already armed")
                 } else {
-                    return "Error: could not open the file chooser ($selector): ${e.message?.take(200)}"
+                    clickFailed = true
+                    chooserErrors.add("pre-click failed: ${e.message?.take(250)}")
                 }
             }
         }
 
-        // One re-arms attempt: the first click can land before the control's
-        // handler is wired (late hydration) and playwright-mcp then refuses
-        // the upload with "can only be used when there is related modal
-        // state". A second click is cheap; the CDP fallback stays the last
-        // resort because it needs a plain main-frame input[type=file].
+        // A click can land before the control's handler is wired (late
+        // hydration) and playwright-mcp then refuses the upload with "can
+        // only be used when there is related modal state" - one re-arms
+        // attempt covers that. A pre-click that itself failed (or a chooser
+        // the model already armed) gets no re-click; the CDP fallback stays
+        // the last resort because it needs a plain main-frame input[type=file].
         // Step-budget note: the worst case here is click + upload + re-click
         // + upload + evaluate = 5 x TOOL_TIMEOUT (600s) against the 210s a
         // step is modeled for in AgentLoopBounds; the consumer poll margin
         // (+30 min, KafkaWiring) absorbs the difference, which is acceptable
         // for a once-per-attempt tool rather than widening the model.
-        val attempts = if (selector == null || chooserPreArmed) 1 else 2
+        val attempts = if (selector == null || chooserPreArmed || clickFailed) 1 else 2
         for (attempt in 1..attempts) {
             if (attempt > 1) {
                 val target = requireNotNull(selector) { "retry implies a selector" }
