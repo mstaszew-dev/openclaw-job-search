@@ -282,6 +282,42 @@ Image vintage proven at the jar level (ToolOutcome class present in the live wor
    per design this does NOT trip the breaker (streak resets on the snapshot
    successes) and is bounded by the step cap instead.
 
+## Post-deploy operations log (2026-10-22, ~09:00-12:40Z)
+
+7. **14h zero-submission drought rooted in msrouter model rotation.** Last
+   submission 07:15Z Oct 21; submitted pinned at 1990 for ~14h while the worker
+   burned every queued job. Failure signature across all attempts: the model
+   clicked hallucinated element names (`"applyButton" does not match any
+   elements`) and stale snapshot refs (`aria-ref=f8e718` resolving to a
+   posting-arrows widget). msrouter's `servedBy` over the outage window showed
+   `cline/nvidia/nemotron-3-ultra-550b-a55b:free` serving 2245 requests vs
+   poolside's 810 (last poolside service 16:39Z Oct 21): poolside
+   (`laguna-s-2.1:free`, the model that produced all 1990 submissions)
+   rate-limits under sustained campaign load, and the chain walks down
+   `CLINE_MODELS` to nemotron-ultra, which cannot drive the browser flow.
+   Simple single-turn tool-call probes do NOT discriminate (both models 5/5);
+   the live failure is multi-turn ref discipline over long contexts.
+8. **Fix: model list surgery in `campaign-data/msrouter.env`** (laptop, secret
+   `campaign-msrouter`, no code change): `CLINE_MODEL` stays
+   `poolside/laguna-s-2.1:free`; `CLINE_MODELS` replaced with
+   `minimax/minimax-m3.1-flash:free,thinkingmachines/inkling:free,google/gemma-4-31b-it:free,recursive/flint-v1.0:free`
+   (drops all nemotron variants plus the tiny dots/cohere/liquid entries);
+   nemotron-3-ultra removed from the head of `UNOROUTER_MODELS` too (glm
+   family now first). Backup at `msrouter.env.bak-20261022`. Recreated the
+   secret (`--from-env-file` + `kubectl apply`) and rolled msrouter (12:20Z).
+   Backups are unproven; watch servedBy + submissions and prune any backup
+   that babbles.
+9. **Browser wedge recurred (3rd time) and broke the whole finder window**
+   (12:24-12:29Z Oct 22): every collector call failed the signature
+   `initializeServer: Timeout 30000ms exceeded` while CDP answered
+   `/json/version`; 8 stale job pages from Oct 21 attempts were still open
+   (OOPIF suspects). Lease table was empty, so nothing parked.
+   **Restart recipe that worked:** the Chrome supervisor pod is
+   `lubuntu-agent` in namespace **default** (not campaign; `kubectl -n campaign
+   get pods` hides it). `kubectl -n default delete pod <lubuntu-agent-pod>` ->
+   fresh Chrome in ~25s with one clean `about:blank`. Verify by page count
+   before the next window.
+
 ## Final Review (after implementation)
 
 - [x] Do not claim done until: full `./gradlew build` green, review findings addressed, pushed, deployed, and a `loop breaker` line observed in production logs (or an explicit note why none fired yet).
