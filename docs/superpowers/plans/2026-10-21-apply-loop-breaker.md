@@ -509,6 +509,38 @@ Image vintage proven at the jar level (ToolOutcome class present in the live wor
   worth a look (hygiene could close same-url tabs older than the active
   unit at unit end).
 
+### Round-3 addendum (2026-10-23, ~03:00-04:30Z)
+
+- MODEL MAP (asked and measured): the worker's LLM chain is the POD msrouter
+  (campaign ns): cline poolside/laguna-s-2.1:free primary, then
+  thinkingmachines/inkling:free, recursive/flint-v1.0:free, gemma-4, plus
+  cloudflare/gemini/groq/mistral/unorouter CSVs. zai/openrouter/tokenrouter
+  are EMPTY in the pod - they only exist in the Mac's local msrouter (which
+  serves local tools, not the campaign). 6h servedBy: poolside 673, inkling
+  401, flint 69 - the "429-heavy glm" note in round-2 was the Mac chain, not
+  the pod's.
+- FILE ROOTS ROOT CAUSE (upload chain dead by config since the k3s
+  migration): the new outcome log paid off on its first live attempts
+  (upvanta x3). (1) browser_file_upload refused the CV outright: "File
+  access denied: /cv/... is outside allowed roots. Allowed roots:
+  /app/.playwright-mcp, /app" - playwright-mcp validates upload paths
+  against its cwd (/app) + output dir, so the chooser path could NEVER
+  accept /cv. (2) The CDP fallback was equally dead: DOM.setFileInputFiles
+  resolves the path in CHROME's pod (lubuntu-agent), where /cv never
+  existed. Fix = path alignment: the cv hostPath mounts at /app/cv in the
+  worker (inside the allowed root), CV_PATH_PL=/app/cv/..., and the
+  lubuntu-agent deployment gets the SAME hostPath at /app/cv so Chrome
+  resolves the identical string. Lubuntu spec lives outside the repo -
+  applied via kubectl patch; the invariant is documented here and in
+  KOTLIN_DEPLOY.md.
+- EVALUATE NULL VISIBILITY: the same upvanta attempts failed the evaluate
+  step with NO trace - browser_evaluate had answered with an error TEXT
+  (no exception), the url parse silently yielded null ("no evaluated url"
+  three times, no reason logged). Fix: a null-url parse now warn-logs the
+  raw evaluate output (or the throw), TDD'd with a logback ListAppender.
+  Also un-orphaned the fall-through doc comment in CvUploaderTest (it had
+  drifted above the fence test).
+
 
 
 

@@ -325,7 +325,7 @@ class WorkerLoop(
             listingId = listing.id
                 ?: error("listing ${job.id} was never persisted; cannot drive the browser for it"),
             applicantProfileText = System.getenv("APPLICANT_PROFILE_TEXT") ?: "see mounted applicant profile",
-            cvPathPl = System.getenv("CV_PATH_PL") ?: "/cv/michael-staszewski-cv-pl.pdf",
+            cvPathPl = System.getenv("CV_PATH_PL") ?: "/app/cv/michael-staszewski-cv-pl.pdf",
             mcpFactory = {
                 McpStdioClient(
                     (System.getenv("WORKER_MCP_COMMAND")

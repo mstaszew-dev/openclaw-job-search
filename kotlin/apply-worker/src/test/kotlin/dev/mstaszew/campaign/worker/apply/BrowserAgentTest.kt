@@ -78,7 +78,7 @@ class BrowserAgentTest {
         jobId = "nofluffjobs:n-1",
         listingId = "65f0000000000000000000a1",
         applicantProfileText = "15 years Java",
-        cvPathPl = "/cv/pl.pdf",
+        cvPathPl = "/app/cv/pl.pdf",
         mcpFactory = { browser },
     )
 

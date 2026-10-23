@@ -74,6 +74,14 @@ every 60s for anything that dies.
    2026-10-22 ~17:12Z: the targeted close crashed Chrome outright (0
    processes, CDP refused). Recovery is this runbook's restart; the
    shipped tab-hygiene fix (failure mode 1) removes the need.
+5. **CV upload needs `/app/cv` on THIS pod.** The lubuntu-agent
+   deployment mounts the same agent-home/cv hostPath the worker uses, at
+   `/app/cv`, because `DOM.setFileInputFiles` resolves the path in
+   Chrome's filesystem (the worker mounts it at `/app/cv` for
+   playwright-mcp's allowed roots). The pod spec lives outside the repo;
+   if `/app/cv/michael-staszewski-cv-pl.pdf` ever 404s here, re-add the
+   volume+volumeMount patch (invariant block:
+   `deploy/docs/KOTLIN_DEPLOY.md`).
 
 ## Recovery procedure (no pod restart)
 

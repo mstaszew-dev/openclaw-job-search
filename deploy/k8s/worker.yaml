@@ -50,8 +50,12 @@ spec:
               value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922
             # Canonical PL CV inside the container (hostPath mount below). The
             # model never sees this path: upload_cv owns it (cv_upload.py port).
+            # MUST stay under /app: playwright-mcp only accepts file paths
+            # inside its allowed roots (cwd /app + /app/.playwright-mcp), and
+            # DOM.setFileInputFiles resolves the SAME string in Chrome's pod,
+            # where lubuntu-agent mounts the same hostPath at /app/cv.
             - name: CV_PATH_PL
-              value: /cv/michael-staszewski-cv-pl.pdf
+              value: /app/cv/michael-staszewski-cv-pl.pdf
             # Same Chrome the Playwright MCP drives; used only by upload_cv's
             # CDP fallback (DOM.setFileInputFiles) for drop zones that never
             # open a native chooser.
@@ -89,8 +93,10 @@ spec:
             limits: { memory: 1536Mi, cpu: "1" }
           volumeMounts:
             # Read-only: the worker must never write next to the canonical CV.
+            # /app/cv (not /cv): the path must sit inside playwright-mcp's
+            # allowed root (/app) AND resolve identically in Chrome's pod.
             - name: cv
-              mountPath: /cv
+              mountPath: /app/cv
               readOnly: true
       volumes:
         - name: cv

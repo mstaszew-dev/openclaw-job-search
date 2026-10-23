@@ -3,6 +3,9 @@ package dev.mstaszew.campaign.worker.apply
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import dev.mstaszew.campaign.worker.WorkerProperties
 import dev.mstaszew.campaign.common.mcp.McpClientException
 import dev.mstaszew.campaign.common.mcp.McpStdioClient
@@ -11,6 +14,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
+import org.slf4j.LoggerFactory
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -155,12 +159,6 @@ class CvUploaderTest {
     }
 
     /**
-     * A failed pre-click (hidden input timing out the click, stale ref, etc.)
-     * must never preempt the CDP fallback: setFileInputFiles handles inputs
-     * the click path cannot. The flow-through is click fail -> upload refused
-     * (no chooser was armed) -> CDP fallback.
-     */
-    /**
      * playwright-mcp wraps browser_evaluate output in a code fence, so the
      * last non-blank line is the closing ``` - not the url. The fallback
      * must extract the url line itself; feeding the fence into the host
@@ -179,6 +177,12 @@ class CvUploaderTest {
         }
     }
 
+    /**
+     * A failed pre-click (hidden input timing out the click, stale ref, etc.)
+     * must never preempt the CDP fallback: setFileInputFiles handles inputs
+     * the click path cannot. The flow-through is click fail -> upload refused
+     * (no chooser was armed) -> CDP fallback.
+     */
     @Test
     fun `falls through to the upload and the cdp fallback when the chooser click fails`() {
         val fallback = cdp()
@@ -306,6 +310,40 @@ class CvUploaderTest {
         uploader(fallback).upload(browser, cv.toString())
 
         verify { fallback.setFileInputFiles("http://cdp:9222", cv.toString(), "input[type=file]", null, match { it.startsWith("cv-") }) }
+    }
+
+    /**
+     * The 2026-10-23 upvanta attempts failed with "no evaluated url" and no
+     * trace of why: browser_evaluate answered with an error TEXT (no
+     * exception), the url parse yielded null, and the raw output vanished.
+     * A null-url fallback must log the raw evaluate output so the next
+     * diagnosis does not start blind.
+     */
+    @Test
+    fun `an evaluate result without a url is logged raw and the fallback gets a null url`() {
+        val appender = ListAppender<ILoggingEvent>()
+        appender.start()
+        val logback = LoggerFactory.getLogger(CvUploader::class.java) as Logger
+        logback.addAppender(appender)
+        val fallback = cdp()
+        val browser = mcp(
+            fileUpload = { throw McpClientException("no file chooser open") },
+            evaluate = { "### Error\nError: Target page, context or browser has been closed" },
+        )
+        writeCv()
+
+        try {
+            uploader(fallback).upload(browser, cv.toString())
+        } finally {
+            logback.detachAppender(appender)
+        }
+
+        verify { fallback.setFileInputFiles("http://cdp:9222", cv.toString(), "input[type=file]", null, match { it.startsWith("cv-") }) }
+        val warnEvent = appender.list.firstOrNull { it.formattedMessage.contains("no url; raw:") }
+        assertThat(warnEvent).isNotNull
+        // The whole point: the reason must reach the default pod log level.
+        assertThat(warnEvent!!.level).isEqualTo(ch.qos.logback.classic.Level.WARN)
+        assertThat(warnEvent.formattedMessage).contains("Target page, context or browser has been closed")
     }
 
     @Test

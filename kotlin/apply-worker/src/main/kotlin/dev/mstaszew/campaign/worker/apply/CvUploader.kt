@@ -119,20 +119,27 @@ class CvUploader(
         // share one form url (a stale erecruiter tab), and only the tab the
         // MCP is driving holds this window property.
         val marker = "cv-" + UUID.randomUUID().toString().substring(0, 8)
-        val activeUrl = try {
-            browser.callToolText(
+        val (activeUrl, evaluateDetail) = try {
+            val raw = browser.callToolText(
                 "browser_evaluate",
                 mapper.createObjectNode().apply {
                     put("function", "() => { window.__cvUploadMarker = '$marker'; return location.href }")
                 },
                 TOOL_TIMEOUT,
             )
-                // playwright-mcp fences evaluate output, so the last non-blank
-                // line is the closing ``` - take the last url-looking line and
-                // strip the wrapping quotes/backticks instead.
-                .lines().lastOrNull { it.contains("://") }?.trim()?.trim('`', '"', '\'')
+            // playwright-mcp fences evaluate output, so the last non-blank
+            // line is the closing ``` - take the last url-looking line and
+            // strip the wrapping quotes/backticks instead.
+            raw.lines().lastOrNull { it.contains("://") }?.trim()?.trim('`', '"', '\'') to raw
         } catch (e: Exception) {
-            null
+            null to (e.message ?: "threw: unknown")
+        }
+        if (activeUrl == null) {
+            // The 2026-10-23 upvanta failures: browser_evaluate answered with
+            // an error TEXT (no exception) and the parse silently yielded
+            // null, leaving the fallback's refusal undiagnosable. The raw
+            // output must surface; the cap matches this file's 400-tail rule.
+            log.warn("browser_evaluate gave the CDP fallback no url; raw: {}", evaluateDetail.take(400))
         }
 
         val fallback = cdp.setFileInputFiles(props.cdpUrl, cvPath, cssInput, activeUrl, marker)

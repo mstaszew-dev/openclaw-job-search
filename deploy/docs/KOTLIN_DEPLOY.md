@@ -107,3 +107,15 @@
 #     kubectl -n campaign exec kafka-0 -- /opt/kafka/bin/kafka-console-consumer.sh \
 #       --bootstrap-server localhost:9092 --topic campaign.jobs.dlq --from-beginning \
 #       --max-messages 1
+#
+# CV path alignment invariant (2026-10-23; break this and every upload dies):
+#   playwright-mcp (running inside the worker container at cwd /app) accepts
+#   browser_file_upload paths ONLY under its allowed roots (/app +
+#   /app/.playwright-mcp), while DOM.setFileInputFiles resolves the path in
+#   Chrome's pod. So the SAME string must exist in both filesystems:
+#     worker:      hostPath agent-home/cv mounted at /app/cv (worker.yaml)
+#     lubuntu:     SAME hostPath mounted at /app/cv on lubuntu-agent
+#                  (kubectl patch deploy lubuntu-agent -n default; the spec
+#                  lives outside the repo)
+#     CV_PATH_PL:  /app/cv/michael-staszewski-cv-pl.pdf
+#   Verify after any move: kubectl exec into BOTH pods and ls /app/cv/.
