@@ -73,15 +73,72 @@ internal object ArgCoerce {
         RegexOption.IGNORE_CASE,
     )
 
+    /** `() => x`, `async x => x`, `function f(){}` - already a function. */
+    private val FUNCTION_EXPRESSION = Regex("""^\s*(async\s+)?(\(|function\b|[A-Za-z_$][\w$]*\s*=>)""")
+
+    /** `const x = ...`, `return x`, `for (...)`, `await fetch(...)` - statement bodies. */
+    private val STATEMENT_START = Regex("""^\s*(const|let|var|for|while|do|if|switch|try|class|return|await)\b""")
+
+    /** Only these tool names are ever reshaped; ledger tools pass raw. */
+    private val COERCIBLE_TOOLS = setOf("browser_fill_form", "browser_evaluate", "browser_navigate")
+
     private val mapper = ObjectMapper()
 
     fun normalize(toolName: String, args: JsonNode, lastSnapshot: String): JsonNode {
-        if (args !is ObjectNode) return args
-        return when (toolName) {
-            "browser_fill_form" -> normalizeFillForm(args, lastSnapshot)
-            "browser_evaluate" -> normalizeEvaluate(args)
-            else -> args
+        // Ledger tools keep raw args BY DESIGN (dispatch reads them directly;
+        // a fabricated ledger arg is worse than a loud failure) - gate here,
+        // at the function level, not just at the call site.
+        if (toolName !in COERCIBLE_TOOLS) return args
+        val unwrapped = unwrap(args)
+        val obj = when {
+            unwrapped is ObjectNode -> unwrapped
+            // a bare string URL for navigate (models emit "https://..." as the
+            // whole arguments value) is the one scalar shape worth salvaging
+            toolName == "browser_navigate" && unwrapped.isTextual ->
+                mapper.createObjectNode().put("url", unwrapped.asText())
+            else -> return unwrapped
         }
+        return when (toolName) {
+            "browser_fill_form" -> normalizeFillForm(obj, lastSnapshot)
+            "browser_evaluate" -> normalizeEvaluate(obj)
+            "browser_navigate" -> normalizeNavigate(obj)
+            else -> obj
+        }
+    }
+
+    /**
+     * Undo the two envelope shapes behind the 2026-10-23 "expected string,
+     * received undefined -> at url/function" step burn: the model re-wraps the
+     * whole call (`{name, arguments:{...}}`) or double-encodes the arguments
+     * JSON string. Browser tools only - the ledger tools keep raw args by
+     * design (dispatch reads them directly; a fabricated ledger arg is worse
+     * than a loud failure).
+     */
+    private fun unwrap(args: JsonNode): JsonNode {
+        var cur = args
+        if (cur.isTextual) {
+            val parsed = try { mapper.readTree(cur.asText()) } catch (_: Exception) { null }
+            if (parsed != null && parsed.isObject) cur = parsed
+        }
+        if (cur.isObject && cur.has("name") && cur.get("name").isTextual &&
+            cur.has("arguments") && cur.get("arguments").isObject
+        ) {
+            return cur.get("arguments")
+        }
+        return cur
+    }
+
+    private fun normalizeNavigate(args: ObjectNode): JsonNode {
+        val url = args.get("url")
+        if (url != null && url.isTextual) return args
+        val alias = listOf("href", "link", "location")
+            .firstOrNull { args.has(it) && args.get(it).isTextual } ?: return args
+        val out = mapper.createObjectNode()
+        out.put("url", args.get(alias).asText())
+        args.fieldNames().asSequence()
+            .filter { it != alias && it != "url" }
+            .forEach { out.set<JsonNode>(it, args.get(it)) }
+        return out
     }
 
     private fun normalizeFillForm(args: ObjectNode, lastSnapshot: String): JsonNode {
@@ -141,15 +198,49 @@ internal object ArgCoerce {
     }
 
     private fun normalizeEvaluate(args: ObjectNode): JsonNode {
-        if (args.has("function") && args.get("function").isTextual) return args
+        val fn = args.get("function")
+        if (fn != null && fn.isTextual) {
+            val wrapped = wrapStatementBody(fn.asText()) ?: return args
+            val out = mapper.createObjectNode()
+            out.put("function", wrapped)
+            args.fieldNames().asSequence()
+                .filter { it != "function" }
+                .forEach { out.set<JsonNode>(it, args.get(it)) }
+            return out
+        }
         val alias = listOf("script", "code", "expression", "js")
             .firstOrNull { args.has(it) && args.get(it).isTextual } ?: return args
         val out = mapper.createObjectNode()
-        out.set<JsonNode>("function", args.get(alias))
+        val body = args.get(alias).asText()
+        out.put("function", wrapStatementBody(body) ?: body)
         args.fieldNames().asSequence()
             .filter { it != alias && it != "function" }
             .forEach { out.set<JsonNode>(it, args.get(it)) }
         return out
+    }
+
+    /**
+     * playwright-mcp 0.0.83 evaluates `function` as `eval("(" + expr + ")")`:
+     * statement bodies ("const x = ...; return x") throw `SyntaxError:
+     * Unexpected token 'const'` (seen live 2026-10-23), and so do top-level
+     * awaits. Keyword- or await-led bodies are wrapped in an async IIFE -
+     * await-safe, and a `return` inside still delivers the value. Everything
+     * else passes through untouched so failures stay loud: a semicolon inside
+     * a string literal (`labels.join(';')`) is a VALID expression, and
+     * wrapping it would silently downgrade the result to undefined (an
+     * evaluate success then resets the loop-breaker streak - the exact
+     * cap-out pathology this layer feeds).
+     */
+    private fun wrapStatementBody(body: String): String? {
+        val t = body.trim()
+        if (t.isEmpty()) return null
+        if (t.startsWith("(") || t.startsWith("function")) return null
+        if (FUNCTION_EXPRESSION.containsMatchIn(t)) return null
+        if (STATEMENT_START.containsMatchIn(t)) {
+            log.warn("ArgCoerce: evaluate body looked like statements; wrapped as async IIFE")
+            return "(async () => { $t })()"
+        }
+        return null
     }
 
     private fun resolveType(rawType: String?, name: String, kinds: Map<String, String>): String {

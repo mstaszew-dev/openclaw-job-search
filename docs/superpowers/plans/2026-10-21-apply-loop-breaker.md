@@ -589,3 +589,58 @@ observation under the new code: the Limur junior job ran `Failed after 80
 steps` (18:17:59Z) - the raised cap live; its click failures were interleaved
 with successful snapshots, so per design the streak kept resetting and the cap
 was the correct backstop. Both terminal paths behaved as specified.
+
+## Round 5 addendum (2026-10-23): apply cap-outs - 5s tool timeouts + reset semantics
+
+Evidence (worker logs, pod started 08:26Z): 4x `Failed after 80 steps`
+(iteamly x2, scalo-2, braver-it) plus submits that needed 63/78 steps. Live
+signatures: `TimeoutError: browserBackend.callTool: Timeout 5000ms exceeded`
+on browser_click (11:03/11:09/11:21Z) and browser_wait_for (`waiting for
+getByText('dziękujemy')`). playwright-mcp 0.0.83 in-image documents the
+defaults in config.d.ts/README: `timeouts.action` **5000ms**,
+`timeouts.expect` **5000ms**; `--help` exposes `--timeout-action` but NO
+expect flag, so the config file route is the only way to raise expect.
+Root-cause chain: a click that needs >5s of actionability (or a confirmation
+text that takes >5s to render) fails -> the model snapshots between retries ->
+per the round-1 design ANY success (incl. a pure snapshot read) resets the
+failure streak -> the loop breaker never fires -> the unit grinds all 80
+steps and dies at the cap with the form fully filled ("reaches all steps,
+times out"). Secondary step-burn: ArgCoerce pass-through survivors
+(envelope-shaped `{name,arguments}` -> "expected string, received undefined
+-> at url/function"; statement bodies in evaluate -> `SyntaxError:
+Unexpected token 'const'`). Observability gap: no per-step logging, so the
+silent 9-minute tail of a cap-out is unreconstructable.
+
+Changes:
+1. Config: `{"timeouts":{"action":30000,"expect":15000}}` written INLINE in
+   the Dockerfile.jvm worker stage as /app/pw-mcp.json (the build context is
+   kotlin/, so deploy/docker files cannot be COPYed) and WORKER_MCP_COMMAND
+   gains `--config /app/pw-mcp.json`; worker.yaml mirrors the command.
+   Clicks get the standard playwright 30s; wait_for confirmations 15s.
+   Deploy order matters: import the image BEFORE applying the manifest - a
+   new WORKER_MCP_COMMAND against the old image fails every MCP spawn.
+2. ArgCoerce (TDD): envelope unwrap + double-encoded JSON parse (gated to
+   browser tools inside normalize itself; ledger tools keep raw args by
+   design), navigate url recovery (href/link/location aliases, bare-string
+   url), evaluate keyword/await-led statement bodies wrapped
+   `(async () => { ... })()`. The predicate is deliberately keyword-led only:
+   a `;` inside a string literal (`labels.join(';')`) is a VALID expression
+   under eval("(" + t + ")") and must stay untouched - wrapping it would
+   silently return undefined (review SHOULD-1).
+3. Loop breaker (TDD): the stuck tool's OWN success is the only reset. A
+   same-tool failure increments the streak, a different-tool failure
+   restarts it at 1, and any OTHER success (snapshot reads, no-op
+   evaluate/wait_for) leaves it alone. This generalizes the round-1..4
+   any-success-reset rule away entirely: interleaved loops of ANY flavor can
+   now trip the breaker. Revisits the round-1 "cap as backstop" tradeoff:
+   4 cap-outs/day at ~15-20 min each is too expensive for the rare
+   premature-break risk (failed attempts retry up to maxAttempts anyway).
+4. Per-step INFO log: `step n/max tool ok|failed (ms)` - the next cap-out
+   must be reconstructable from logs alone.
+5. TOOL_SCHEMAS descriptions: evaluate says "expression or arrow function,
+   no top-level statements"; fill_form says "fields is an ARRAY".
+Deploy: standard worker flow (build --target worker, ctr import, lease-gated
+rollout). Acceptance: no new `Timeout 5000ms` lines, step logs visible,
+cap-out rate drops; live probe on the laptop validates the config route
+before the rebuild.
+

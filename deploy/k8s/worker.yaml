@@ -47,7 +47,10 @@ spec:
             - name: MSROUTER_URL
               value: http://msrouter.campaign.svc.cluster.local:3000/v1
             - name: WORKER_MCP_COMMAND
-              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922
+              # --config /app/pw-mcp.json raises action 5000->30000ms and
+              # expect 5000->15000ms (no --timeout-expect flag exists; the
+              # file is written inline in deploy/docker/Dockerfile.jvm).
+              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922 --config /app/pw-mcp.json
             # Canonical PL CV inside the container (hostPath mount below). The
             # model never sees this path: upload_cv owns it (cv_upload.py port).
             # MUST stay under /app: playwright-mcp only accepts file paths

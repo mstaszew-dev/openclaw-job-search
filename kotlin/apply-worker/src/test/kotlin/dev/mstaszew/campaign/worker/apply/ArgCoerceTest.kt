@@ -222,6 +222,112 @@ class ArgCoerceTest {
         assertThat(ArgCoerce.normalize("browser_navigate", args, "")).isEqualTo(before)
     }
 
+    // ---- 2026-10-23: shapes observed burning steps in 80-step cap-outs ----
+
+    @Test
+    fun `envelope wrapped arguments are unwrapped for browser tools`() {
+        val args = mapper.createObjectNode().apply {
+            put("name", "browser_navigate")
+            set<JsonNode>("arguments", mapper.createObjectNode().apply { put("url", "https://x/1") })
+        }
+
+        val out = ArgCoerce.normalize("browser_navigate", args, "")
+
+        assertThat(out.path("url").asText()).isEqualTo("https://x/1")
+    }
+
+    @Test
+    fun `envelope wrapping is unwrapped before fill form coercion`() {
+        val args = mapper.createObjectNode().apply {
+            put("name", "browser_fill_form")
+            set<JsonNode>(
+                "arguments",
+                mapper.createObjectNode().apply { set<JsonNode>("fields", mapFields("Email" to "m@example.com")) },
+            )
+        }
+
+        val out = ArgCoerce.normalize("browser_fill_form", args, snapshotWithCombobox())
+
+        val fields = out.path("fields")
+        assertThat(fields.isArray).isTrue
+        assertThat(fields[0].path("value").asText()).isEqualTo("m@example.com")
+    }
+
+    @Test
+    fun `double encoded json arguments are parsed once`() {
+        val args = mapper.readTree(""""{\"url\":\"https://x/2\"}"""")
+
+        val out = ArgCoerce.normalize("browser_navigate", args, "")
+
+        assertThat(out.path("url").asText()).isEqualTo("https://x/2")
+    }
+
+    @Test
+    fun `navigate url is recovered from href style aliases`() {
+        val args = mapper.createObjectNode().apply { put("href", "https://x/3") }
+
+        val out = ArgCoerce.normalize("browser_navigate", args, "")
+
+        assertThat(out.path("url").asText()).isEqualTo("https://x/3")
+    }
+
+    @Test
+    fun `navigate bare string arguments become the url`() {
+        val out = ArgCoerce.normalize("browser_navigate", mapper.readTree("\"https://x/4\""), "")
+
+        assertThat(out.path("url").asText()).isEqualTo("https://x/4")
+    }
+
+    @Test
+    fun `evaluate statement bodies are wrapped as an async iife`() {
+        val args = mapper.createObjectNode().apply {
+            put("function", "const x = document.querySelector('h1'); return x.textContent")
+        }
+
+        val out = ArgCoerce.normalize("browser_evaluate", args, "")
+        val fn = out.path("function").asText()
+
+        assertThat(fn).startsWith("(async () => {")
+        assertThat(fn).contains("const x = document.querySelector('h1')")
+        assertThat(fn).endsWith("})()")
+    }
+
+    @Test
+    fun `evaluate expressions and arrow functions pass through unwrapped`() {
+        for (body in listOf("document.title", "() => document.title", "x => x.value", "() => { return 1 }")) {
+            val args = mapper.createObjectNode().apply { put("function", body) }
+            val before = args.deepCopy()
+
+            assertThat(ArgCoerce.normalize("browser_evaluate", args, "")).isEqualTo(before)
+        }
+    }
+
+    /** A `;` inside a string literal is a VALID expression - eval("(" + t + ")")
+     *  accepts it; wrapping it would silently return undefined. */
+    @Test
+    fun `evaluate expression with a semicolon inside a string literal passes through`() {
+        val body = "Array.from(document.querySelectorAll('option')).map(e => e.textContent).join(';')"
+        val args = mapper.createObjectNode().apply { put("function", body) }
+        val before = args.deepCopy()
+
+        assertThat(ArgCoerce.normalize("browser_evaluate", args, "")).isEqualTo(before)
+    }
+
+    /** Top-level await is a SyntaxError under eval("(" + t + ")") - wrap it. */
+    @Test
+    fun `evaluate await led bodies are wrapped as an async iife`() {
+        val args = mapper.createObjectNode().apply {
+            put("function", "await fetch('/api/state').then(r => r.text())")
+        }
+
+        val out = ArgCoerce.normalize("browser_evaluate", args, "")
+        val fn = out.path("function").asText()
+
+        assertThat(fn).startsWith("(async () => {")
+        assertThat(fn).contains("await fetch('/api/state')")
+        assertThat(fn).endsWith("})()")
+    }
+
     @Test
     fun `ledger tool names are outside the coercion surface`() {
         for (tool in listOf("record_submission", "skip_task", "upload_cv")) {

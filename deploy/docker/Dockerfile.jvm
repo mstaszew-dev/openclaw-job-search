@@ -27,8 +27,17 @@ RUN microdnf install -y curl xz \
  && microdnf clean all
 COPY --from=build /usr/local/lib/node_modules/@playwright/mcp /opt/playwright-mcp
 COPY --from=build /src/apply-worker/build/libs/apply-worker.jar /app/worker.jar
+# 2026-10-23 cap-outs: playwright-mcp defaults to 5000ms action AND expect
+# timeouts (config.d.ts); slow portals' clicks and post-submit confirmation
+# waits ("dziękujemy") routinely need 6-15s. Every 5s timeout burned a step
+# and snapshot-interleaved retries ground units to the 80-step cap. There is
+# NO --timeout-expect flag, so the config file is the only way to raise the
+# expect timeout; --config is verified wired (a missing config path throws at
+# startup). Navigation keeps its 60s default. Written inline because the
+# docker build context is kotlin/ - deploy/docker is outside it.
+RUN printf '%s\n' '{' '  "timeouts": { "action": 30000, "expect": 15000 }' '}' > /app/pw-mcp.json
 # the worker drives the SHARED lubuntu Chrome over CDP; node runs the MCP client
-ENV WORKER_MCP_COMMAND="node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922"
+ENV WORKER_MCP_COMMAND="node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922 --config /app/pw-mcp.json"
 # MaxRAMPercentage=75 left no room for the JVM's non-heap plus the MCP node
 # child inside the container's cgroup; a mid-apply OOMKill loses an apply.
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=60", "-jar", "/app/worker.jar"]

@@ -249,29 +249,64 @@ class BrowserAgentTest {
     }
 
     /**
-     * A successful tool call in between (the model adapting by re-snapshotting,
-     * the standard recovery move) must reset the streak: only CONSECUTIVE
-     * same-tool failures are a loop. ScriptedTransport repeats its last
-     * entry, so the sequence here is fail, fail, reset, fail, fail, reset, ...
-     * and never reaches the threshold.
+     * Round-5 revision: the stuck tool's OWN success is the only reset - a
+     * DIFFERENT tool's success (a fill_form here, a no-op evaluate there)
+     * proves nothing about the stuck action, so the streak must survive it.
+     * The round-1..4 any-success-reset rule let interleaved loops grind to
+     * the 80-step cap (4 cap-outs on 2026-10-23). ScriptedTransport repeats
+     * its last entry; the sequence is fail, fail, ok, fail -> threshold.
      */
     @Test
-    fun `a successful different tool between failures resets the streak`() {
+    fun `a successful different tool between failures leaves the streak alone`() {
         every { browser.callToolText(eq("browser_navigate"), any(), any()) } throws RuntimeException("net::ERR_DEAD")
         val transport = ScriptedTransport(
             listOf(
                 toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
                 toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
-                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_evaluate", """{"function":"1+1"}"""),
                 toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
-                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
-                toolCallResponse("browser_snapshot", "{}"),
             ),
         )
 
         val result = run(agent(transport, maxSteps = 7))
 
-        assertThat(result).isEqualTo(ApplyResult.Failed("step cap 7 reached without outcome"))
+        assertThat(result).isEqualTo(
+            ApplyResult.Failed(
+                "loop breaker: browser_navigate failed 3 consecutive times; " +
+                    "last error: tool browser_navigate failed: net::ERR_DEAD",
+            ),
+        )
+    }
+
+    /**
+     * 2026-10-23 cap-outs, motivating case: the model snapshots between
+     * click retries, so the old any-success-reset rule zeroed the streak
+     * every second step and the breaker could never fire - units ground to
+     * the 80-step cap with the form fully filled. Under the revised rule any
+     * non-failing-tool success leaves the streak alone; this test pins the
+     * snapshot flavor of it.
+     */
+    @Test
+    fun `snapshot successes between failures no longer reset the streak`() {
+        every { browser.callToolText(eq("browser_navigate"), any(), any()) } throws RuntimeException("net::ERR_DEAD")
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
+            ),
+        )
+
+        val result = run(agent(transport, maxSteps = 8))
+
+        assertThat(result).isEqualTo(
+            ApplyResult.Failed(
+                "loop breaker: browser_navigate failed 3 consecutive times; " +
+                    "last error: tool browser_navigate failed: net::ERR_DEAD",
+            ),
+        )
     }
 
     /** A success of the failing tool itself is also a reset, not a streak continuation. */

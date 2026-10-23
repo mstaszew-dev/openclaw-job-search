@@ -82,6 +82,17 @@ class BrowserAgent(
                 return result
             }
 
+            // Per-step telemetry (round 5): cap-outs were unreconstructable
+            // because only tool FAILURES were logged - the silent 9-minute
+            // tail of a doomed unit left no trace. Tool name + outcome + ms,
+            // no argument content (selectors can carry page PII).
+            fun logStep(step: Int, maxSteps: Int, tool: String, outcome: String, startNanos: Long) {
+                log.info(
+                    "job {}: step {}/{} {} {} ({} ms)",
+                    jobId, step, maxSteps, tool, outcome, (System.nanoTime() - startNanos) / 1_000_000,
+                )
+            }
+
             for (step in 1..maxSteps) {
                 val response = try {
                     llm.chat(state.messages + ChatMessage("system", system), maxTokens = 1500, timeout = STEP_TIMEOUT, tools = TOOL_SCHEMAS)
@@ -102,17 +113,31 @@ class BrowserAgent(
                     }
                     ?: parseToolCall(response.content)
                     ?: return out(step, ApplyResult.Failed("model produced no tool call: ${response.content.take(150)}"))
+                val dispatchStart = System.nanoTime()
                 when (val dispatched = dispatch(browser, toolCall, state)) {
-                    is ApplyResult -> return out(step, dispatched)
+                    is ApplyResult -> {
+                        logStep(step, maxSteps, toolCall.name, "terminal", dispatchStart)
+                        return out(step, dispatched)
+                    }
                     is ToolOutcome -> {
-                        // Consecutive-failure streak keyed by tool NAME, not
-                        // args: real retry loops vary the arguments (selectors
-                        // reordered, URLs re-encoded) while the failure stays
-                        // the same. Any success, or a failure of a different
-                        // tool, resets the streak.
-                        if (dispatched.failed && state.failingTool == dispatched.toolName) state.failureStreak += 1 else {
-                            state.failingTool = if (dispatched.failed) dispatched.toolName else null
-                            state.failureStreak = if (dispatched.failed) 1 else 0
+                        logStep(step, maxSteps, toolCall.name, if (dispatched.failed) "failed" else "ok", dispatchStart)
+                        // Streak = CONSECUTIVE failures of the same tool (round
+                        // 5 revision): a same-tool failure increments, a
+                        // different-tool failure restarts at 1, and the stuck
+                        // tool's OWN success is the only reset. Any other
+                        // success - a snapshot read, but equally a no-op
+                        // evaluate or wait_for(time) - proves nothing about
+                        // the stuck action: the round-1 any-success-reset rule
+                        // let snapshot-interleaved retry loops grind to the
+                        // 80-step cap (4 cap-outs on 2026-10-23).
+                        if (dispatched.failed && state.failingTool == dispatched.toolName) {
+                            state.failureStreak += 1
+                        } else if (dispatched.failed) {
+                            state.failingTool = dispatched.toolName
+                            state.failureStreak = 1
+                        } else if (dispatched.toolName == state.failingTool) {
+                            state.failingTool = null
+                            state.failureStreak = 0
                         }
                         state.messages += ChatMessage("user", dispatched.text.take(4000))
                         if (state.failureStreak >= LOOP_BREAK_THRESHOLD) {
@@ -388,7 +413,7 @@ class BrowserAgent(
             ),
             ToolSpec(
                 "browser_fill_form",
-                "Fill several fields at once.",
+                "Fill several fields at once. fields MUST be an ARRAY of {name, type, value} objects, not a map.",
                 obj("fields" to fieldList(), required = listOf("fields")),
             ),
             ToolSpec(
@@ -401,8 +426,8 @@ class BrowserAgent(
             ),
             ToolSpec(
                 "browser_evaluate",
-                "Run JavaScript in the page and return the result.",
-                obj("function" to str("JavaScript function body to evaluate")),
+                "Run JavaScript in the page and return the result. Send an EXPRESSION or arrow function like () => document.title; top-level const/let/for statements are invalid.",
+                obj("function" to str("JavaScript expression or arrow function to evaluate, e.g. () => document.title")),
             ),
             ToolSpec(
                 "browser_wait_for",
