@@ -136,6 +136,10 @@ class CvUploader(
         }
 
         val fallback = cdp.setFileInputFiles(props.cdpUrl, cvPath, cssInput, activeUrl, marker)
+        // One INFO line for the outcome: a silent success looks identical to
+        // a wedged fallback in the pod log, and the next diagnosis pays for
+        // that ambiguity.
+        log.info("CDP fallback on {}: {}", cssInput, fallback.take(300))
         if (!fallback.startsWith("Error")) return "CV uploaded (${file.name}) $fallback"
         // 550/400: the 2026-10-22 NFJ deaths were undebuggable because the
         // caps cut the text exactly before the CDP fallback detail. Slack

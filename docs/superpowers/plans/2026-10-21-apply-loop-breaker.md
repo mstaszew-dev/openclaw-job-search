@@ -474,6 +474,42 @@ Image vintage proven at the jar level (ToolOutcome class present in the live wor
   path + `git pull origin main`; pulling the fresh /tmp bundle directly
   also works.
 
+### Round-2 addendum (2026-10-23, ~00:00-02:00Z)
+
+- WEDGE RECURRENCE: ~75 min after the 22:47 restart the browser wedged
+  again (initializeServer Timeout 30000ms on the finder's 23:23 window;
+  an orphaned adzuna app_complete OOPIF target sat in /json/list). The
+  freeze flags did NOT prevent it; pod memory was 191Mi (no pressure).
+  Kill+wipe at 00:00:24Z recovered in ~30s. The flags help throttling,
+  not whatever breaks MCP session init - the runbook recovery stays the
+  operative fix; root cause still open.
+- FENCE BUG (f3ebae8d): the CDP fallback's activeUrl took the LAST
+  non-blank line of browser_evaluate output - playwright-mcp fences that
+  output, so activeUrl was the closing ``` and every fallback died with
+  "no page target for ```" until the host-correlation caps surfaced it.
+  Fix: last line containing "://", trimmed of quotes/backticks.
+- MARKER IDENTITY (6c1f7953): with the url parsed, the darize job still
+  refused - "input found on 2 pages": a STALE erecruiter form tab plus
+  the current one share the same url, defeating url match AND the
+  unique-owner scan (uploading into the stale tab would silently lose
+  the CV). Fix: upload_cv injects window.__cvUploadMarker=cv-<uuid> via
+  the same evaluate, and CdpFileUploader probes each page's session for
+  it (marker holder = the MCP-driven tab; url/scan stay as fallback).
+  Also: CDP fallback outcome now INFO-logs (a silent success was
+  indistinguishable from a wedged fallback).
+- THROUGHPUT CEILING: the free LLM chain (z-ai/glm-5.3-free via
+  TokenRouter) is heavily rate-limited - LlmClient retry sleeps of 10-30s
+  per step, msrouter log full of 429s; one erecruiter attempt = 30-80
+  steps = 20-40 min, and the free model still flails on complex forms
+  (hidden labels, malformed fill_form JSON - the loop breaker catches
+  that correctly). Upload chain verified live stage by stage; the
+  binding constraint is now the model, not the worker. Unblocking
+  MiniMax-M3.1-Flash (fresh token on tokenrouter.com) is the highest-
+  leverage next step; stale same-form tabs are the next worker-side gap
+  worth a look (hygiene could close same-url tabs older than the active
+  unit at unit end).
+
+
 
 
 ## Final Review (after implementation)
