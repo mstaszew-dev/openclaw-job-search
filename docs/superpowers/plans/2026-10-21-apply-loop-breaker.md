@@ -541,6 +541,35 @@ Image vintage proven at the jar level (ToolOutcome class present in the live wor
   Also un-orphaned the fall-through doc comment in CvUploaderTest (it had
   drifted above the fence test).
 
+### Round-4 addendum (2026-10-23, ~10:30-11:15Z): worker chain widened with zai + opencodego
+
+- CORRECTION to the round-3 model map: zai/openrouter/tokenrouter are NOT
+  Mac-only. The POD has ZAI_API_KEY / OPENCODEGO_API_KEY / TOKENROUTER_API_KEY
+  (they ride in secret campaign-msrouter, built with --from-env-file from
+  laptop $DATA/msrouter.env - the image ships no env). Their MODEL slots were
+  simply empty, which is why 72h of servedBy was 100% cline (1482 calls, zero
+  fall-throughs).
+- LIVE PROBE MATRIX (run inside the pod, node fetch, keys never left it):
+  zai glm-5.3-flash HTTP 200; zai glm-4.7-flash transient 429 (code 1305).
+  opencodego beam-free HTTP 200 - but ONLY with an x-opencode-session header
+  (bare calls get 400 MissingSessionID; msrouter auto-generates the header,
+  see src/providers/instances.ts:84, so bare probes are a false alarm).
+  longcat-2.5-preview-free upstream 429/down; opencodego glm-5.3-flash
+  GoUsageLimitError monthly quota exhausted. tokenrouter key valid and
+  z-ai/glm-5.3-free listed, but completions 503 "No available channel under
+  group default" - still gated on the tokenrouter.com dashboard.
+- CHANGE (config only, no code, no image rebuild): laptop
+  /home/mstro/k3s-pod-data/agent-home/campaign-data/msrouter.env now sets
+  ZAI_MODEL=glm-5.3-flash, ZAI_MODEL_2=glm-4.7-flash,
+  OPENCODEGO_MODEL=beam-free; secret rebuilt (apply from env-file, then a
+  base64 patch for the gateway-token literal - this kubectl rejects
+  combining --from-env-file with --from-literal, so bootstrap line 84's
+  combined form would fail as written); msrouter rolled. Startup line now
+  reports zai:true, opencodego:true, tokenrouter:true.
+- SEMANTICS: these join the fallback TAIL after cline's own backups exhaust -
+  they absorb 429 storms, they do not preempt poolside. A dead model id costs
+  one failed call then parks 24h (self-heals), which is why longcat stays out
+  of the slots for now.
 
 
 
