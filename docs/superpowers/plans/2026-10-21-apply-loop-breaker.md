@@ -644,3 +644,27 @@ rollout). Acceptance: no new `Timeout 5000ms` lines, step logs visible,
 cap-out rate drops; live probe on the laptop validates the config route
 before the rebuild.
 
+## Round 5 deployment + validation (2026-10-23 ~17:00Z)
+
+- Pushed 10324db, bundle-synced, built on the laptop
+  (campaign-worker:v1 = cfd87b675b97d), imported, manifest applied in a
+  lease-free window 16:02:17Z, rolled out clean.
+- Live A/B probe (worker pod, fresh browser, absent-text `browser_wait_for`):
+  plain = failed at 5002 ms (`Timeout 5000ms exceeded`); with
+  `--config pw-mcp.json` = failed at 30003 ms. The config file is honored.
+  Mapping correction: `browser_wait_for` is bounded by the ACTION timeout
+  (30 s), not the expect timeout - so item 1's "wait_for confirmations 15 s"
+  is wrong in detail; waits get the 30 s action bound. The 5 s cliff is gone
+  either way.
+- First unit under the new code: iteamly (the 2x cap-out offender) ran with
+  full step telemetry; step 10 click failed at 30061 ms - under the old
+  defaults that exact slow click was a 5000 ms cliff feeding the grind.
+- The laptop probe twice wedged on `initializeServer: Timeout 30000ms
+  exceeded` (ws connected, init stalled) - the browser-side OOPIF-orphan
+  wedge, NOT related to this change; cleared 16:29:18Z with the ops-doc
+  full user-stack wipe (watchdog rebuilt in ~75 s). During the wedge the
+  finder's collectors failed the same way, then recovered on the fresh
+  browser (100 NFJ + 265 theprotocol listings at 16:44-16:46).
+- Blocker sweep per ops failure mode 7: blockers collection had no
+  unresolved rows - the false-blocked jobs were already eligible.
+

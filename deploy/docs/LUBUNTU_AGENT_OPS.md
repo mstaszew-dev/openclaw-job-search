@@ -96,6 +96,11 @@ every 60s for anything that dies.
    case pattern is unanchored (`*google-chrome*`) matches the probing
    shell itself and self-kills (exit 137) - kills still land; bracket
    the pattern per failure mode 3.
+6. **(see also failure mode 2/6)** - wipe validated again 2026-10-23
+   16:29:18Z after a solid initializeServer wedge (every client - finder
+   collectors and probes alike - hit `async initializeServer: Timeout
+   30000ms exceeded` with the ws already connected); watchdog rebuilt the
+   full stack in ~75 s, finders recovered on the next cycle.
 7. **Stale apply tabs poison later units with false portal-block
    blockers.** Measured 2026-10-23: one dead Lever tab
    (masterborn-2/4daf6015, HTTP 404) survived its attempt; 5+ unrelated
