@@ -160,6 +160,25 @@ class CvUploaderTest {
      * the click path cannot. The flow-through is click fail -> upload refused
      * (no chooser was armed) -> CDP fallback.
      */
+    /**
+     * playwright-mcp wraps browser_evaluate output in a code fence, so the
+     * last non-blank line is the closing ``` - not the url. The fallback
+     * must extract the url line itself; feeding the fence into the host
+     * correlation refuses the scan ("no evaluated url").
+     */
+    @Test
+    fun `extracts the evaluated url from a fenced evaluate result`() {
+        val fallback = cdp()
+        val browser = mcp(evaluate = { "### Result\n```\n\"https://form.example.com/apply\"\n```\n" })
+        writeCv()
+
+        uploader(fallback).upload(browser, cv.toString(), selector = null)
+
+        verify(exactly = 1) {
+            fallback.setFileInputFiles(any(), any(), any(), eq("https://form.example.com/apply"))
+        }
+    }
+
     @Test
     fun `falls through to the upload and the cdp fallback when the chooser click fails`() {
         val fallback = cdp()

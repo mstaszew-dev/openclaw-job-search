@@ -119,7 +119,11 @@ class CvUploader(
                 "browser_evaluate",
                 mapper.createObjectNode().apply { put("function", "() => location.href") },
                 TOOL_TIMEOUT,
-            ).lines().lastOrNull { it.isNotBlank() }?.trim()
+            )
+                // playwright-mcp fences evaluate output, so the last non-blank
+                // line is the closing ``` - take the last url-looking line and
+                // strip the wrapping quotes/backticks instead.
+                .lines().lastOrNull { it.contains("://") }?.trim()?.trim('`', '"', '\'')
         } catch (e: Exception) {
             null
         }
