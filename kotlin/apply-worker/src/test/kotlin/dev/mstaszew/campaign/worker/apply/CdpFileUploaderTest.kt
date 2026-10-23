@@ -125,6 +125,49 @@ class CdpFileUploaderTest {
     private fun pageNodes(vararg pairs: Pair<String, String>): List<JsonNode> =
         pairs.map { (ws, url) -> mapper.readTree(pageTarget(ws, url)) }
 
+    // --- markerOwner: exact tab identity when several tabs share one form url ---
+
+    @Test
+    fun `marker owner wins when several tabs share the same form url`() {
+        val uploader = CdpFileUploader()
+        val pages = pageNodes(
+            "ws://stale" to "https://form.erecruiter.example/form/x",
+            "ws://active" to "https://form.erecruiter.example/form/x",
+        )
+
+        val owner = uploader.markerOwner(pages, "cv-ab12cd34") { target ->
+            if (target.path("webSocketDebuggerUrl").asText() == "ws://active") "cv-ab12cd34" else null
+        }
+
+        assertThat(owner?.path("webSocketDebuggerUrl")?.asText()).isEqualTo("ws://active")
+    }
+
+    @Test
+    fun `marker probe errors read as not-holding, later pages still probed`() {
+        val uploader = CdpFileUploader()
+        val pages = pageNodes(
+            "ws://dead" to "https://form.erecruiter.example/form/x",
+            "ws://active" to "https://form.erecruiter.example/form/x",
+        )
+
+        val owner = uploader.markerOwner(pages, "cv-ab12cd34") { target ->
+            if (target.path("webSocketDebuggerUrl").asText() == "ws://dead") {
+                throw IllegalStateException("websocket gone")
+            }
+            "cv-ab12cd34"
+        }
+
+        assertThat(owner?.path("webSocketDebuggerUrl")?.asText()).isEqualTo("ws://active")
+    }
+
+    @Test
+    fun `no page holds the marker - markerOwner returns null for the fallback flow`() {
+        val uploader = CdpFileUploader()
+        val pages = pageNodes("ws://a" to "https://form.erecruiter.example/form/x")
+
+        assertThat(uploader.markerOwner(pages, "cv-ab12cd34") { null }).isNull()
+    }
+
     @Test
     fun `input scan picks the single same-host page that has the input`() {
         val uploader = CdpFileUploader()

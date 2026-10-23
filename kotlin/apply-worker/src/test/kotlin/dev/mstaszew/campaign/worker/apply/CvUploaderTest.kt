@@ -53,7 +53,7 @@ class CvUploaderTest {
     }
 
     private fun cdp(result: String = "via CDP setFileInputFiles on input[type=file]"): CdpFileUploader = mockk {
-        every { setFileInputFiles(any(), any(), any(), any()) } returns result
+        every { setFileInputFiles(any(), any(), any(), any(), any()) } returns result
     }
 
     private fun uploader(fallback: CdpFileUploader, cdpUrl: String = "http://cdp:9222") = CvUploader(
@@ -91,7 +91,7 @@ class CvUploaderTest {
         val result = uploader(fallback).upload(browser, cv.toString())
 
         assertThat(result).isEqualTo("CV uploaded (${cv.fileName}): chooser accepted the file")
-        verify(exactly = 0) { fallback.setFileInputFiles(any(), any(), any(), any()) }
+        verify(exactly = 0) { fallback.setFileInputFiles(any(), any(), any(), any(), any()) }
     }
 
     /**
@@ -175,7 +175,7 @@ class CvUploaderTest {
         uploader(fallback).upload(browser, cv.toString(), selector = null)
 
         verify(exactly = 1) {
-            fallback.setFileInputFiles(any(), any(), any(), eq("https://form.example.com/apply"))
+            fallback.setFileInputFiles(any(), any(), any(), eq("https://form.example.com/apply"), match { it.startsWith("cv-") })
         }
     }
 
@@ -193,7 +193,7 @@ class CvUploaderTest {
 
         assertThat(result).isEqualTo("CV uploaded (${cv.fileName}) via CDP setFileInputFiles on input[type=file]")
         verify(exactly = 1) { browser.callToolText(eq("browser_click"), any(), any()) }
-        verify(exactly = 1) { fallback.setFileInputFiles(any(), any(), any(), any()) }
+        verify(exactly = 1) { fallback.setFileInputFiles(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -214,7 +214,7 @@ class CvUploaderTest {
         assertThat(result).isEqualTo("CV uploaded (${cv.fileName}): chooser accepted the file")
         verify(exactly = 2) { browser.callToolText(eq("browser_click"), any(), any()) }
         verify(exactly = 2) { browser.callToolText(eq("browser_file_upload"), any(), any()) }
-        verify(exactly = 0) { fallback.setFileInputFiles(any(), any(), any(), any()) }
+        verify(exactly = 0) { fallback.setFileInputFiles(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -248,7 +248,7 @@ class CvUploaderTest {
         assertThat(result).startsWith("CV uploaded (${cv.fileName}) via CDP")
         verify(exactly = 2) { browser.callToolText(eq("browser_click"), any(), any()) }
         verify(exactly = 1) { browser.callToolText(eq("browser_file_upload"), any(), any()) }
-        verify(exactly = 1) { fallback.setFileInputFiles(any(), any(), any(), any()) }
+        verify(exactly = 1) { fallback.setFileInputFiles(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -289,6 +289,7 @@ class CvUploaderTest {
                 cv.toString(),
                 "input[type=file]",
                 "https://apply.example.com/job/123",
+                match { it.startsWith("cv-") },
             )
         }
     }
@@ -304,7 +305,7 @@ class CvUploaderTest {
 
         uploader(fallback).upload(browser, cv.toString())
 
-        verify { fallback.setFileInputFiles("http://cdp:9222", cv.toString(), "input[type=file]", null) }
+        verify { fallback.setFileInputFiles("http://cdp:9222", cv.toString(), "input[type=file]", null, match { it.startsWith("cv-") }) }
     }
 
     @Test
@@ -340,6 +341,7 @@ class CvUploaderTest {
                 cv.toString(),
                 "input[name=cv_upload]",
                 "https://apply.example.com/job",
+                match { it.startsWith("cv-") },
             )
         }
     }

@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.io.File
 import java.time.Duration
+import java.util.UUID
 
 /**
  * Ports cv_upload.py's upload_cv as a worker-side browser tool. The 2026-10-07
@@ -114,10 +115,16 @@ class CvUploader(
         // the tab the MCP is actually driving; read it, but a failed read just
         // means the fallback must refuse rather than guess.
         log.info("browser_file_upload refused ({}); trying CDP fallback on {}", chooserError, cssInput)
+        // The marker gives the fallback exact tab identity: several tabs can
+        // share one form url (a stale erecruiter tab), and only the tab the
+        // MCP is driving holds this window property.
+        val marker = "cv-" + UUID.randomUUID().toString().substring(0, 8)
         val activeUrl = try {
             browser.callToolText(
                 "browser_evaluate",
-                mapper.createObjectNode().apply { put("function", "() => location.href") },
+                mapper.createObjectNode().apply {
+                    put("function", "() => { window.__cvUploadMarker = '$marker'; return location.href }")
+                },
                 TOOL_TIMEOUT,
             )
                 // playwright-mcp fences evaluate output, so the last non-blank
@@ -128,7 +135,7 @@ class CvUploader(
             null
         }
 
-        val fallback = cdp.setFileInputFiles(props.cdpUrl, cvPath, cssInput, activeUrl)
+        val fallback = cdp.setFileInputFiles(props.cdpUrl, cvPath, cssInput, activeUrl, marker)
         if (!fallback.startsWith("Error")) return "CV uploaded (${file.name}) $fallback"
         // 550/400: the 2026-10-22 NFJ deaths were undebuggable because the
         // caps cut the text exactly before the CDP fallback detail. Slack

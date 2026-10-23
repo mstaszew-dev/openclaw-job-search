@@ -44,10 +44,13 @@ class CdpFileUploader(
     private val log = LoggerFactory.getLogger(CdpFileUploader::class.java)
     private val mapper = ObjectMapper()
 
-    fun setFileInputFiles(cdpUrl: String, filePath: String, cssInput: String, pageUrl: String?): String = try {
+    fun setFileInputFiles(cdpUrl: String, filePath: String, cssInput: String, pageUrl: String?, marker: String? = null): String = try {
         val targets = fetchJson(cdpUrl.trimEnd('/') + "/json/list")
         val pages = targets.filter { it.path("type").asText("") == "page" }
-        val page: JsonNode = matchPageTarget(targets, pageUrl) ?: run {
+        val page: JsonNode = marker
+            ?.takeIf { it.isNotBlank() }
+            ?.let { m -> markerOwner(pages, m, ::evaluateMarker) }
+            ?: matchPageTarget(targets, pageUrl) ?: run {
             val scan = scanForInput(pages, host = hostOf(pageUrl ?: "")) { target ->
                 probeHasInput(target, cssInput)
             }
@@ -121,8 +124,7 @@ class CdpFileUploader(
      * True when [cssInput] resolves to a node in this command channel's
      * document. CDP errors throw (the scan counts them); only a genuine
      * "selector matches nothing" reads as false.
-     */
-    internal fun hasInput(command: CdpCommand, cssInput: String): Boolean {
+     */    internal fun hasInput(command: CdpCommand, cssInput: String): Boolean {
         val doc = command.command("DOM.getDocument", obj { put("depth", 0) })
         if (doc.path("error").isObject) {
             throw IllegalStateException("DOM.getDocument: ${doc.path("error").path("message").asText("unknown")}")
@@ -149,6 +151,43 @@ class CdpFileUploader(
         if (ws.isBlank()) throw IllegalStateException("page target has no webSocketDebuggerUrl")
         CdpWsSession.connect(http, ws, PROBE_TIMEOUT).use { session ->
             return hasInput({ m, p -> session.command(m, p) }, cssInput)
+        }
+    }
+
+    /**
+     * Exact tab identity for the same-url-tabs case: [CvUploader] injects a
+     * unique marker into the MCP-driven tab's window via browser_evaluate,
+     * and the page whose Runtime.evaluate returns it IS that tab. Several
+     * tabs can legitimately share one form url (a stale erecruiter tab made
+     * both the url match and the unique-owner scan ambiguous), so an exact
+     * in-page marker beats every URL heuristic. Probe errors read as
+     * not-holding; when nothing holds the marker the caller falls back to
+     * the url match and the unique-owner scan.
+     */
+    internal fun markerOwner(pages: List<JsonNode>, marker: String, eval: (JsonNode) -> String?): JsonNode? =
+        pages.asSequence()
+            .filter { it.path("webSocketDebuggerUrl").asText("").isNotBlank() }
+            .take(MAX_SCAN_PROBES)
+            .firstOrNull { target ->
+                try {
+                    eval(target) == marker
+                } catch (e: Exception) {
+                    if (e is InterruptedException) Thread.currentThread().interrupt()
+                    false
+                }
+            }
+
+    /** Reads window.__cvUploadMarker from [target]'s own session. */
+    private fun evaluateMarker(target: JsonNode): String? {
+        val ws = target.path("webSocketDebuggerUrl").asText("")
+        if (ws.isBlank()) return null
+        CdpWsSession.connect(http, ws, PROBE_TIMEOUT).use { session ->
+            val reply = session.command(
+                "Runtime.evaluate",
+                obj { put("expression", "window.__cvUploadMarker"); put("returnByValue", true) },
+            )
+            val value = reply.path("result").path("result").path("value")
+            return if (value.isTextual) value.asText() else null
         }
     }
 
