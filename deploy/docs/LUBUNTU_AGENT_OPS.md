@@ -82,6 +82,31 @@ every 60s for anything that dies.
    if `/app/cv/michael-staszewski-cv-pl.pdf` ever 404s here, re-add the
    volume+volumeMount patch (invariant block:
    `deploy/docs/KOTLIN_DEPLOY.md`).
+6. **Flock deadlock, second form: stack children inherit the lock fd.**
+   `pod-user-start.sh`'s background children (Xvfb, fluxbox, socat,
+   x11vnc, Chrome) all inherit fd 9, so killing ONLY Chrome leaves the
+   lock held by the survivors and every watchdog restart still exits at
+   `flock -n 9 || exit 0`. Seen 2026-10-23 ~13:28Z after a chrome-only
+   wipe. Signature (worse than failure mode 2): WATCHDOG fires every 60s
+   AND `/tmp/user-stack.log` never gains a line. Fastest recovery: kill
+   the whole user stack in one pass (Xvfb :99, fluxbox, socat
+   TCP-LISTEN:9222, x11vnc, chrome) - the fd holders die with it, the
+   watchdog rebuilds everything within 60s (validated 13:34:44Z, full
+   CDP back in ~75s, no lock surgery needed). Beware: a kill loop whose
+   case pattern is unanchored (`*google-chrome*`) matches the probing
+   shell itself and self-kills (exit 137) - kills still land; bracket
+   the pattern per failure mode 3.
+7. **Stale apply tabs poison later units with false portal-block
+   blockers.** Measured 2026-10-23: one dead Lever tab
+   (masterborn-2/4daf6015, HTTP 404) survived its attempt; 5+ unrelated
+   NFJ listings (braver-it x3, matrix-global x2) then recorded
+   blockers citing that exact URL - the model read the leftover tab as
+   the apply outcome. Detection: the SAME external URL appearing in
+   blockers for different companies. Resolution: full user-stack wipe
+   (mode 6) + operator sweep setting `resolved:true` on the affected
+   blockers (they re-arm automatically on genuine recurrence).
+   Prevention: close same-origin form tabs at unit end - worker-side
+   gap, still open.
 
 ## Recovery procedure (no pod restart)
 
@@ -105,6 +130,9 @@ rm -rf /home/agent/.playwright-chrome/Default/Sessions \
 # 2. clear a stale lock if /tmp/chrome.log is not being touched
 ls -l /proc/*/fd 2>/dev/null | grep user-stack.lock   # find the holder
 kill -9 <holder-pid> 2>/dev/null; rm -f /tmp/user-stack.lock
+#    (2026-10-23: simpler variant that avoids fd surgery - kill the WHOLE
+#    user stack: Xvfb, fluxbox, socat, x11vnc, chrome. The entrypoint
+#    watchdog rebuilds all of it within 60s; see failure mode 6.)
 # 3. start the stack as agent
 su agent -c 'DISPLAY=:99 /home/agent/pod-user-start.sh >> /tmp/user-stack.log 2>&1' &
 # 4. verify: new browser UUID on 9223, then from the host on 30922
