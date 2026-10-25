@@ -110,8 +110,12 @@ every 60s for anything that dies.
    blockers for different companies. Resolution: full user-stack wipe
    (mode 6) + operator sweep setting `resolved:true` on the affected
    blockers (they re-arm automatically on genuine recurrence).
-   Prevention: close same-origin form tabs at unit end - worker-side
-   gap, still open.
+   Prevention (deployed 2026-10-25, commit f99c8f0): unit-end tab
+   cleanup in `McpStdioClientClient.close` blanks the current tab
+   first, then closes every non-survivor tab descending, capped at 5
+   closes, each call 5s-bounded and best-effort. Tabs only: portal
+   logins live in the profile cookie jar and are untouched; only the
+   mode-6 wipe drops them.
 8. **OOPIF iframe orphans wedge initializeServer within the hour, not
    just after days.** Measured 2026-10-24: a fresh wipe at 20:12Z was
    followed at ~20:47Z by the full wedge again (every navigate hit
@@ -121,8 +125,10 @@ every 60s for anything that dies.
    app_complete iframe as orphaned OOPIF targets; the next consumer
    init stalled on them. A widget-laden apply page poisons the browser
    for every later unit in that stack lifetime. Recovery is the mode-6
-   wipe; prevention is the mode-7 unit-end tab cleanup plus this
-   automated backstop:
+   wipe; prevention is two-layered since 2026-10-25 (commit f99c8f0):
+   the in-code half is the mode-7 unit-end tab cleanup (blank + close
+   leftover tabs, so iframes die with their pages instead of
+   orphaning), and the automated backstop is this watchdog:
 
    **Automated wedge recovery (installed 2026-10-24).**
    `deploy/ops/wedge-watchdog.sh` + `wipe-payload.sh` live on the
@@ -139,6 +145,23 @@ every 60s for anything that dies.
    seen 2026-10-24. To redeploy after changes: copy both files to the
    laptop path above (scp), keep them executable; crontab line is in
    the watchdog header.
+9. **Zombie loop: dead-lettered listings re-enqueued forever.** The
+   finder re-enqueues any listing the dedup wall does not cover, and
+   the wall reads applications + DUPLICATE skips only; a dead-lettered
+   job wrote neither, so one hostile iteamly listing was re-enqueued
+   every dedup window and re-ground the worker to the 80-step cap each
+   time (overnight 2026-10-25: 5 deliveries, ~5h, browser wedged after
+   each run). Prevention (deployed 2026-10-25, commit f99c8f0):
+   `WorkerLoop.deadLetter` walls the listing via
+   `Recorder.recordDeadLettered` before the offset commit - live mode
+   only, and deliberately companyKey-less so the wall stops ONLY the
+   dead listing (id + url branches), never the company's other open
+   requisitions. job_state stays DEAD (no SKIPPED_DUPLICATE overwrite).
+   If the wall write fails, the offset stays uncommitted and the
+   redelivery re-walls via the over-bound path. Operator note: rows
+   already dead before this fix were walled by hand (mongosh inserts
+   into `skips` with reason DUPLICATE); when hand-walling, set
+   companyKey to null unless you intend to silence the whole company.
 
 ## Recovery procedure (no pod restart)
 
