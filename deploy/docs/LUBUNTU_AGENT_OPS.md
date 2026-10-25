@@ -112,6 +112,33 @@ every 60s for anything that dies.
    blockers (they re-arm automatically on genuine recurrence).
    Prevention: close same-origin form tabs at unit end - worker-side
    gap, still open.
+8. **OOPIF iframe orphans wedge initializeServer within the hour, not
+   just after days.** Measured 2026-10-24: a fresh wipe at 20:12Z was
+   followed at ~20:47Z by the full wedge again (every navigate hit
+   `initializeServer: Timeout 30000ms`, ws connected) right after an
+   iteamly unit ran 68 steps. Live CDP targets showed the unit's own
+   page had left a HubSpot chat-widget iframe and an adzuna
+   app_complete iframe as orphaned OOPIF targets; the next consumer
+   init stalled on them. A widget-laden apply page poisons the browser
+   for every later unit in that stack lifetime. Recovery is the mode-6
+   wipe; prevention is the mode-7 unit-end tab cleanup plus this
+   automated backstop:
+
+   **Automated wedge recovery (installed 2026-10-24).**
+   `deploy/ops/wedge-watchdog.sh` + `wipe-payload.sh` live on the
+   laptop in `/home/mstro/k3s-pod-data/agent-home/campaign-data/`,
+   cron'd every 5 min under flock. Gates in order: (1) the exact
+   signature `initializeServer: Timeout` appears in finder or worker
+   logs within the last 12 min (the 15-min finder cycle guarantees
+   detection; a dead HTTP endpoint alone is not the wedge signature);
+   (2) `browser_leases` must be empty - never wipes under a live unit,
+   and an unreadable lease count fails safe to "do nothing"; (3) 15-min
+   cooldown so the signature lines that triggered a wipe cannot
+   re-trigger while they age out. Worst-case wedge exposure is one
+   finder cycle plus cron granularity, ~20 min, versus the 14h freeze
+   seen 2026-10-24. To redeploy after changes: copy both files to the
+   laptop path above (scp), keep them executable; crontab line is in
+   the watchdog header.
 
 ## Recovery procedure (no pod restart)
 
