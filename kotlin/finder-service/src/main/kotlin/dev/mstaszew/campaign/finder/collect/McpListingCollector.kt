@@ -30,9 +30,18 @@ class McpListingCollector(
         clientFactory().use { client ->
             client.initialize("finder-service", "0.1.0")
             try {
+                val attempted = mutableSetOf<String>()
                 for (stack in stacks) {
+                    val page = pageUrl(source, stack)
+                    // Stacks can share one target page (justjoin folds kotlin
+                    // into java, node and react into javascript); a second
+                    // visit would only burn a settle wait and inflate the
+                    // dupWindow counter. Marked attempted (not scraped) before
+                    // the try: a failed page does not get a free retry from
+                    // its folded twin; the next window recovers it.
+                    if (!attempted.add(page)) continue
                     try {
-                        out += collectStack(client, source, stack)
+                        out += collectStack(client, source, stack, page)
                     } catch (e: Exception) {
                         when (e) {
                             is McpClientException, is LlmClientException -> log.warn(
@@ -60,11 +69,10 @@ class McpListingCollector(
         return out
     }
 
-    private fun collectStack(client: McpStdioClient, source: String, stack: String): List<CollectedListing> {
-        val pageUrl = pageUrl(source, stack)
+    private fun collectStack(client: McpStdioClient, source: String, stack: String, page: String): List<CollectedListing> {
         client.callToolText(
             "browser_navigate",
-            mapper.createObjectNode().apply { put("url", pageUrl) },
+            mapper.createObjectNode().apply { put("url", page) },
             toolTimeout,
         )
         // let the SPA settle its own canonical redirects before evaluating;
@@ -82,7 +90,7 @@ class McpListingCollector(
         val extracted = client.callToolText(
             "browser_evaluate",
             mapper.createObjectNode().apply {
-                put("function", "() => ${extractionScript(source)}")
+                put("function", "() => ${extractionScript(source, stack)}")
             },
             toolTimeout,
         )
@@ -163,9 +171,20 @@ class McpListingCollector(
 
         fun pageUrl(source: String, stack: String): String = when (source) {
             "nofluffjobs" -> "https://nofluffjobs.com/pl/$stack?criteria=cityId%3Dremote"
-            "justjoin" -> "https://justjoin.it/all-remote/$stack"
+            // 2025 redesign: /all-remote/* became 404 and the remote filter
+            // moved to /job-offers/remote/<category>. kotlin, node and react
+            // have no category of their own (kotlin posts under java, node
+            // and react under javascript), so they fold onto the nearest
+            // real one.
+            "justjoin" -> "https://justjoin.it/job-offers/remote/${justjoinCategory(stack)}"
             "theprotocol" -> "https://theprotocol.it/filtry/$stack?remote=true"
             else -> throw IllegalArgumentException("unknown board source: $source")
+        }
+
+        private fun justjoinCategory(stack: String): String = when (stack) {
+            "kotlin" -> "java"
+            "node", "react" -> "javascript"
+            else -> stack
         }
 
         private val CARD_SCRIPT = """(function(){
@@ -198,9 +217,18 @@ class McpListingCollector(
          * card text carries title + company). Returns a JSON array string.
          * Best-effort: a board redesign degrades to an empty batch.
          */
-        fun extractionScript(source: String): String = when (source) {
+        fun extractionScript(source: String, stack: String = ""): String = when (source) {
             "nofluffjobs" -> scriptFor("'a[href*=\"/pl/job/\"]'")
-            "justjoin" -> scriptFor("'a[href*=\"/offers/\"]'")
+            // The 2025 listing page has no anchor cards at all (cards are
+            // MUI divs), but it server-renders a JSON-LD ItemList with every
+            // offer URL and title, and the hydrated cards carry the company
+            // as their first text line. The script joins URL-by-title and
+            // emits the card shape parse() already understands; a card that
+            // has not hydrated yields an empty company, which only widens
+            // the company dedupe, never breaks id or url matching. The
+            // scraped category is emitted as the stack so titles without a
+            // stack word still pass the eligibility stack gate.
+            "justjoin" -> JUSTJOIN_JSONLD_SCRIPT.replace("__STACK__", justjoinCategory(stack))
             "theprotocol" -> scriptFor("'a[href*=\"/praca/\"]'")
             else -> throw IllegalArgumentException("unknown board source: $source")
         }
@@ -222,5 +250,62 @@ class McpListingCollector(
         private fun scriptFor(selector: String): String = CARD_SCRIPT
             .replace("__SELECTOR__", selector)
             .replace("__BADGES__", chipBadgeAlternation())
+
+        /**
+         * justjoin's redesigned listing page, validated against the live DOM
+         * on 2026-10-25 (39/39 offers extracted with companies on
+         * /job-offers/remote/java). Cards are no longer anchors, so the
+         * offer URLs come from the SSR JSON-LD ItemList and the company from
+         * the card text (first line above the title heading). Offers are
+         * keyed per URL, never per title: two live offers with the same
+         * title must both survive the join.
+         */
+        private val JUSTJOIN_JSONLD_SCRIPT = """(function(){
+            const offers = [];
+            document.querySelectorAll('script[type="application/ld+json"]').forEach(sc => {
+                let data; try { data = JSON.parse(sc.textContent || ''); } catch (e) { return; }
+                const nodes = Array.isArray(data && data['@graph']) ? data['@graph'] : [data];
+                nodes.forEach(n => {
+                    const list = n && n.mainEntity && n.mainEntity.itemListElement;
+                    if (!Array.isArray(list)) return;
+                    list.forEach(li => {
+                        const url = (li && li.url) || '';
+                        const name = (li && li.name) || '';
+                        if (url.indexOf('/job-offer/') < 0 || !name) return;
+                        offers.push({ url: url, name: name });
+                    });
+                });
+            });
+            const companyOf = new Map();
+            document.querySelectorAll('h1,h2,h3,h4').forEach(h => {
+                const t = (h.innerText || '').trim();
+                if (!t || companyOf.has(t)) return;
+                let p = h, lines = [];
+                for (let i = 0; i < 6 && p; i++) {
+                    p = p.parentElement;
+                    if (!p) break;
+                    lines = (p.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+                    if (lines.length >= 4) break;
+                }
+                const idx = lines.indexOf(t);
+                if (idx > 0) companyOf.set(t, lines[0]);
+            });
+            const seen = new Set();
+            const out = [];
+            offers.forEach(o => {
+                const id = o.url.split('/').filter(Boolean).pop() || '';
+                if (!id || seen.has(id)) return;
+                seen.add(id);
+                out.push({
+                    remote: true,
+                    id: id,
+                    title: o.name.slice(0, 140),
+                    company: (companyOf.get(o.name) || '').slice(0, 120),
+                    stack: ["__STACK__"],
+                    url: o.url
+                });
+            });
+            return JSON.stringify(out);
+        })()"""
     }
 }

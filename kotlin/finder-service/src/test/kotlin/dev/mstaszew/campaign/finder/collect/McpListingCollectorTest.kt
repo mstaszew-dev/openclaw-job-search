@@ -88,8 +88,87 @@ class McpListingCollectorTest {
     fun `page urls follow the documented board patterns`() {
         assertThat(McpListingCollector.pageUrl("nofluffjobs", "java"))
             .isEqualTo("https://nofluffjobs.com/pl/java?criteria=cityId%3Dremote")
+        assertThat(McpListingCollector.pageUrl("justjoin", "java"))
+            .isEqualTo("https://justjoin.it/job-offers/remote/java")
+    }
+
+    /**
+     * justjoin's 2025+ taxonomy has no remote categories for kotlin, node or
+     * react: /job-offers/remote/{kotlin,node,react} are 404 (checked
+     * 2026-10-25). Kotlin roles post under java, node and react under
+     * javascript, so map them onto categories that exist rather than
+     * navigating to a 404 page every window.
+     */
+    @Test
+    fun `justjoin maps stacks without a remote category onto the nearest one`() {
         assertThat(McpListingCollector.pageUrl("justjoin", "kotlin"))
-            .isEqualTo("https://justjoin.it/all-remote/kotlin")
+            .isEqualTo("https://justjoin.it/job-offers/remote/java")
+        assertThat(McpListingCollector.pageUrl("justjoin", "node"))
+            .isEqualTo("https://justjoin.it/job-offers/remote/javascript")
+        assertThat(McpListingCollector.pageUrl("justjoin", "react"))
+            .isEqualTo("https://justjoin.it/job-offers/remote/javascript")
+        assertThat(McpListingCollector.pageUrl("justjoin", "php"))
+            .isEqualTo("https://justjoin.it/job-offers/remote/php")
+    }
+
+    /**
+     * The default stack list folds java+kotlin onto java and node+react onto
+     * javascript; the second visit to a category would only burn a settle
+     * wait and inflate dupWindow, so one window scrapes each justjoin
+     * category exactly once.
+     */
+    @Test
+    fun `collect scrapes each justjoin category once per window`() {
+        val client = mockk<McpStdioClient>(relaxUnitFun = true) {
+            every { callToolText(any(), any(), any()) } returns "### Result\n[]"
+        }
+
+        McpListingCollector({ client }).collect("justjoin")
+
+        listOf(
+            "https://justjoin.it/job-offers/remote/java",
+            "https://justjoin.it/job-offers/remote/javascript",
+            "https://justjoin.it/job-offers/remote/php",
+        ).forEach { url ->
+            verify(exactly = 1) {
+                client.callToolText(
+                    eq("browser_navigate"),
+                    match { it.path("url").asText() == url },
+                    any(),
+                )
+            }
+        }
+        // No unexpected extra justjoin page beyond the three categories.
+        verify(exactly = 3) {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText().contains("justjoin.it") },
+                any(),
+            )
+        }
+    }
+
+    /**
+     * justjoin's 2025 redesign killed /all-remote (404 ever since; the board
+     * contributed zero listings the whole campaign - job_listings has no
+     * justjoin docs at all). The new listing page has no anchor cards (cards
+     * are MUI divs), but it server-renders a JSON-LD ItemList with every
+     * offer URL and title, and the hydrated cards carry the company as their
+     * first text line. The extractor joins the two by title. The scraped
+     * category is emitted as the stack so titles without a stack word
+     * ("Guidewire Policy Center Developer" on /remote/java) still pass the
+     * eligibility stack gate.
+     */
+    @Test
+    fun `justjoin extraction reads the json-ld item list instead of card anchors`() {
+        val script = McpListingCollector.extractionScript("justjoin", "kotlin")
+        assertThat(script).contains("application/ld+json")
+        assertThat(script).contains("itemListElement")
+        assertThat(script).contains("/job-offer/")
+        assertThat(script).contains("stack: [\"java\"]")
+        assertThat(script).doesNotContain("__SELECTOR__")
+        assertThat(script).doesNotContain("chipNoise")
+        assertThat(script).doesNotContain("__STACK__")
     }
 
     @Test
