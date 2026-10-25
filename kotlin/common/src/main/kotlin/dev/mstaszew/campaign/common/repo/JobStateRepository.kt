@@ -40,7 +40,27 @@ interface JobStateRepositoryCustom {
      * [beginAttempt], once the counter is safely in place.
      */
     fun markInFlight(id: String)
+
+    /**
+     * The finder's re-enqueue write: refreshes the score fields and moves the
+     * row to PENDING, guarded so a row the worker already drove to a terminal
+     * status is never reopened (a stranded PENDING row is the wielicka
+     * failure mode). Creates the row on first sight. Never touches attempts:
+     * resetting the counter on re-enqueue is what un-bounded the re-grind
+     * loops.
+     */
+    fun markReenqueued(seed: ReenqueueSeed)
 }
+
+/** The finder's enqueue projection of a job; carries no attempt semantics. */
+data class ReenqueueSeed(
+    val id: String,
+    val source: String,
+    val sourceJobId: String,
+    val companyKey: String,
+    val score: Int,
+    val scoreReason: String?,
+)
 
 /** The fields written on first insert; later attempts only bump the counter. */
 data class AttemptSeed(

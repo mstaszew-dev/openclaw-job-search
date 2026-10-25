@@ -42,6 +42,7 @@ class FinderPipelineTest {
     private val jobState = mockk<JobStateRepository> {
         every { save(any<JobStateDocument>()) } answers { firstArg() }
         every { findById(any<String>()) } returns java.util.Optional.empty()
+        every { markReenqueued(any()) } returns Unit
     }
     private val skips = mockk<SkipRepository> {
         every { save(any<SkipEntity>()) } answers { firstArg() }
@@ -145,7 +146,7 @@ class FinderPipelineTest {
         assertThat(message.id).isEqualTo("nofluffjobs:n-1")
         assertThat(message.score).isEqualTo(85)
         assertThat(message.companyKey).isEqualTo("funds-tech")
-        verify { jobState.save(match { it.id == "nofluffjobs:n-1" && it.status == JobStatus.PENDING }) }
+        verify { jobState.markReenqueued(match { it.id == "nofluffjobs:n-1" && it.score == 85 }) }
         verify { events.save(match { it.action == "enqueued" }) }
     }
 
@@ -301,5 +302,54 @@ class FinderPipelineTest {
             )
         }
         verify { leaseHandle.release() }
+    }
+
+    /**
+     * Delivery before bookkeeping. A PENDING row whose Kafka send failed has
+     * no recovery path: the worker never learns about the job, nothing walls
+     * the listing, and once it leaves the feed the row sits forever (wielicka,
+     * 2026-10-20: six failed sends, then five days stranded at PENDING
+     * attempts=0). Send first; the worker's recordAttempt upsert seeds
+     * job_state, so a message without a prior PENDING row is safe, and a
+     * failed send retries naturally on the next window.
+     */
+    @Test
+    fun `a failed kafka send leaves no pending row or enqueued event`() {
+        every {
+            kafka.send(eq(Topics.JOBS), any<String>(), any<Any>())
+        } returns CompletableFuture.failedFuture(IllegalStateException("broker down"))
+
+        val outcome = pipeline().process(listing())
+
+        assertThat(outcome).isInstanceOf(FinderPipeline.Outcome.SendFailed::class.java)
+        verify(exactly = 0) { jobState.markReenqueued(any()) }
+        verify(exactly = 0) { events.save(any()) }
+    }
+
+    @Test
+    fun `the pending row is written only after the send is acknowledged`() {
+        pipeline().process(listing())
+
+        io.mockk.verifyOrder {
+            kafka.send(Topics.JOBS, "funds-tech", any<JobMessage>())
+            jobState.markReenqueued(any())
+        }
+    }
+
+    /**
+     * Re-enqueue is one guarded server-side update (markReenqueued), not a
+     * read-modify-save: the consume can win the race now that the send
+     * precedes the write, and a save() replacement would clobber a terminal
+     * status or reset attempts - the counter un-bounding the iteamly
+     * re-grind loop read 1/3 across five grinds.
+     */
+    @Test
+    fun `re-enqueue is one guarded upsert that preserves attempts`() {
+        val outcome = pipeline().process(listing())
+
+        assertThat(outcome).isInstanceOf(FinderPipeline.Outcome.Enqueued::class.java)
+        verify(exactly = 1) { jobState.markReenqueued(match { it.id == "nofluffjobs:n-1" }) }
+        verify(exactly = 0) { jobState.findById(any<String>()) }
+        verify(exactly = 0) { jobState.save(any<JobStateDocument>()) }
     }
 }

@@ -66,6 +66,41 @@ class JobStateRepositoryImpl(
         }
     }
 
+    /**
+     * Same split as [beginAttempt]/[markInFlight]: the upsert carries the
+     * identity fields and the score refresh, the guarded update moves a
+     * non-terminal row to PENDING. The consume may already be running (the
+     * finder's send precedes this write), so nothing here may clobber a
+     * terminal status or the attempt counter.
+     */
+    override fun markReenqueued(seed: ReenqueueSeed) {
+        val now = Instant.now()
+        mongo.upsert(
+            Query.query(Criteria.where("_id").`is`(seed.id)),
+            Update()
+                .setOnInsert("source", seed.source)
+                .setOnInsert("sourceJobId", seed.sourceJobId)
+                .setOnInsert("companyKey", seed.companyKey)
+                .setOnInsert("createdAt", now)
+                .setOnInsert("status", JobStatus.PENDING.name)
+                .set("score", seed.score)
+                .set("scoreReason", seed.scoreReason)
+                .set("updatedAt", now),
+            JobStateDocument::class.java,
+        )
+        val result = mongo.updateFirst(
+            Query.query(
+                Criteria.where("_id").`is`(seed.id)
+                    .and("status").nin(*TERMINAL_STATUSES),
+            ),
+            Update().set("status", JobStatus.PENDING.name).set("updatedAt", Instant.now()),
+            JobStateDocument::class.java,
+        )
+        if (result.matchedCount == 0L) {
+            log.debug("job_state {} is already terminal; re-enqueue leaves its status alone", seed.id)
+        }
+    }
+
     private companion object {
         val TERMINAL_STATUSES = arrayOf(
             JobStatus.SHADOW_RELEASED.name,

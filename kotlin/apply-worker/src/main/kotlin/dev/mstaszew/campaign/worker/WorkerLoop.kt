@@ -391,8 +391,34 @@ class WorkerLoop(
             is ApplyResult.Failed -> {
                 log.warn("job {} failed: {}", job.id, result.detail)
                 markTerminal(job, JobStatus.FAILED, result.detail)
+                wallFailedReenqueue(listing, job, result.detail)
                 notifier.failed(job.id, result.detail)
             }
+        }
+    }
+
+    /**
+     * A Failed outcome is terminal for this delivery but must also stop the
+     * NEXT one: the finder enqueues anything the dedup wall does not cover,
+     * and FAILED used to write no wall, so a hostile listing re-ground the
+     * browser on every window it stayed in the feed (iteamly, 2026-10-25:
+     * four grinds in one evening, attempts reset by each re-enqueue).
+     * Best-effort by design: the grind already happened, so a failed wall
+     * write logs loudly and keeps the ack instead of sending the message
+     * back to the browser for another grind. The swallow is bounded by the
+     * finder's attempts-preserve contract (markReenqueued never resets the
+     * counter): past maxAttempts, overBound routes to deadLetter and its
+     * strict wall-before-commit policy. Never weaken one side without the
+     * other.
+     */
+    private fun wallFailedReenqueue(listing: JobListingEntity, job: JobMessage, detail: String) {
+        try {
+            recorder.recordFailedWall(listing, job.id, "browser-failed: ${detail.take(300)}")
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            log.error("interrupted while walling failed job {}", job.id)
+        } catch (e: Exception) {
+            log.error("failed to wall {} from re-enqueue; it may re-grind", job.id, e)
         }
     }
 

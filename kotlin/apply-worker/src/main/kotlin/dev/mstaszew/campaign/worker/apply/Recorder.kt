@@ -130,6 +130,30 @@ class Recorder(
      */
     @Transactional
     fun recordDeadLettered(listing: JobListingEntity, jobId: String, detail: String) {
+        wallListing("deadLettered", listing, detail)
+    }
+
+    /**
+     * The browser-failed wall: the same shape as the dead-letter wall. A
+     * Failed outcome is terminal in job_state but used to write nothing the
+     * dedup wall reads, so the finder re-enqueued the listing on every window
+     * it stayed in the feed and the worker re-ground it (2026-10-25 iteamly
+     * zombie, the FAILED twin of the dead-letter loop walled above).
+     * Deliberately companyKey-less for the same reason: the wall stops THIS
+     * listing, not the company's other open requisitions.
+     */
+    @Transactional
+    fun recordFailedWall(listing: JobListingEntity, jobId: String, detail: String) {
+        wallListing("failedWall", listing, detail)
+    }
+
+    /**
+     * Shared write shape of both re-enqueue walls (dead-letter and
+     * browser-failed): a DUPLICATE skip that stops THIS listing via the id
+     * and url branches - never companyKey, which would wall the company's
+     * other requisitions - plus an audit event. job_state is left alone.
+     */
+    private fun wallListing(action: String, listing: JobListingEntity, detail: String) {
         skips.save(
             SkipEntity(
                 reason = SkipReason.DUPLICATE,
@@ -142,7 +166,7 @@ class Recorder(
                 detail = detail.take(500),
             ),
         )
-        events.save(event("deadLettered", listing, mapOf("detail" to detail)))
+        events.save(event(action, listing, mapOf("detail" to detail)))
     }
 
     /**

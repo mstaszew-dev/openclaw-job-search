@@ -62,6 +62,28 @@ class McpListingCollectorTest {
         assertThat(listings).isEmpty()
     }
 
+    /**
+     * Board card hrefs carry session state in the query (theprotocol appends
+     * ?remote=true&s=...&searchId=<uuid> on every render), and the card id
+     * was the raw last path segment including that query: one listing minted
+     * a new job id per window, three grinds and three job_state rows for one
+     * requisition (andrychow, 2026-10-23..24). The source id is the path
+     * slug; anything from '?' or '#' on is session state.
+     */
+    @Test
+    fun `card ids shed volatile query params into a stable source id`() {
+        val text = """[{"remote":true,"id":"wielicka-28,oferta,01000000-36eb?remote=true&s=-1&searchId=abc","title":"Senior Software Engineer (React)","company":"New Co","url":"https://theprotocol.it/praca/wielicka-28,oferta,01000000-36eb?remote=true&searchId=abc"},""" +
+            """{"remote":true,"id":"?remote=true&searchId=only-query","title":"Query Only","company":"C","url":"https://theprotocol.it/praca/x?remote=true"}]"""
+
+        val listings = McpListingCollector({ throw IllegalStateException() })
+            .let { it.parseForTest(text, "theprotocol") }
+
+        // The query-only id strips to blank and fails closed rather than
+        // enqueuing a job with an empty identity.
+        assertThat(listings).hasSize(1)
+        assertThat(listings.single().sourceJobId).isEqualTo("wielicka-28,oferta,01000000-36eb")
+    }
+
     @Test
     fun `page urls follow the documented board patterns`() {
         assertThat(McpListingCollector.pageUrl("nofluffjobs", "java"))

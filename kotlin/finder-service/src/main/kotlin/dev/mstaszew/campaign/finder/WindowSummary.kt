@@ -16,12 +16,14 @@ class WindowSummary {
     var ineligible: Int = 0; private set
     var lowScore: Int = 0; private set
     var enqueued: Int = 0; private set
+    var sendFailed: Int = 0; private set
     var failed: Int = 0; private set
 
     fun record(outcome: FinderPipeline.Outcome) {
         seen++
         when (outcome) {
             is FinderPipeline.Outcome.Enqueued -> enqueued++
+            is FinderPipeline.Outcome.SendFailed -> sendFailed++
             is FinderPipeline.Outcome.Duplicate ->
                 if (outcome.matchedOn == WINDOW_SCAN_TAG) dupWindow++ else deduped++
             is FinderPipeline.Outcome.Ineligible -> ineligible++
@@ -36,7 +38,8 @@ class WindowSummary {
 
     fun line(): String =
         "window summary: seen=$seen dupWindow=$dupWindow deduped=$deduped " +
-            "ineligible=$ineligible lowScore=$lowScore enqueued=$enqueued failed=$failed"
+            "ineligible=$ineligible lowScore=$lowScore enqueued=$enqueued " +
+            "sendFailed=$sendFailed failed=$failed"
 
     companion object {
         /** matchedOn tag FinderPipeline uses for same-window re-sightings. */

@@ -123,7 +123,12 @@ class McpListingCollector(
     }
 
     private fun toListing(source: String, n: JsonNode): CollectedListing? {
-        val jobId = n.path("id").asText("")
+        // Board card ids can carry volatile session state in the query
+        // (theprotocol hrefs append ?remote=true&s=...&searchId=<uuid> per
+        // render); keep the path slug only, or one listing mints a new job
+        // id every window (andrychow, 2026-10-23..24: three ids, three
+        // grinds, one requisition).
+        val jobId = n.path("id").asText("").substringBefore('?').substringBefore('#')
         val url = n.path("url").asText("")
         val company = n.path("company").asText("")
         val title = n.path("title").asText("")

@@ -528,4 +528,46 @@ class WorkerLoopTest {
         verify(exactly = 0) { chromeLease.acquire(any(), any(), any(), any(), any(), any()) }
         assertThat(ack.count).isEqualTo(1)
     }
+
+    /**
+     * A browser-failed apply is terminal in job_state but used to write
+     * nothing the dedup wall reads, so the finder (which never reads
+     * job_state) re-enqueued the listing on every window it stayed in the
+     * feed, and the worker re-ground it - the FAILED twin of the dead-letter
+     * zombie loop (iteamly, 2026-10-25: four grinds in one evening). The
+     * Failed outcome must wall the listing like a dead letter does.
+     */
+    @Test
+    fun `live mode walls a browser-failed listing from re-enqueue`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Failed("step cap 80 reached without outcome")
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 1) {
+            recorder.recordFailedWall(any(), eq("justjoin:jj-1"), match { it.startsWith("browser-failed") })
+        }
+        verify { jobState.save(match { it.id == "justjoin:jj-1" && it.status == JobStatus.FAILED }) }
+        verify(exactly = 1) { notifier.failed("justjoin:jj-1", "step cap 80 reached without outcome") }
+        assertThat(ack.count).isEqualTo(1)
+    }
+
+    /**
+     * The grind already happened; a wall-write failure must degrade loudly to
+     * the pre-wall behavior rather than throw the message back into
+     * redelivery, which would re-open the browser for a listing that just
+     * failed its grind.
+     */
+    @Test
+    fun `a failing failed-wall does not trigger a redelivery`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns ApplyResult.Failed("womp")
+        every { recorder.recordFailedWall(any(), any(), any()) } throws IllegalStateException("mongo blip")
+
+        loop("live").onMessage(job, ack)
+
+        assertThat(ack.count).isEqualTo(1)
+        verify(exactly = 0) { kafka.send(any<String>(), any<String>(), any<Any>()) }
+    }
 }

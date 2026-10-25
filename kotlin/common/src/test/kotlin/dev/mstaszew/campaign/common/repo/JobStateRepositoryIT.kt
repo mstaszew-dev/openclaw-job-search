@@ -125,4 +125,68 @@ class JobStateRepositoryIT {
             pool.shutdownNow()
         }
     }
+
+    private fun reenqueueSeed(score: Int = 91) = ReenqueueSeed(
+        id = "justjoin:1",
+        source = "justjoin",
+        sourceJobId = "1",
+        companyKey = "acme",
+        score = score,
+        scoreReason = "re-scored",
+    )
+
+    /**
+     * Re-enqueue must refresh the score but never reset attempts: the counter
+     * going back to zero on every window is what un-bounded the iteamly
+     * re-grind loop (attempts read 1/3 across five grinds).
+     */
+    @Test
+    fun `re-enqueue preserves attempts and refreshes the score`() {
+        jobState.beginAttempt(seed())
+        jobState.beginAttempt(seed())
+
+        jobState.markReenqueued(reenqueueSeed())
+
+        val doc = jobState.findById("justjoin:1").orElseThrow()
+        assertThat(doc.status).isEqualTo(JobStatus.PENDING)
+        assertThat(doc.attempts).isEqualTo(2)
+        assertThat(doc.score).isEqualTo(91)
+        assertThat(doc.scoreReason).isEqualTo("re-scored")
+    }
+
+    /**
+     * The send precedes the re-enqueue write, so the worker may have consumed
+     * and finished first; flipping the row back to PENDING would strand it
+     * forever (wielicka, 2026-10-20: five days PENDING attempts=0 after six
+     * failed sends).
+     */
+    @Test
+    fun `markReenqueued does not reopen a terminal job`() {
+        jobState.beginAttempt(seed())
+        jobState.save(
+            JobStateDocument(
+                id = "justjoin:1",
+                source = "justjoin",
+                sourceJobId = "1",
+                status = JobStatus.SUBMITTED,
+                attempts = 1,
+            ),
+        )
+
+        jobState.markReenqueued(reenqueueSeed())
+
+        val doc = jobState.findById("justjoin:1").orElseThrow()
+        assertThat(doc.status).isEqualTo(JobStatus.SUBMITTED)
+        assertThat(doc.attempts).isEqualTo(1)
+    }
+
+    @Test
+    fun `first-ever enqueue creates a PENDING row`() {
+        jobState.markReenqueued(reenqueueSeed())
+
+        val doc = jobState.findById("justjoin:1").orElseThrow()
+        assertThat(doc.status).isEqualTo(JobStatus.PENDING)
+        assertThat(doc.attempts).isZero()
+        assertThat(doc.source).isEqualTo("justjoin")
+    }
 }

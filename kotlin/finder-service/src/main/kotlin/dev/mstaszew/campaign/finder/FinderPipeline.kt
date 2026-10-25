@@ -18,6 +18,7 @@ import dev.mstaszew.campaign.common.repo.EventRepository
 import dev.mstaszew.campaign.common.repo.ChromeLease
 import dev.mstaszew.campaign.common.repo.JobListingRepository
 import dev.mstaszew.campaign.common.repo.JobStateRepository
+import dev.mstaszew.campaign.common.repo.ReenqueueSeed
 import dev.mstaszew.campaign.common.repo.SkipRepository
 import dev.mstaszew.campaign.finder.collect.CollectedListing
 import dev.mstaszew.campaign.finder.collect.ListingCollector
@@ -33,6 +34,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.support.TransactionTemplate
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * One discovery run: collect -> upsert -> dedup -> eligibility -> score ->
@@ -184,14 +186,41 @@ class FinderPipeline(
             enqueuedAt = java.time.Instant.now(),
         )
 
+        // Delivery before bookkeeping. A PENDING row whose send failed has no
+        // recovery path: the worker never learns about the job, nothing walls
+        // the listing, and once it leaves the feed the row strands forever
+        // (wielicka, 2026-10-20: six failed sends, five days at PENDING
+        // attempts=0). The worker's recordAttempt upsert seeds job_state, so
+        // a message without a prior PENDING row is safe, and a failed send
+        // retries naturally on the next window.
+        try {
+            // Keyed by companyKey so every job for one company lands on one
+            // partition and is consumed by a single worker, in order.
+            kafka.send(Topics.JOBS, message.companyKey, message)
+                .get(KAFKA_SEND_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            log.error("interrupted sending {}; this window's enqueue is dropped for retry", message.id)
+            return Outcome.SendFailed(e.message ?: "interrupted")
+        } catch (e: Exception) {
+            log.error("kafka send failed for {}; the next window re-enqueues it: {}", message.id, e.message)
+            return Outcome.SendFailed(e.message ?: "send failed")
+        }
+
         tx.executeWithoutResult {
-            jobState.save(
-                JobStateDocument(
+            // Atomic and guarded (JobStateRepository.markReenqueued): the
+            // send already succeeded, so the worker may be consuming right
+            // now; a read-modify-save could clobber its terminal status or
+            // lose an attempt increment. attempts is preserved by design -
+            // the counter resetting to zero on every window is what
+            // un-bounded the re-grind loop (iteamly read 1/3 across five
+            // grinds).
+            jobState.markReenqueued(
+                ReenqueueSeed(
                     id = message.id,
                     source = message.source,
                     sourceJobId = message.sourceJobId,
                     companyKey = message.companyKey,
-                    status = JobStatus.PENDING,
                     score = score.score,
                     scoreReason = message.scoreReason,
                 ),
@@ -207,12 +236,6 @@ class FinderPipeline(
                     },
                 ),
             )
-        }
-
-        // Keyed by companyKey so every job for one company lands on one
-        // partition and is consumed by a single worker, in order.
-        kafka.send(Topics.JOBS, message.companyKey, message).whenComplete { _, ex ->
-            if (ex != null) log.warn("kafka send failed for {}: {}", message.id, ex.message)
         }
         return Outcome.Enqueued(score.score, score.reason)
     }
@@ -288,8 +311,14 @@ class FinderPipeline(
     private fun roleKeyOrNull(roleTitle: String): String? =
         roleTitle.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').takeIf { it.isNotEmpty() }
 
+    private companion object {
+        /** Bounded send await: the enqueue path must fail fast, not hang the window. */
+        const val KAFKA_SEND_TIMEOUT_MS = 10_000L
+    }
+
     sealed class Outcome {
         data class Enqueued(val score: Int, val reason: String) : Outcome()
+        data class SendFailed(val reason: String?) : Outcome()
         data class Duplicate(val matchedOn: String?, val reference: String?) : Outcome()
         data class Ineligible(val reason: String, val detail: String) : Outcome()
         data class LowScore(val score: Int, val reason: String) : Outcome()

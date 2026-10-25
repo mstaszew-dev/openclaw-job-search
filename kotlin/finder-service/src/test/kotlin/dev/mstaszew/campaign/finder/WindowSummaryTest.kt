@@ -32,7 +32,20 @@ class WindowSummaryTest {
         summary.record(FinderPipeline.Outcome.Duplicate("window-scan", "a:1"))
 
         assertThat(summary.line())
-            .isEqualTo("window summary: seen=2 dupWindow=1 deduped=0 ineligible=0 lowScore=0 enqueued=1 failed=0")
+            .isEqualTo(
+                "window summary: seen=2 dupWindow=1 deduped=0 ineligible=0 lowScore=0 enqueued=1 sendFailed=0 failed=0",
+            )
+    }
+
+    @Test
+    fun `send failures count toward seen and their own counter`() {
+        val summary = WindowSummary()
+        summary.record(FinderPipeline.Outcome.SendFailed("broker down"))
+        summary.record(FinderPipeline.Outcome.Enqueued(70, "stack fit"))
+
+        assertThat(summary.seen).isEqualTo(2)
+        assertThat(summary.sendFailed).isEqualTo(1)
+        assertThat(summary.enqueued).isEqualTo(1)
     }
 
     @Test

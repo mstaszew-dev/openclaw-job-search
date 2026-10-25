@@ -176,6 +176,26 @@ class RecorderTest {
         verify(exactly = 0) { jobState.save(any()) }
     }
 
+    /**
+     * Same write shape as the dead-letter wall: listing-scoped (no
+     * companyKey, so one failed requisition cannot wall the company's other
+     * open roles) and job_state stays FAILED.
+     */
+    @Test
+    fun `failed wall is listing-scoped and leaves job_state alone`() {
+        recorder.recordFailedWall(listing, jobId, "browser-failed: step cap reached")
+
+        val slot = io.mockk.slot<SkipEntity>()
+        verify { skips.save(capture(slot)) }
+        assertThat(slot.captured.reason).isEqualTo(SkipReason.DUPLICATE)
+        assertThat(slot.captured.companyKey).isNull()
+        assertThat(slot.captured.source).isEqualTo(listing.source)
+        assertThat(slot.captured.sourceJobId).isEqualTo(listing.sourceJobId)
+        assertThat(slot.captured.url).isEqualTo(listing.url)
+        verify { events.save(match { it.action == "failedWall" }) }
+        verify(exactly = 0) { jobState.save(any()) }
+    }
+
     @Test
     fun `evidence is stored as a queryable subdocument`() {
         recorder.recordSubmitted(
