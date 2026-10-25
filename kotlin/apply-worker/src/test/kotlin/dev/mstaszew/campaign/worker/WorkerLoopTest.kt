@@ -21,6 +21,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import io.mockk.verifyOrder
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.kafka.core.KafkaTemplate
@@ -309,6 +310,84 @@ class WorkerLoopTest {
         verify(exactly = 1) { notifier.deadLettered("justjoin:jj-1", "still broken") }
         assertThat(ack.count).isEqualTo(1)
         assertThat(stored.last().status).isEqualTo(JobStatus.DEAD)
+    }
+
+    /**
+     * The dedup wall reads applications + DUPLICATE skips only, and the finder
+     * enqueues anything the wall does not cover: a dead-lettered job used to
+     * write neither, so one hostile listing was re-enqueued every dedup window
+     * and re-ground the worker for hours (2026-10-25 zombie loop: 5
+     * deliveries, three 80-step cap-outs, one iteamly page, browser wedged
+     * after each). The dead-letter must wall the listing from re-enqueue,
+     * strictly before the commit: a lost skip write here is a zombie that no
+     * later cycle can ever wall.
+     */
+    @Test
+    fun `a dead-lettered job writes the duplicate skip that walls re-enqueue`() {
+        every { jobState.findById("justjoin:jj-1") } returns Optional.empty()
+        every { dedup.check(any()) } throws IllegalStateException("still broken")
+        every {
+            kafka.send(dev.mstaszew.campaign.common.messaging.Topics.JOBS_DLQ, any<String>(), any<Any>())
+        } returns CompletableFuture.completedFuture(mockk(relaxed = true))
+
+        val loop = WorkerLoop(
+            listings = listings,
+            events = events,
+            jobState = jobState,
+            dedup = dedup,
+            recorder = recorder,
+            browserAgent = browserAgent,
+            chromeLease = chromeLease,
+            props = WorkerProperties(applyMode = "live", workerId = "w1", maxAttempts = 1),
+            tx = tx,
+            kafka = kafka,
+            notifier = notifier,
+            mapper = com.fasterxml.jackson.databind.ObjectMapper(),
+        )
+
+        loop.onMessage(job, ack)
+
+        verify(exactly = 1) {
+            recorder.recordDeadLettered(any(), eq("justjoin:jj-1"), match { it.startsWith("dead-letter") })
+        }
+        verifyOrder {
+            recorder.recordDeadLettered(any(), any(), any())
+            notifier.deadLettered(any(), any())
+        }
+        assertThat(ack.count).isEqualTo(1)
+    }
+
+    /**
+     * The commit-after-write contract extends to the wall: a dead letter
+     * whose skip write failed must not commit, or the listing stays a zombie
+     * no later cycle can ever wall (the redelivery re-walls via overBound).
+     */
+    @Test
+    fun `a failing dead-letter wall leaves the offset uncommitted`() {
+        every { dedup.check(any()) } throws IllegalStateException("still broken")
+        every { recorder.recordDeadLettered(any(), any(), any()) } throws IllegalStateException("mongo blip")
+        every {
+            kafka.send(dev.mstaszew.campaign.common.messaging.Topics.JOBS_DLQ, any<String>(), any<Any>())
+        } returns CompletableFuture.completedFuture(mockk(relaxed = true))
+
+        val loop = WorkerLoop(
+            listings = listings,
+            events = events,
+            jobState = jobState,
+            dedup = dedup,
+            recorder = recorder,
+            browserAgent = browserAgent,
+            chromeLease = chromeLease,
+            props = WorkerProperties(applyMode = "live", workerId = "w1", maxAttempts = 1),
+            tx = tx,
+            kafka = kafka,
+            notifier = notifier,
+            mapper = com.fasterxml.jackson.databind.ObjectMapper(),
+        )
+
+        loop.onMessage(job, ack)
+
+        assertThat(ack.count).isZero()
     }
 
     /**

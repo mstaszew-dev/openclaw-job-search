@@ -172,6 +172,39 @@ class WorkerLoop(
             return
         }
         failJob(job, message)
+        // Wall the listing from finder re-enqueue before the commit: the
+        // dedup wall reads applications + DUPLICATE skips only, and a
+        // dead letter writes neither by itself. Without this, one hostile
+        // listing was re-enqueued every dedup window and re-ground to the
+        // step cap each time (the 2026-10-25 zombie loop: 5 deliveries,
+        // ~5h, one iteamly page, browser wedged after each). Live only:
+        // shadow's contract is zero ledger writes. Same contract as the
+        // DLQ send above: a failed wall write leaves the offset
+        // uncommitted, and the redelivery re-walls via overBound.
+        val walled = try {
+            if (props.applyMode == "live") {
+                recorder.recordDeadLettered(
+                    listingFor(job),
+                    job.id,
+                    "dead-letter after $attempt attempts: ${message.take(300)}",
+                )
+            }
+            null
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            log.error("interrupted while walling job {}; leaving the offset uncommitted", job.id)
+            return
+        } catch (e: Exception) {
+            e
+        }
+        if (walled != null) {
+            log.error(
+                "job {} dead-lettered but the wall write failed; leaving the offset uncommitted",
+                job.id,
+                walled,
+            )
+            return
+        }
         // After the DLQ write and the terminal job_state update: Slack reports
         // persisted facts, not intentions. The notifier itself swallows all
         // failures, so this cannot break the commit that follows.

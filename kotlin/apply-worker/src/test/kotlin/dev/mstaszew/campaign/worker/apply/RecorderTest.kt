@@ -153,6 +153,29 @@ class RecorderTest {
         verify { jobState.save(match { it.id == jobId && it.status == JobStatus.SKIPPED_DUPLICATE }) }
     }
 
+    /**
+     * The dead-letter wall is the zombie-loop fix, and its two load-bearing
+     * properties live in the WRITE SHAPE: companyKey must be null (a set
+     * companyKey would wall every other requisition of the company through
+     * the dedup company branch) and job_state must stay DEAD (a
+     * SKIPPED_DUPLICATE overwrite corrupts the stats dead count). A
+     * "consistency" edit reintroducing either must fail here.
+     */
+    @Test
+    fun `dead-letter wall is listing-scoped and leaves job_state alone`() {
+        recorder.recordDeadLettered(listing, jobId, "dead-letter after 3 attempts: broken")
+
+        val slot = io.mockk.slot<SkipEntity>()
+        verify { skips.save(capture(slot)) }
+        assertThat(slot.captured.reason).isEqualTo(SkipReason.DUPLICATE)
+        assertThat(slot.captured.companyKey).isNull()
+        assertThat(slot.captured.source).isEqualTo(listing.source)
+        assertThat(slot.captured.sourceJobId).isEqualTo(listing.sourceJobId)
+        assertThat(slot.captured.url).isEqualTo(listing.url)
+        verify { events.save(match { it.action == "deadLettered" }) }
+        verify(exactly = 0) { jobState.save(any()) }
+    }
+
     @Test
     fun `evidence is stored as a queryable subdocument`() {
         recorder.recordSubmitted(

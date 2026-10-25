@@ -6,9 +6,11 @@ import dev.mstaszew.campaign.common.mcp.McpStdioClient
 import dev.mstaszew.campaign.common.net.ChatTransport
 import dev.mstaszew.campaign.common.net.LlmClient
 import dev.mstaszew.campaign.common.repo.JobListingRepository
+import io.mockk.MockKMatcherScope
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.mockk.verifyOrder
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.time.Duration
@@ -206,8 +208,9 @@ class BrowserAgentTest {
                     "last error: tool browser_navigate failed: net::ERR_DEAD",
             ),
         )
-        // 3 model navigations + 1 post-attempt page blank (tab hygiene)
-        verify(exactly = 4) { browser.callToolText(any(), any(), any()) }
+        // 3 model navigations + 1 post-attempt page blank + 1 tab list whose
+        // parse finds no tabs (default mock) = tab hygiene adds 2 calls.
+        verify(exactly = 5) { browser.callToolText(any(), any(), any()) }
         verify(exactly = 0) { recorder.recordSubmitted(any(), any(), any()) }
     }
 
@@ -370,6 +373,188 @@ class BrowserAgentTest {
                 eq(BrowserAgent.PAGE_CLEANUP_TIMEOUT),
             )
         }
+    }
+
+    /**
+     * Unit-end cleanup, beyond blanking: portals force target=_blank tabs the
+     * model never chose (failure mode 7: one dead Lever tab poisoned 5+ later
+     * blockers), and widget-laden pages keep OOPIF orphans alive on every tab
+     * they touch (failure mode 8: the 2026-10-24 iteamly wedge). Order is
+     * load-bearing: blank the CURRENT tab first - its iframes die with the
+     * page, and it stays the session's live page as the cleanup survivor;
+     * closing it first would strand the MCP session on a dead page reference.
+     * Cookie sessions live in the browser profile, not in tabs: closing and
+     * blanking cannot log out; only the mode-6 stack wipe drops them.
+     */
+    private fun stubTabList(vararg lines: String) {
+        every {
+            browser.callToolText(eq("browser_tabs"), match { it.path("action").asText() == "list" }, any())
+        } returns (listOf("### Result") + lines.toList()).joinToString("\n")
+    }
+
+    private fun MockKMatcherScope.closeTab(index: Int) =
+        match<com.fasterxml.jackson.databind.JsonNode> {
+            it.path("action").asText() == "close" && it.path("index").asInt() == index
+        }
+
+    @Test
+    fun `attempt end closes portal-opened tabs, keeping the blanked survivor`() {
+        stubTabList(
+            "- 0: (current) [](about:blank)",
+            "- 1: [Apply - Senior Dev](https://iteamly.com/apply/x)",
+            "- 2: [Job listing](https://nofluffjobs.com/pl/job/x)",
+        )
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://nfj.com/applied","confirmationText":"submitted","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        verifyOrder {
+            browser.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                any(),
+            )
+            browser.callToolText(eq("browser_tabs"), closeTab(2), any())
+            browser.callToolText(eq("browser_tabs"), closeTab(1), any())
+        }
+        verify(exactly = 0) { browser.callToolText(eq("browser_tabs"), closeTab(0), any()) }
+    }
+
+    @Test
+    fun `the survivor is the session's current tab even when blanking failed`() {
+        stubTabList(
+            "- 0: (current) [Job listing](https://nofluffjobs.com/pl/job/x)",
+            "- 1: [](about:blank)",
+        )
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://nfj.com/applied","confirmationText":"submitted","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        verify { browser.callToolText(eq("browser_tabs"), closeTab(1), any()) }
+        verify(exactly = 0) { browser.callToolText(eq("browser_tabs"), closeTab(0), any()) }
+    }
+
+    @Test
+    fun `a tab list without a current marker keeps the lowest index`() {
+        stubTabList(
+            "- 0: [](about:blank)",
+            "- 1: [Job listing](https://nofluffjobs.com/pl/job/x)",
+        )
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://nfj.com/applied","confirmationText":"submitted","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        verify { browser.callToolText(eq("browser_tabs"), closeTab(1), any()) }
+        verify(exactly = 0) { browser.callToolText(eq("browser_tabs"), closeTab(0), any()) }
+    }
+
+    @Test
+    fun `a wedged tab list still blanks the tab and leaves the outcome alone`() {
+        every { browser.callToolText(eq("browser_tabs"), any(), any()) } throws
+            RuntimeException("initializeServer: Timeout 5000ms exceeded")
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://nfj.com/applied","confirmationText":"submitted","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        verify {
+            browser.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `one failing tab close does not stop the remaining closes`() {
+        stubTabList(
+            "- 0: (current) [](about:blank)",
+            "- 1: [Apply form](https://iteamly.com/apply/x)",
+            "- 2: [Job listing](https://nofluffjobs.com/pl/job/x)",
+        )
+        every { browser.callToolText(eq("browser_tabs"), closeTab(2), any()) } throws RuntimeException("poof")
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://nfj.com/applied","confirmationText":"submitted","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        verify { browser.callToolText(eq("browser_tabs"), closeTab(1), any()) }
+        verify {
+            browser.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `tab closes are capped so a leaked browser cannot stall the queue tail`() {
+        stubTabList(
+            "- 0: (current) [](about:blank)",
+            "- 1: [t1](https://x.invalid/1)",
+            "- 2: [t2](https://x.invalid/2)",
+            "- 3: [t3](https://x.invalid/3)",
+            "- 4: [t4](https://x.invalid/4)",
+            "- 5: [t5](https://x.invalid/5)",
+            "- 6: [t6](https://x.invalid/6)",
+            "- 7: [t7](https://x.invalid/7)",
+            "- 8: [t8](https://x.invalid/8)",
+        )
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://nfj.com/applied","confirmationText":"submitted","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        verify(exactly = 5) { browser.callToolText(eq("browser_tabs"), match { it.path("action").asText() == "close" }, any()) }
+        verify(exactly = 1) { browser.callToolText(eq("browser_tabs"), closeTab(4), any()) }
+        verify(exactly = 0) { browser.callToolText(eq("browser_tabs"), closeTab(3), any()) }
     }
 
     /**

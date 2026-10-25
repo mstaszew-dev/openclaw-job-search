@@ -118,6 +118,34 @@ class Recorder(
     }
 
     /**
+     * The dead-letter wall: the finder re-enqueues anything the dedup wall
+     * does not cover, and a dead letter without a skip row re-grinds the
+     * worker to the step cap on every dedup window (the 2026-10-25 zombie
+     * loop: 5 deliveries, ~5h, one iteamly page). Deliberately
+     * companyKey-less - the wall must stop THIS listing (the id and url
+     * branches), not silence every other open requisition of the company
+     * via the dedup company branch. Leaves job_state alone: deadLetter
+     * already marked it DEAD, and a SKIPPED_DUPLICATE overwrite would
+     * corrupt the dead count in stats.
+     */
+    @Transactional
+    fun recordDeadLettered(listing: JobListingEntity, jobId: String, detail: String) {
+        skips.save(
+            SkipEntity(
+                reason = SkipReason.DUPLICATE,
+                listingId = listing.id,
+                source = listing.source,
+                sourceJobId = listing.sourceJobId,
+                company = listing.company,
+                roleTitle = listing.roleTitle,
+                url = listing.url,
+                detail = detail.take(500),
+            ),
+        )
+        events.save(event("deadLettered", listing, mapOf("detail" to detail)))
+    }
+
+    /**
      * Repeat-block guard port: a SECOND block for the same company writes a
      * dedupe-visible blockedRepeat skip. Sentinel company keys fall back to
      * LISTING scope (source:sourceJobId) exactly like update_tracker.py, so a
