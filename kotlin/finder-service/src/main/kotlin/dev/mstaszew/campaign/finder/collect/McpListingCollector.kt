@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.mstaszew.campaign.common.dedupe.CompanyKeyNormalizer
 import dev.mstaszew.campaign.common.mcp.McpClientException
 import dev.mstaszew.campaign.common.mcp.McpStdioClient
+import dev.mstaszew.campaign.common.mcp.TabCleanup
 import dev.mstaszew.campaign.common.net.LlmClientException
 import org.slf4j.LoggerFactory
 import java.math.BigDecimal
@@ -43,22 +44,17 @@ class McpListingCollector(
                     }
                 }
             } finally {
-                // Tab hygiene, on every exit: the board page keeps OOPIF
-                // iframes (hubspot chat, ad trackers) alive after this MCP
-                // session ends, and those targets stall every later
-                // playwright-mcp connectOverCDP at init (the 2026-10-22
-                // wedge: async initializeServer timeout with ws connected).
-                // Blanking the tab destroys the iframes without closing the
-                // shared Chrome; best-effort, never blocks the run.
-                runCatching {
-                    client.callToolText(
-                        "browser_navigate",
-                        mapper.createObjectNode().apply { put("url", "about:blank") },
-                        CLEANUP_TIMEOUT,
-                    )
-                }.onFailure { e ->
-                    log.warn("collect {}: post-collect page blank failed: {}", source, e.message?.take(120))
-                }
+                // Tab hygiene on every exit (shared TabCleanup, also used by
+                // the worker's BrowserAgent): the board page and its OOPIF
+                // iframes (hubspot chat, ad trackers) - plus any target=_blank
+                // tabs it opened - outlive this MCP session, and those orphan
+                // targets stall every later playwright-mcp connectOverCDP at
+                // init (the 2026-10-22 wedge: async initializeServer timeout
+                // with ws connected). Blank the CURRENT tab first, then close
+                // every non-survivor tab descending; portal login state lives
+                // in the profile cookie jar, untouched. Best-effort, never
+                // blocks the run.
+                TabCleanup.run(client, mapper, "collect $source")
             }
         }
         return out
@@ -71,13 +67,17 @@ class McpListingCollector(
             mapper.createObjectNode().apply { put("url", pageUrl) },
             toolTimeout,
         )
-        // let the SPA settle its own canonical redirects before evaluating
+        // let the SPA settle its own canonical redirects before evaluating;
+        // bounded well below the tool timeout so a wedged wait_for cannot eat
+        // 90s per stack (five wedged stacks nearly filled a 15-min window)
         runCatching {
             client.callToolText(
                 "browser_wait_for",
                 mapper.createObjectNode().apply { put("time", 3) },
-                toolTimeout,
+                SETTLE_TIMEOUT,
             )
+        }.onFailure { e ->
+            log.warn("collect {} stack {}: settle wait failed: {}", source, stack, e.message?.take(120))
         }
         val extracted = client.callToolText(
             "browser_evaluate",
@@ -152,8 +152,9 @@ class McpListingCollector(
     companion object {
         private val log = LoggerFactory.getLogger(McpListingCollector::class.java)
 
-        /** Post-collect blank navigate bound well below the tool timeout. */
-        private val CLEANUP_TIMEOUT: Duration = Duration.ofSeconds(10)
+        /** Post-navigation settle wait (a fixed 3s sleep) bound, well below
+         *  the tool timeout; the tab-cleanup bound lives in TabCleanup. */
+        private val SETTLE_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         fun pageUrl(source: String, stack: String): String = when (source) {
             "nofluffjobs" -> "https://nofluffjobs.com/pl/$stack?criteria=cityId%3Dremote"

@@ -208,7 +208,7 @@ class BrowserAgentTest {
                     "last error: tool browser_navigate failed: net::ERR_DEAD",
             ),
         )
-        // 3 model navigations + 1 post-attempt page blank + 1 tab list whose
+        // 3 model navigations + 1 post-session page blank + 1 tab list whose
         // parse finds no tabs (default mock) = tab hygiene adds 2 calls.
         verify(exactly = 5) { browser.callToolText(any(), any(), any()) }
         verify(exactly = 0) { recorder.recordSubmitted(any(), any(), any()) }

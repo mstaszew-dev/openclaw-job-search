@@ -3,6 +3,7 @@ package dev.mstaszew.campaign.worker.apply
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.mstaszew.campaign.common.mcp.McpStdioClient
+import dev.mstaszew.campaign.common.mcp.TabCleanup
 import dev.mstaszew.campaign.common.messaging.AgentLoopBounds
 import dev.mstaszew.campaign.common.net.ChatMessage
 import dev.mstaszew.campaign.common.net.LlmClient
@@ -190,87 +191,19 @@ class BrowserAgent(
         private val jobId: String,
         private val mapper: ObjectMapper,
     ) : AutoCloseable {
-        private val log = LoggerFactory.getLogger(McpStdioClientClient::class.java)
         val client: McpStdioClient = factory().also { it.initialize("apply-worker", "0.1.0") }
 
         override fun close() {
-            // Tab hygiene, on EVERY exit path (decided outcomes via use{} and
-            // recorder exceptions alike): the attempt's tab outlives this MCP
-            // session, and job pages keep OOPIF iframes (adzuna/hubspot) alive
-            // in the shared Chrome. Those targets stall every later
-            // playwright-mcp connectOverCDP at init (the 2026-10-22 wedge:
-            // async initializeServer timeout with ws connected; the
-            // 2026-10-24 recurrence: widget-laden pages orphan OOPIF targets
-            // within the hour). ORDER IS LOAD-BEARING: blank the CURRENT tab
-            // first - its iframes die with the page, and the session keeps a
-            // live page as the cleanup survivor (closing the active page
-            // first would strand the session on a dead reference). Tabs
-            // only: portal login state lives in the profile's cookie jar,
-            // untouched here; only the mode-6 stack wipe drops it. This is
-            // the campaign-dedicated Chrome, so there are no human tabs to
-            // protect, only unit leftovers. Then close every non-survivor
-            // tab, descending so a close never renumbers a pending one.
-            // Each step is 5s-bounded and best-effort: a wedged browser
-            // must not stall the queue (worst case ~35s once per unit end
-            // vs hours of wedge).
-            blankTab()
-            closeLeftoverTabs()
+            // Tab hygiene on EVERY exit path (decided outcomes via use{} and
+            // recorder exceptions alike): the shared TabCleanup (common, also
+            // used by the finder's collector; page blank now logs
+            // "post-session page blank failed") blanks the CURRENT tab first,
+            // then closes every non-survivor tab descending, capped and
+            // 5s-bounded, best-effort. See TabCleanup for the full contract
+            // (OOPIF orphans, survivor order, cookie-jar untouched).
+            TabCleanup.run(client, mapper, "job $jobId")
             client.close()
         }
-
-        private fun blankTab() {
-            try {
-                client.callToolText(
-                    "browser_navigate",
-                    mapper.createObjectNode().apply { put("url", "about:blank") },
-                    PAGE_CLEANUP_TIMEOUT,
-                )
-            } catch (e: Exception) {
-                log.warn("job {}: post-attempt page blank failed: {}", jobId, e.message?.take(120))
-            }
-        }
-
-        private fun closeLeftoverTabs() {
-            val listed = try {
-                client.callToolText(
-                    "browser_tabs",
-                    mapper.createObjectNode().apply { put("action", "list") },
-                    PAGE_CLEANUP_TIMEOUT,
-                )
-            } catch (e: Exception) {
-                log.warn("job {}: tab list for cleanup failed: {}", jobId, e.message?.take(120))
-                return
-            }
-            // playwright-mcp 0.0.83 lists tabs as "- 0: (current) [](about:blank)".
-            val tabs = TAB_LINE.findAll(listed)
-                .map { TabRef(it.groupValues[1].toInt(), it.groupValues[2].isNotEmpty()) }
-                .toList()
-            if (tabs.size <= 1) return
-            val survivor = (tabs.firstOrNull { it.current } ?: tabs.minByOrNull { it.index }!!).index
-            val extras = tabs.map { it.index }.filter { it != survivor }.sortedDescending()
-            if (extras.size > MAX_TAB_CLOSES) {
-                log.warn(
-                    "job {}: {} leftover tabs; closing only the {} highest-indexed",
-                    jobId, extras.size, MAX_TAB_CLOSES,
-                )
-            }
-            for (index in extras.take(MAX_TAB_CLOSES)) {
-                try {
-                    client.callToolText(
-                        "browser_tabs",
-                        mapper.createObjectNode().apply {
-                            put("action", "close")
-                            put("index", index)
-                        },
-                        PAGE_CLEANUP_TIMEOUT,
-                    )
-                } catch (e: Exception) {
-                    log.warn("job {}: closing tab {} failed: {}", jobId, index, e.message?.take(120))
-                }
-            }
-        }
-
-        private data class TabRef(val index: Int, val current: Boolean)
     }
 
     private fun systemPrompt(listing: JobListingEntity, profile: String) = """
@@ -402,15 +335,9 @@ class BrowserAgent(
         val STEP_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.STEP_TIMEOUT_MS)
         val TOOL_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.TOOL_TIMEOUT_MS)
 
-        /** Post-attempt blank navigate bound well below the tool timeout. */
-        val PAGE_CLEANUP_TIMEOUT: Duration = Duration.ofSeconds(5)
-
-        /** Leftover-tab closes per unit end, so a leaked browser cannot turn
-         *  cleanup into an unbounded tail. More get logged for attention. */
-        const val MAX_TAB_CLOSES = 5
-
-        /** "- 0: (current) [](about:blank)" - index, optional (current), then [title](url). */
-        private val TAB_LINE = Regex("^-\\s*(\\d+):(\\s*\\(current\\))?", RegexOption.MULTILINE)
+        /** Post-attempt blank navigate bound well below the tool timeout.
+         *  Alias of TabCleanup.CALL_TIMEOUT, which now owns the bound. */
+        val PAGE_CLEANUP_TIMEOUT: Duration = TabCleanup.CALL_TIMEOUT
 
         /** Consecutive same-tool failures that end the attempt as Failed. */
         const val LOOP_BREAK_THRESHOLD = 3

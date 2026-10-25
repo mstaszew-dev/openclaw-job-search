@@ -1,11 +1,17 @@
 package dev.mstaszew.campaign.finder.collect
 
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.ObjectMapper
+import dev.mstaszew.campaign.common.mcp.McpClientException
 import dev.mstaszew.campaign.common.mcp.McpStdioClient
+import io.mockk.MockKMatcherScope
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.mockk.verifyOrder
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import java.time.Duration
 
 class McpListingCollectorTest {
 
@@ -122,9 +128,7 @@ class McpListingCollectorTest {
      */
     @Test
     fun `collect blanks the tab afterwards so leftover iframes cannot wedge later spawns`() {
-        val client = mockk<McpStdioClient>(relaxUnitFun = true) {
-            every { callToolText(any(), any(), any()) } returns "### Result\n[]"
-        }
+        val client = cleanupClient()
 
         McpListingCollector({ client }, stacks = listOf("java", "react")).collect("nofluffjobs")
 
@@ -134,6 +138,256 @@ class McpListingCollectorTest {
                 match { it.path("url").asText() == "about:blank" },
                 any(),
             )
+        }
+    }
+
+    /**
+     * Full unit-end cleanup, beyond blanking: board pages open target=_blank
+     * tabs and leave OOPIF orphans alive on every tab they touch (failure
+     * modes 7/8). The collect-end cleanup mirrors the worker's shipped
+     * semantics (commit f99c8f0): blank the CURRENT tab first - it stays the
+     * session's live page as the survivor - then close every non-survivor
+     * descending so a close never renumbers a pending one. Tabs only: portal
+     * logins live in the profile cookie jar, untouched.
+     */
+    private fun cleanupClient(): McpStdioClient = mockk<McpStdioClient>(relaxUnitFun = true) {
+        every { callToolText(any(), any(), any()) } returns "### Result\n[]"
+    }
+
+    private fun stubTabList(client: McpStdioClient, vararg lines: String) {
+        every {
+            client.callToolText(eq("browser_tabs"), match { it.path("action").asText() == "list" }, any())
+        } returns (listOf("### Result") + lines.toList()).joinToString("\n")
+    }
+
+    private fun MockKMatcherScope.closeTab(index: Int) =
+        match<JsonNode> {
+            it.path("action").asText() == "close" && it.path("index").asInt() == index
+        }
+
+    @Test
+    fun `collect end closes portal-opened tabs, keeping the blanked survivor`() {
+        val client = cleanupClient()
+        stubTabList(
+            client,
+            "- 0: (current) [](about:blank)",
+            "- 1: [Apply - Dev](https://nofluffjobs.com/pl/job/x)",
+            "- 2: [Listing](https://justjoin.it/offers/y)",
+        )
+
+        val listings = McpListingCollector({ client }, stacks = listOf("java")).collect("nofluffjobs")
+
+        assertThat(listings).isEmpty()
+        verifyOrder {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                any(),
+            )
+            client.callToolText(eq("browser_tabs"), closeTab(2), any())
+            client.callToolText(eq("browser_tabs"), closeTab(1), any())
+        }
+        verify(exactly = 0) { client.callToolText(eq("browser_tabs"), closeTab(0), any()) }
+    }
+
+    @Test
+    fun `the survivor is the session's current tab even when blanking failed`() {
+        val client = cleanupClient()
+        stubTabList(
+            client,
+            "- 0: (current) [Listing](https://justjoin.it/offers/y)",
+            "- 1: [](about:blank)",
+        )
+        every {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                any(),
+            )
+        } throws RuntimeException("wedge")
+
+        McpListingCollector({ client }, stacks = listOf("java")).collect("nofluffjobs")
+
+        verify { client.callToolText(eq("browser_tabs"), closeTab(1), any()) }
+        verify(exactly = 0) { client.callToolText(eq("browser_tabs"), closeTab(0), any()) }
+    }
+
+    /** No (current) marker at all: the lowest-index tab is the survivor. */
+    @Test
+    fun `without a current marker the lowest index survives`() {
+        val client = cleanupClient()
+        stubTabList(
+            client,
+            "- 0: [](about:blank)",
+            "- 1: [Listing](https://justjoin.it/offers/y)",
+        )
+
+        McpListingCollector({ client }, stacks = listOf("java")).collect("nofluffjobs")
+
+        verify { client.callToolText(eq("browser_tabs"), closeTab(1), any()) }
+        verify(exactly = 0) { client.callToolText(eq("browser_tabs"), closeTab(0), any()) }
+    }
+
+    /** A garbage index line must be dropped, never able to throw out of the
+     *  finally block (best-effort contract). */
+    @Test
+    fun `an absurd tab index does not break the cleanup or the collect`() {
+        val client = cleanupClient()
+        stubTabList(
+            client,
+            "- 0: (current) [](about:blank)",
+            "- 99999999999: [weird](https://x.invalid/w)",
+        )
+
+        val listings = McpListingCollector({ client }, stacks = listOf("java")).collect("nofluffjobs")
+
+        assertThat(listings).isEmpty()
+        verify {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `a wedged tab list still blanks the tab`() {
+        val client = cleanupClient()
+        every { client.callToolText(eq("browser_tabs"), any(), any()) } throws
+            RuntimeException("initializeServer: Timeout 5000ms exceeded")
+
+        McpListingCollector({ client }, stacks = listOf("java")).collect("nofluffjobs")
+
+        verify(exactly = 1) {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `one failing tab close does not stop the remaining closes`() {
+        val client = cleanupClient()
+        stubTabList(
+            client,
+            "- 0: (current) [](about:blank)",
+            "- 1: [Apply form](https://nofluffjobs.com/pl/job/x)",
+            "- 2: [Listing](https://justjoin.it/offers/y)",
+        )
+        every { client.callToolText(eq("browser_tabs"), closeTab(2), any()) } throws RuntimeException("poof")
+
+        val listings = McpListingCollector({ client }, stacks = listOf("java")).collect("nofluffjobs")
+
+        assertThat(listings).isEmpty()
+        verify { client.callToolText(eq("browser_tabs"), closeTab(1), any()) }
+        verify {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `tab closes are capped at five per collect`() {
+        val client = cleanupClient()
+        stubTabList(
+            client,
+            "- 0: (current) [](about:blank)",
+            "- 1: [t1](https://x.invalid/1)",
+            "- 2: [t2](https://x.invalid/2)",
+            "- 3: [t3](https://x.invalid/3)",
+            "- 4: [t4](https://x.invalid/4)",
+            "- 5: [t5](https://x.invalid/5)",
+            "- 6: [t6](https://x.invalid/6)",
+            "- 7: [t7](https://x.invalid/7)",
+            "- 8: [t8](https://x.invalid/8)",
+        )
+
+        McpListingCollector({ client }, stacks = listOf("java")).collect("nofluffjobs")
+
+        verify(exactly = 5) { client.callToolText(eq("browser_tabs"), match { it.path("action").asText() == "close" }, any()) }
+        verify(exactly = 1) { client.callToolText(eq("browser_tabs"), closeTab(4), any()) }
+        verify(exactly = 0) { client.callToolText(eq("browser_tabs"), closeTab(3), any()) }
+    }
+
+    /**
+     * The documented per-stack resilience contract: one bad board page must
+     * never block the run. A wedged stack is logged and skipped; the other
+     * stacks still harvest and the tab cleanup still runs.
+     */
+    @Test
+    fun `one wedged stack does not block the other stacks`() {
+        val client = cleanupClient()
+        every {
+            client.callToolText(eq("browser_navigate"), match { it.path("url").asText().contains("/php") }, any())
+        } throws McpClientException("initializeServer: Timeout 5000ms")
+        val listingJson =
+            """[{"remote":true,"id":"r1","title":"React Dev","company":"Acme","url":"https://x.com/r1"}]"""
+        // stacks iterate in order: java evaluates first (empty), php wedges at
+        // navigate so never evaluates, react evaluates second (the listing).
+        every {
+            client.callToolText(eq("browser_evaluate"), any(), any())
+        } returnsMany listOf(
+            "### Result\n[]",
+            "### Result\n" + ObjectMapper().writeValueAsString(listingJson),
+        )
+
+        val listings = McpListingCollector({ client }, stacks = listOf("java", "php", "react")).collect("nofluffjobs")
+
+        assertThat(listings).hasSize(1)
+        assertThat(listings[0].sourceJobId).isEqualTo("r1")
+        verify {
+            client.callToolText(eq("browser_navigate"), match { it.path("url").asText().contains("/react") }, any())
+        }
+        verify(exactly = 1) {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `an unexpected stack failure aborts the whole source`() {
+        val client = cleanupClient()
+        every {
+            client.callToolText(eq("browser_navigate"), match { it.path("url").asText().contains("/php") }, any())
+        } throws IllegalStateException("board redesign")
+
+        val thrown = runCatching {
+            McpListingCollector({ client }, stacks = listOf("java", "php", "react")).collect("nofluffjobs")
+        }.exceptionOrNull()
+
+        assertThat(thrown).isInstanceOf(IllegalStateException::class.java)
+        // cleanup on EVERY exit path, including the aborting one
+        verify {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "about:blank" },
+                any(),
+            )
+        }
+    }
+
+    /**
+     * The settle wait is a fixed 3s sleep whose result is discarded; bound it
+     * well below the 90s tool timeout so a wedged wait_for cannot eat most of
+     * a 15-min finder window across five stacks.
+     */
+    @Test
+    fun `the settle wait is bounded well below the tool timeout`() {
+        val client = cleanupClient()
+
+        McpListingCollector({ client }, stacks = listOf("java")).collect("nofluffjobs")
+
+        verify {
+            client.callToolText(eq("browser_wait_for"), any(), eq(Duration.ofSeconds(10)))
         }
     }
 }
