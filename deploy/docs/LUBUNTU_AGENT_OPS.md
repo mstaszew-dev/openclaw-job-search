@@ -115,7 +115,11 @@ every 60s for anything that dies.
    first, then closes every non-survivor tab descending, capped at 5
    closes, each call 5s-bounded and best-effort. Tabs only: portal
    logins live in the profile cookie jar and are untouched; only the
-   mode-6 wipe drops them.
+   mode-6 wipe drops them. Same-day extension (commit 0e65892): the
+   logic is extracted into the shared `common/mcp/TabCleanup` and the
+   finder's `McpListingCollector.collect` finally now runs the full
+   cleanup too (it was blank-only before), so board tabs and their
+   target=_blank leftovers die at every finder cycle end as well.
 8. **OOPIF iframe orphans wedge initializeServer within the hour, not
    just after days.** Measured 2026-10-24: a fresh wipe at 20:12Z was
    followed at ~20:47Z by the full wedge again (every navigate hit
@@ -128,7 +132,8 @@ every 60s for anything that dies.
    wipe; prevention is two-layered since 2026-10-25 (commit f99c8f0):
    the in-code half is the mode-7 unit-end tab cleanup (blank + close
    leftover tabs, so iframes die with their pages instead of
-   orphaning), and the automated backstop is this watchdog:
+   orphaning; worker at f99c8f0, finder at 0e65892 via the shared
+   `TabCleanup`), and the automated backstop is this watchdog:
 
    **Automated wedge recovery (installed 2026-10-24).**
    `deploy/ops/wedge-watchdog.sh` + `wipe-payload.sh` live on the
