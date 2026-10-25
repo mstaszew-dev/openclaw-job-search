@@ -129,8 +129,8 @@ every 60s for anything that dies.
    laptop in `/home/mstro/k3s-pod-data/agent-home/campaign-data/`,
    cron'd every 5 min under flock. Gates in order: (1) the exact
    signature `initializeServer: Timeout` appears in finder or worker
-   logs within the last 12 min (the 15-min finder cycle guarantees
-   detection; a dead HTTP endpoint alone is not the wedge signature);
+   logs within the last 16 min - one minute past the 15-min finder
+   cycle so a wedged cycle is always seen by a following tick
    (2) `browser_leases` must be empty - never wipes under a live unit,
    and an unreadable lease count fails safe to "do nothing"; (3) 15-min
    cooldown so the signature lines that triggered a wipe cannot

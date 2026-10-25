@@ -33,9 +33,13 @@ log() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
 # Keep the log bounded.
 [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 200000 ] && : > "$LOG"
 
-# Gate 1: wedge signature in the last 12 minutes.
-sig_finder=$(kubectl -n campaign logs deploy/finder --since=12m 2>/dev/null | grep -ac "initializeServer: Timeout")
-sig_worker=$(kubectl -n campaign logs deploy/apply-worker --since=12m 2>/dev/null | grep -ac "initializeServer: Timeout")
+# Gate 1: wedge signature in the last 16 minutes. The finder cycles every
+# 15 min, so a 16-min window guarantees the signatures of every wedged
+# cycle are still visible at least one cron tick after the cycle ends; a
+# 12-min window let a cycle's wedge age out between cycles and added a
+# full 15-min wait to recovery (observed 2026-10-25 09:47Z).
+sig_finder=$(kubectl -n campaign logs deploy/finder --since=16m 2>/dev/null | grep -ac "initializeServer: Timeout")
+sig_worker=$(kubectl -n campaign logs deploy/apply-worker --since=16m 2>/dev/null | grep -ac "initializeServer: Timeout")
 [ "${sig_finder:-0}" = "0" ] && [ "${sig_worker:-0}" = "0" ] && exit 0
 
 # Gate 2: the apply worker must hold no browser lease. An unreadable count
