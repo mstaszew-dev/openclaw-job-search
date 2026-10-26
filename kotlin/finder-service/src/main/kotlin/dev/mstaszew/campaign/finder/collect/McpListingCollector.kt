@@ -35,23 +35,25 @@ class McpListingCollector(
             try {
                 val attempted = mutableSetOf<String>()
                 for (stack in stacks) {
-                    val page = pageUrl(source, stack)
-                    // Stacks can share one target page (justjoin folds kotlin
-                    // into java, node and react into javascript); a second
-                    // visit would only burn a settle wait and inflate the
-                    // dupWindow counter. Marked attempted (not scraped) before
-                    // the try: a failed page does not get a free retry from
-                    // its folded twin; the next window recovers it.
-                    if (!attempted.add(page)) continue
-                    try {
-                        out += collectStack(client, source, stack, page)
-                    } catch (e: Exception) {
-                        when (e) {
-                            is McpClientException, is LlmClientException -> log.warn(
-                                "collect {} stack {} failed: {}",
-                                source, stack, e.message,
-                            )
-                            else -> throw e
+                    for (page in pageVariants(source, pageUrl(source, stack))) {
+                        // Stacks can share one target page (justjoin folds
+                        // kotlin into java, node and react into javascript);
+                        // a second visit would only burn a settle wait and
+                        // inflate the dupWindow counter. Marked attempted
+                        // (not scraped) before the try: a failed page does
+                        // not get a free retry from its folded twin; the
+                        // next window recovers it.
+                        if (!attempted.add(page)) continue
+                        try {
+                            out += collectStack(client, source, stack, page)
+                        } catch (e: Exception) {
+                            when (e) {
+                                is McpClientException, is LlmClientException -> log.warn(
+                                    "collect {} stack {} failed: {}",
+                                    source, stack, e.message,
+                                )
+                                else -> throw e
+                            }
                         }
                     }
                 }
@@ -200,6 +202,15 @@ class McpListingCollector(
             "node", "react", "typescript" -> "javascript"
             else -> stack
         }
+
+        /**
+         * justjoin paginates with ?page=N (verified live 2026-10-26: page 2
+         * serves a different set of 50 offers per category, and the board's
+         * meta claims 738 remote offers vs the ~150 page 1 yields). The
+         * other boards have no verified page param yet: one page each.
+         */
+        internal fun pageVariants(source: String, page: String): List<String> =
+            if (source == "justjoin") listOf(page, "$page?page=2") else listOf(page)
 
         /**
          * spring and typescript are NOT theprotocol chips: their /filtry

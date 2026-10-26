@@ -147,6 +147,69 @@ class McpListingCollectorTest {
     }
 
     /**
+     * justjoin paginates: /job-offers/remote/java?page=2 serves a genuinely
+     * different set of 50 offers (verified in a real browser 2026-10-26:
+     * page 2 showed j-labs/devsdata, none of page 1), and the board's meta
+     * claims 738 remote offers vs the ~150 we scraped - page 2 alone doubles
+     * the per-category pool. The other boards have no verified page param
+     * yet, so they stay at one page.
+     */
+    @Test
+    fun `justjoin scrapes page two of every category`() {
+        val client = mockk<McpStdioClient>(relaxUnitFun = true) {
+            every { callToolText(any(), any(), any()) } returns "### Result\n[]"
+        }
+
+        McpListingCollector({ client }).collect("justjoin")
+
+        verify(exactly = 1) {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "https://justjoin.it/job-offers/remote/java?page=2" },
+                any(),
+            )
+        }
+        verify(exactly = 1) {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "https://justjoin.it/job-offers/remote/javascript?page=2" },
+                any(),
+            )
+        }
+        verify(exactly = 1) {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "https://justjoin.it/job-offers/remote/php?page=2" },
+                any(),
+            )
+        }
+        verify(exactly = 6) {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText().contains("justjoin.it") },
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `nofluffjobs and theprotocol stay at one page per query`() {
+        val client = mockk<McpStdioClient>(relaxUnitFun = true) {
+            every { callToolText(any(), any(), any()) } returns "### Result\n[]"
+        }
+
+        McpListingCollector({ client }, stacks = listOf("java")).collect("theprotocol")
+
+        verify(exactly = 1) {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText().contains("theprotocol.it") },
+                any(),
+            )
+        }
+    }
+
+    /**
      * justjoin's 2025+ taxonomy has no remote categories for kotlin, node or
      * react: /job-offers/remote/{kotlin,node,react} are 404 (checked
      * 2026-10-25). Kotlin roles post under java, node and react under
@@ -192,8 +255,9 @@ class McpListingCollectorTest {
                 )
             }
         }
-        // No unexpected extra justjoin page beyond the three categories.
-        verify(exactly = 3) {
+        // No unexpected extra justjoin page beyond the three categories x
+        // two pages (page 2 added 2026-10-26).
+        verify(exactly = 6) {
             client.callToolText(
                 eq("browser_navigate"),
                 match { it.path("url").asText().contains("justjoin.it") },
