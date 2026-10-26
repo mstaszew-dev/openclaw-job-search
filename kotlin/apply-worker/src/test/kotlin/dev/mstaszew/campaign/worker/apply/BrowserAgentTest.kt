@@ -635,6 +635,7 @@ class BrowserAgentTest {
         assertThat(system).contains("never guess labels")
         assertThat(system).contains("Never re-read without acting")
         assertThat(system).contains("Just a moment")
+        assertThat(system).contains("BEFORE filling the form")
         assertThat(system).doesNotContain("never open new tabs")
     }
 

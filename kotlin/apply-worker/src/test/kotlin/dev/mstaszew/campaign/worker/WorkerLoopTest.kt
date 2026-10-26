@@ -519,6 +519,42 @@ class WorkerLoopTest {
         assertThat(ack.count).isEqualTo(1)
     }
 
+    /**
+     * A captcha block used to leave the listing un-walled, so the finder
+     * re-enqueued it and the worker ground the SAME doomed form a second
+     * time before the repeat-block company wall fired (margo 2026-10-26:
+     * two full grinds into an unsolvable hCaptcha). The first captcha block
+     * must wall the listing itself; the repeat-block guard stays for the
+     * company level.
+     */
+    @Test
+    fun `live mode walls a captcha-blocked listing on the first block`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Blocked("captcha", "hCaptcha on Lever form")
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 1) {
+            recorder.recordCaptchaWall(any(), eq("justjoin:jj-1"), match { it.contains("captcha") })
+        }
+        verify { recorder.recordBlocked(any(), eq("justjoin:jj-1"), eq("captcha"), any()) }
+        assertThat(ack.count).isEqualTo(1)
+    }
+
+    /** The grind already happened; a failed wall write must not cause a redelivery. */
+    @Test
+    fun `a failing captcha wall does not trigger a redelivery`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Blocked("captcha", "turnstile")
+        every { recorder.recordCaptchaWall(any(), any(), any()) } throws IllegalStateException("mongo blip")
+
+        loop("live").onMessage(job, ack)
+
+        assertThat(ack.count).isEqualTo(1)
+    }
+
     @Test
     fun `shadow mode never asks for the browser lease`() {
         every { dedup.check(any()) } returns DuplicateDecision.CLEAR

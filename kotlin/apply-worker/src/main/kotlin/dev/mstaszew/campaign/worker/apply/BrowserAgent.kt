@@ -283,7 +283,12 @@ class BrowserAgent(
           fails, fill the other fields in a separate call and retry the bad
           field alone.
         - NEVER mention relocation or Israel anywhere.
-        - Captcha: attempt exactly once; if not solved, call skip_task with reason captcha.
+        - Captcha: if a captcha/challenge widget (hCaptcha, reCAPTCHA,
+          Turnstile, Cloudflare) is already VISIBLE when the form loads,
+          attempt it exactly once BEFORE filling the form; if it does not
+          solve, call skip_task with reason captcha IMMEDIATELY - do not
+          fill the form first, it would be wasted. If the captcha appears
+          only at submit, fill the form, attempt once, then skip_task.
         - If the portal says already applied, call skip_task with reason duplicate.
         - Before record_submission you MUST have visible confirmation evidence
           (thank-you text or success URL). No evidence means no record_submission.

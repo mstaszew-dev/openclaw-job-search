@@ -148,6 +148,19 @@ class Recorder(
     }
 
     /**
+     * The captcha wall: the FIRST captcha block walls the listing itself,
+     * because the model cannot solve image/hCaptcha-class challenges and a
+     * re-enqueue of the same listing just grinds the same doomed form again
+     * (margo 2026-10-26: two full grinds before the repeat-block company
+     * wall fired). Same listing-scoped shape as the other walls; job_state
+     * stays FAILED (recordBlocked already marked it).
+     */
+    @Transactional
+    fun recordCaptchaWall(listing: JobListingEntity, jobId: String, detail: String) {
+        wallListing("captchaWall", listing, detail)
+    }
+
+    /**
      * Shared write shape of both re-enqueue walls (dead-letter and
      * browser-failed): a DUPLICATE skip that stops THIS listing via the id
      * and url branches - never companyKey, which would wall the company's

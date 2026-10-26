@@ -196,6 +196,24 @@ class RecorderTest {
         verify(exactly = 0) { jobState.save(any()) }
     }
 
+    /**
+     * Same write shape as the other walls: listing-scoped, job_state stays
+     * FAILED (recordBlocked already marked it).
+     */
+    @Test
+    fun `captcha wall is listing-scoped and leaves job_state alone`() {
+        recorder.recordCaptchaWall(listing, jobId, "captcha: hCaptcha on Lever form")
+
+        val slot = io.mockk.slot<SkipEntity>()
+        verify { skips.save(capture(slot)) }
+        assertThat(slot.captured.reason).isEqualTo(SkipReason.DUPLICATE)
+        assertThat(slot.captured.companyKey).isNull()
+        assertThat(slot.captured.sourceJobId).isEqualTo(listing.sourceJobId)
+        assertThat(slot.captured.url).isEqualTo(listing.url)
+        verify { events.save(match { it.action == "captchaWall" }) }
+        verify(exactly = 0) { jobState.save(any()) }
+    }
+
     @Test
     fun `evidence is stored as a queryable subdocument`() {
         recorder.recordSubmitted(

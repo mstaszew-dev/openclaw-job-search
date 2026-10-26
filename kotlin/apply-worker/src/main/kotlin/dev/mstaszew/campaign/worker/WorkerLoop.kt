@@ -386,6 +386,7 @@ class WorkerLoop(
             is ApplyResult.DuplicateNow -> recorder.recordSkippedDuplicate(listing, job.id, result.detail)
             is ApplyResult.Blocked -> {
                 recorder.recordBlocked(listing, job.id, result.reason, result.detail)
+                if (result.reason == "captcha") wallCaptchaReenqueue(listing, job, result.detail)
                 notifier.blocked(job.id, result.reason)
             }
             is ApplyResult.Failed -> {
@@ -394,6 +395,25 @@ class WorkerLoop(
                 wallFailedReenqueue(listing, job, result.detail)
                 notifier.failed(job.id, result.detail)
             }
+        }
+    }
+
+    /**
+     * The model cannot solve image/hCaptcha-class challenges, so a captcha
+     * block on a listing is terminal for that listing; without this wall the
+     * finder re-enqueued it and the worker ground the same doomed form a
+     * second time before the repeat-block company guard fired. Best-effort
+     * like the failed wall: the grind already happened, a failed wall write
+     * logs loudly and keeps the ack.
+     */
+    private fun wallCaptchaReenqueue(listing: JobListingEntity, job: JobMessage, detail: String) {
+        try {
+            recorder.recordCaptchaWall(listing, job.id, "captcha: ${detail.take(300)}")
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            log.error("interrupted while captcha-walling job {}", job.id)
+        } catch (e: Exception) {
+            log.error("failed to captcha-wall {} from re-enqueue; it may re-grind", job.id, e)
         }
     }
 
