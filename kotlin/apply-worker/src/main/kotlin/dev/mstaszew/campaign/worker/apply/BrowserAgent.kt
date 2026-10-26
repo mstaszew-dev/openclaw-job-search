@@ -226,6 +226,13 @@ class BrowserAgent(
           the PL CV ONLY via upload_cv - it owns the canonical file path, never
           call browser_file_upload and never invent a path; salary answer:
           15000 PLN net+VAT/month B2B.
+        - browser_fill_form discipline: after any tab switch or page change,
+          take a fresh browser_snapshot of the tab that holds the form and copy
+          each field's exact target ref and exact visible label from THAT
+          snapshot - never guess labels like "name" or "email". If a fill
+          fails, re-snapshot and retry with the fresh refs; if one field still
+          fails, fill the other fields in a separate call and retry the bad
+          field alone.
         - NEVER mention relocation or Israel anywhere.
         - Captcha: attempt exactly once; if not solved, call skip_task with reason captcha.
         - If the portal says already applied, call skip_task with reason duplicate.
@@ -352,8 +359,17 @@ class BrowserAgent(
          *  Alias of TabCleanup.CALL_TIMEOUT, which now owns the bound. */
         val PAGE_CLEANUP_TIMEOUT: Duration = TabCleanup.CALL_TIMEOUT
 
-        /** Consecutive same-tool failures that end the attempt as Failed. */
-        const val LOOP_BREAK_THRESHOLD = 3
+        /**
+         * Consecutive same-tool failures that end the attempt as Failed.
+         * Raised 3 -> 5 on 2026-10-26: the dominant failure is now a fast
+         * (~30ms) fill_form rejection from a guessed label, and the inflancka
+         * unit was lost to three of them while the winning natek submission
+         * took two such rejections in stride (steps 25 and 44) and recovered.
+         * The step cap still bounds the expensive timeout loops this breaker
+         * was built for (2026-10-21/23), so the extra two chances cost at
+         * most a few seconds.
+         */
+        const val LOOP_BREAK_THRESHOLD = 5
 
         fun parseMaxSteps(raw: String?): Int = AgentLoopBounds.parseMaxSteps(raw)
 

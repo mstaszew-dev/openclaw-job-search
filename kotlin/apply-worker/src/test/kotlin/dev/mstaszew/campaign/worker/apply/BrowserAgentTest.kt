@@ -194,7 +194,7 @@ class BrowserAgentTest {
      * tool instead of paying the whole cap for a hopeless loop.
      */
     @Test
-    fun `loop breaker aborts after three consecutive failures of the same tool`() {
+    fun `loop breaker aborts after five consecutive failures of the same tool`() {
         every { browser.callToolText(eq("browser_navigate"), any(), any()) } throws RuntimeException("net::ERR_DEAD")
         val transport = ScriptedTransport(
             listOf(toolCallResponse("browser_navigate", """{"url":"https://x/1"}""")),
@@ -204,13 +204,13 @@ class BrowserAgentTest {
 
         assertThat(result).isEqualTo(
             ApplyResult.Failed(
-                "loop breaker: browser_navigate failed 3 consecutive times; " +
+                "loop breaker: browser_navigate failed 5 consecutive times; " +
                     "last error: tool browser_navigate failed: net::ERR_DEAD",
             ),
         )
-        // 3 model navigations + 1 post-session page blank + 1 tab list whose
+        // 5 model navigations + 1 post-session page blank + 1 tab list whose
         // parse finds no tabs (default mock) = tab hygiene adds 2 calls.
-        verify(exactly = 5) { browser.callToolText(any(), any(), any()) }
+        verify(exactly = 7) { browser.callToolText(any(), any(), any()) }
         verify(exactly = 0) { recorder.recordSubmitted(any(), any(), any()) }
     }
 
@@ -275,7 +275,7 @@ class BrowserAgentTest {
 
         assertThat(result).isEqualTo(
             ApplyResult.Failed(
-                "loop breaker: browser_navigate failed 3 consecutive times; " +
+                "loop breaker: browser_navigate failed 5 consecutive times; " +
                     "last error: tool browser_navigate failed: net::ERR_DEAD",
             ),
         )
@@ -299,14 +299,18 @@ class BrowserAgentTest {
                 toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
                 toolCallResponse("browser_snapshot", "{}"),
                 toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
             ),
         )
 
-        val result = run(agent(transport, maxSteps = 8))
+        val result = run(agent(transport, maxSteps = 12))
 
         assertThat(result).isEqualTo(
             ApplyResult.Failed(
-                "loop breaker: browser_navigate failed 3 consecutive times; " +
+                "loop breaker: browser_navigate failed 5 consecutive times; " +
                     "last error: tool browser_navigate failed: net::ERR_DEAD",
             ),
         )
@@ -341,8 +345,8 @@ class BrowserAgentTest {
 
         assertThat(result).isInstanceOf(ApplyResult.Failed::class.java)
         assertThat((result as ApplyResult.Failed).detail)
-            .startsWith("loop breaker: upload_cv failed 3 consecutive times")
-        verify(exactly = 3) { cvUploader.upload(any(), any(), any(), any()) }
+            .startsWith("loop breaker: upload_cv failed 5 consecutive times")
+        verify(exactly = 5) { cvUploader.upload(any(), any(), any(), any()) }
     }
 
     /**
@@ -625,6 +629,8 @@ class BrowserAgentTest {
         assertThat(system).contains("Continue with Google")
         assertThat(system).contains("Accept all")
         assertThat(system).contains("browser_tabs")
+        assertThat(system).contains("browser_fill_form discipline")
+        assertThat(system).contains("never guess labels")
         assertThat(system).doesNotContain("never open new tabs")
     }
 
