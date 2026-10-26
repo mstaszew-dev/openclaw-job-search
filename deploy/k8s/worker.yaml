@@ -50,7 +50,7 @@ spec:
               # --config /app/pw-mcp.json raises action 5000->30000ms and
               # expect 5000->15000ms (no --timeout-expect flag exists; the
               # file is written inline in deploy/docker/Dockerfile.jvm).
-              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922 --config /app/pw-mcp.json
+              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://100.94.153.31:30922 --config /app/pw-mcp.json
             # Canonical PL CV inside the container (hostPath mount below). The
             # model never sees this path: upload_cv owns it (cv_upload.py port).
             # MUST stay under /app: playwright-mcp only accepts file paths
@@ -63,7 +63,7 @@ spec:
             # CDP fallback (DOM.setFileInputFiles) for drop zones that never
             # open a native chooser.
             - name: WORKER_CDP_URL
-              value: http://192.168.18.13:30922
+              value: http://100.94.153.31:30922
             - name: WORKER_ID
               valueFrom: { fieldRef: { fieldPath: metadata.name } }
             # Slack outcome posts to #jobcampaign (SlackNotifier). Same creds

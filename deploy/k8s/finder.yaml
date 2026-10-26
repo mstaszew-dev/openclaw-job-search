@@ -39,7 +39,7 @@ spec:
             - name: FINDER_SCORING_ENABLED
               value: "true"
             - name: FINDER_MCP_COMMAND
-              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://192.168.18.13:30922
+              value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://100.94.153.31:30922
             - name: FINDER_RUN_INTERVAL_SECONDS
               value: "900"
           ports: [{ containerPort: 8081 }]
