@@ -645,7 +645,7 @@ class BrowserAgentTest {
      * assembled the apply sequence. No failure streak tripped because
      * snapshots SUCCEED; the cap was not too low, the model was wandering.
      * A wander breaker ends the unit at WANDER_THRESHOLD consecutive
-     * identical successful tool calls instead of paying the whole cap.
+     * read-only steps (snapshot, tab list, wait) instead of paying the cap.
      */
     @Test
     fun `wander breaker aborts repeated identical successful tool calls`() {
@@ -655,9 +655,35 @@ class BrowserAgentTest {
 
         val result = run(agent(transport, maxSteps = 50))
 
-        assertThat(result).isEqualTo(
-            ApplyResult.Failed("wander breaker: browser_snapshot repeated 8 consecutive times without progress"),
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("wander breaker: 8 consecutive read-only steps")
+    }
+
+    /**
+     * The 2026-10-26 sql-rybnik retry: 39 browser_tabs(list) + 30 snapshot
+     * alternating - never a click - which evades any per-tool identical
+     * counter. Read-only steps must count as a streak WHATEVER their mix;
+     * any action tool resets it.
+     */
+    @Test
+    fun `wander breaker catches alternating reads of different tools`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_tabs", """{"action":"list"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_tabs", """{"action":"list"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_tabs", """{"action":"list"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_tabs", """{"action":"list"}"""),
+            ),
         )
+
+        val result = run(agent(transport, maxSteps = 50))
+
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("wander breaker: 8 consecutive read-only steps")
     }
 
     /** A different successful tool between repeats resets the wander count. */
@@ -670,9 +696,10 @@ class BrowserAgentTest {
                 toolCallResponse("browser_snapshot", "{}"),
                 toolCallResponse("browser_evaluate", """{"function":"1+1"}"""),
                 toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_tabs", """{"action":"select","index":1}"""),
                 toolCallResponse("browser_snapshot", "{}"),
                 toolCallResponse("browser_snapshot", "{}"),
-                toolCallResponse("browser_evaluate", """{"function":"1+1"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
                 toolCallResponse("skip_task", """{"reason":"portal-block","detail":"t"}"""),
             ),
         )
@@ -680,7 +707,8 @@ class BrowserAgentTest {
         val result = run(agent(transport, maxSteps = 20))
 
         // Reached the scripted terminal (Blocked via skip_task), not a
-        // wander failure: the evaluate between snapshot runs reset the count.
+        // wander failure: the evaluate and the tab SELECT between the read
+        // runs are actions and reset the count.
         assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
     }
 }

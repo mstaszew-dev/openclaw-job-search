@@ -142,26 +142,24 @@ class BrowserAgent(
                             state.failureStreak = 0
                         }
                         // Wander breaker: the failure streak cannot see a model
-                        // stuck RE-READING (109 browser_snapshot OKs in a row,
-                        // GET IT TOGETHER 2026-10-26: 122 steps, no apply
-                        // sequence, cap-out) because those calls succeed. Count
-                        // consecutive identical successful calls and end the
-                        // unit before the whole cap burns on page reads.
-                        if (dispatched.failed) {
-                            state.repeatTool = null
-                            state.repeatStreak = 0
-                        } else if (dispatched.toolName == state.repeatTool) {
-                            state.repeatStreak += 1
+                        // stuck RE-READING (GET IT TOGETHER 2026-10-26: 109
+                        // snapshots; sql-rybnik same day: 39 tab-lists + 30
+                        // snapshots ALTERNATING, zero clicks) because those
+                        // calls succeed. Count consecutive read-only steps in
+                        // the streak whatever their mix; any action (click,
+                        // fill, upload, navigate, evaluate, tab select) or any
+                        // failure resets it.
+                        if (!dispatched.failed && isReadOnlyCall(toolCall)) {
+                            state.readStreak += 1
                         } else {
-                            state.repeatTool = dispatched.toolName
-                            state.repeatStreak = 1
+                            state.readStreak = 0
                         }
-                        if (state.repeatStreak >= WANDER_THRESHOLD) {
+                        if (state.readStreak >= WANDER_THRESHOLD) {
                             return out(
                                 step,
                                 ApplyResult.Failed(
-                                    "wander breaker: ${dispatched.toolName} repeated " +
-                                        "$WANDER_THRESHOLD consecutive times without progress",
+                                    "wander breaker: $WANDER_THRESHOLD consecutive read-only steps " +
+                                        "without action (last read: ${dispatched.toolName})",
                                 ),
                             )
                         }
@@ -191,9 +189,8 @@ class BrowserAgent(
         var failingTool: String? = null
         var failureStreak: Int = 0
 
-        /** Wander-breaker state: last SUCCESSFUL tool name and its consecutive run length. */
-        var repeatTool: String? = null
-        var repeatStreak: Int = 0
+        /** Wander-breaker state: consecutive READ-ONLY steps, whatever their tool mix. */
+        var readStreak: Int = 0
 
         val messages = mutableListOf<ChatMessage>(
             ChatMessage(
@@ -400,13 +397,23 @@ class BrowserAgent(
         const val LOOP_BREAK_THRESHOLD = 5
 
         /**
-         * Consecutive identical SUCCESSFUL tool calls that end the attempt as
-         * Failed. Snapshots are the observed case (109 in a row, each ~15s of
-         * model latency); 8 leaves room for a legitimate re-read after every
-         * action while still cutting a pure read loop at ~2 minutes instead
-         * of the full cap.
+         * Consecutive READ-ONLY steps that end the attempt as Failed.
+         * Reads are snapshot, tab LIST and wait_for; everything else
+         * (including tab SELECT, which changes the active tab) is an action
+         * and resets the streak. 8 leaves room for a legitimate re-read
+         * after every action while cutting a pure read loop - single-tool
+         * (109 snapshots in a row) or alternating (39 tabs-list + 30
+         * snapshots, zero clicks) - at ~2 minutes instead of the full cap.
          */
         const val WANDER_THRESHOLD = 8
+
+        private val READ_ONLY_TOOLS = setOf("browser_snapshot", "browser_wait_for")
+
+        /** A tab call is a read only as a LIST; SELECT changes state. */
+        private fun isReadOnlyCall(call: ToolCall): Boolean =
+            call.name in READ_ONLY_TOOLS ||
+                (call.name == "browser_tabs" &&
+                    call.arguments.path("action").asText("list").lowercase() != "select")
 
         fun parseMaxSteps(raw: String?): Int = AgentLoopBounds.parseMaxSteps(raw)
 
