@@ -264,11 +264,13 @@ class BrowserAgent(
           wait_for 5 seconds and check once more; if still blocked, call
           skip_task with reason portal-block - never keep re-reading a
           blocked page.
-        - If the portal requires login, use "Continue with Google" /
-          "Zaloguj się przez Google" - the browser profile is already signed
-          into the right Google account. NEVER type an email or password and
-          never create an account; if Google login is not offered, call
-          skip_task with reason portal-block.
+        - Login: the shared browser is signed into the correct Gmail. When
+          you open a portal, check whether you are logged in (user avatar /
+          profile menu); if not, and the portal offers Google SSO (button
+          "Continue with Google" / "Zaloguj się przez Google"), log in that
+          way IMMEDIATELY, before starting the apply. NEVER type an email or
+          password and never create an account; if login is required and
+          Google SSO is not offered, call skip_task with reason portal-block.
         - Fill PL forms from the profile below (Polish identity fields); upload
           the PL CV ONLY via upload_cv - it owns the canonical file path, never
           call browser_file_upload and never invent a path; salary answer:

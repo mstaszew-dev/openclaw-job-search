@@ -627,6 +627,8 @@ class BrowserAgentTest {
             .filter { it.path("role").asText() == "system" }
             .joinToString("\n") { it.path("content").asText() }
         assertThat(system).contains("Continue with Google")
+        assertThat(system).contains("signed into the correct Gmail")
+        assertThat(system).contains("before starting the apply")
         assertThat(system).contains("Accept all")
         assertThat(system).contains("browser_tabs")
         assertThat(system).contains("browser_fill_form discipline")
