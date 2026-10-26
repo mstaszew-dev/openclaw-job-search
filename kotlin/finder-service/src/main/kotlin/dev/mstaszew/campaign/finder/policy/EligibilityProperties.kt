@@ -17,10 +17,14 @@ data class EligibilityProperties(
         "java", "kotlin", "spring", "spring boot", "php", "laravel", "node", "node.js",
         "nodejs", "react", "javascript", "typescript",
     ),
-    /** Any hit in the title rejects the listing (case-insensitive, word-ish match). */
+    /** Any hit in the title rejects the listing (case-insensitive, word-ish match).
+     *  Polish leadership titles included: boards title roles in Polish
+     *  ("Architekt Systemowy" passed the English-only list on 2026-10-26 and
+     *  burned a browser grind on an excluded role). */
     var excludedTitleKeywords: Set<String> = setOf(
         "team leader", "team lead", "tech lead", "technical lead", "lead developer",
         "lead engineer", "principal", "staff", "architect", "manager", "director", "head", "vp",
+        "architekt", "kierownik",
     ),
     /** Any hit anywhere (title+stack+company) rejects. */
     var excludedAnyKeywords: Set<String> = setOf(

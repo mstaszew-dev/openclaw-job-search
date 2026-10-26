@@ -88,6 +88,22 @@ class EligibilityPolicyTest {
         assertThat(policy.check(listing(title = "Senior Java Developer")).eligible).isTrue()
     }
 
+    /**
+     * Polish boards title their leadership roles in Polish. The 2026-10-26
+     * case: "Architekt Systemowy - Java dla branzy ubezpieczeniowej" passed
+     * the English-only exclusion list, got enqueued, ground the browser, and
+     * died on a captcha blocker - for a role the campaign policy hard-excludes.
+     */
+    @Test
+    fun `polish leadership titles are excluded too`() {
+        assertThat(policy.check(listing(title = "Architekt Systemowy - Java")).reason)
+            .isEqualTo(IneligibilityReason.EXCLUDED_TITLE)
+        assertThat(policy.check(listing(title = "Kierownik Zespołu Programistów Java")).reason)
+            .isEqualTo(IneligibilityReason.EXCLUDED_TITLE)
+        // boundary check: 'kierownik' inside another word must not reject
+        assertThat(policy.check(listing(title = "Programista Java")).eligible).isTrue()
+    }
+
     @Test
     fun `tech exclusions anywhere in title or stack`() {
         assertThat(policy.check(listing(title = ".NET Developer")).reason).isEqualTo(IneligibilityReason.EXCLUDED_KEYWORD)
