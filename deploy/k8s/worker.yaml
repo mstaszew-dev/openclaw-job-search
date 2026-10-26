@@ -44,12 +44,6 @@ spec:
               # the shared Chrome for real. Rollback = "shadow" + restart; the
               # gateway must stay up while live (see msrouter.yaml).
               value: "live"
-            - name: WORKER_MAX_STEPS
-              # 120 (was 80): external-ATS applies (justjoin 2026-10-25+) need
-              # cookie-wall dismissal + tab switch + a full second form; three
-              # units died at the 80 cap that night. AgentLoopBounds raises the
-              # Kafka poll budget with it, so the pair cannot drift.
-              value: "120"
             - name: MSROUTER_URL
               value: http://msrouter.campaign.svc.cluster.local:3000/v1
             - name: WORKER_MCP_COMMAND
@@ -82,9 +76,12 @@ spec:
             - name: SLACK_WEBHOOK
               valueFrom: { secretKeyRef: { name: campaign-msrouter, key: SLACK_WEBHOOK, optional: true } }
             # Step cap for the browser tool loop (AgentLoopBounds derives the
-            # Kafka poll budget from the same env). 80 = 4.7h bounded worst case.
+            # Kafka poll budget from the same env). 120 (was 80): external-ATS
+            # applies (justjoin 2026-10-25+) need cookie-wall dismissal + tab
+            # switch + a full second form; three units died at the 80 cap that
+            # night. 120 = 7h bounded worst case.
             - name: WORKER_MAX_STEPS
-              value: "80"
+              value: "120"
             - name: CAMPAIGN_API_URL
               value: http://campaign-api.campaign.svc.cluster.local:8080
           ports: [{ containerPort: 8082 }]
