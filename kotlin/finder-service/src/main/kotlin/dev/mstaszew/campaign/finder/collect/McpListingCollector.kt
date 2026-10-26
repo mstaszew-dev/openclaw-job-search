@@ -20,10 +20,13 @@ import java.time.Duration
  */
 class McpListingCollector(
     private val clientFactory: () -> McpStdioClient,
-    private val stacks: List<String> = listOf("java", "kotlin", "php", "node", "react"),
+    private val stacks: List<String> = DEFAULT_STACKS,
     private val toolTimeout: Duration = Duration.ofSeconds(90),
     private val mapper: ObjectMapper = ObjectMapper(),
 ) : ListingCollector {
+
+    /** Visible for the default-list test. */
+    internal fun stacksForTest(): List<String> = stacks
 
     override fun collect(source: String): List<CollectedListing> {
         val out = mutableListOf<CollectedListing>()
@@ -165,6 +168,17 @@ class McpListingCollector(
     companion object {
         private val log = LoggerFactory.getLogger(McpListingCollector::class.java)
 
+        /**
+         * 2026-10-26 inflow expansion: the original five stack queries were
+         * 100% swept (every window enqueued 0), and NFJ serves real category
+         * pages for spring, typescript and javascript. justjoin and
+         * theprotocol fold the new stacks to their nearest real chips (see
+         * pageUrl) so their per-window page count stays at three plus the
+         * historical kotlin/node pages.
+         */
+        val DEFAULT_STACKS: List<String> =
+            listOf("java", "kotlin", "spring", "php", "node", "react", "javascript", "typescript")
+
         /** Post-navigation settle wait (a fixed 3s sleep) bound, well below
          *  the tool timeout; the tab-cleanup bound lives in TabCleanup. */
         private val SETTLE_TIMEOUT: Duration = Duration.ofSeconds(10)
@@ -172,18 +186,30 @@ class McpListingCollector(
         fun pageUrl(source: String, stack: String): String = when (source) {
             "nofluffjobs" -> "https://nofluffjobs.com/pl/$stack?criteria=cityId%3Dremote"
             // 2025 redesign: /all-remote/* became 404 and the remote filter
-            // moved to /job-offers/remote/<category>. kotlin, node and react
-            // have no category of their own (kotlin posts under java, node
-            // and react under javascript), so they fold onto the nearest
-            // real one.
+            // moved to /job-offers/remote/<category>. kotlin, spring, node,
+            // react and typescript have no category of their own (kotlin and
+            // spring post under java, node, react and typescript under
+            // javascript), so they fold onto the nearest real one.
             "justjoin" -> "https://justjoin.it/job-offers/remote/${justjoinCategory(stack)}"
-            "theprotocol" -> "https://theprotocol.it/filtry/$stack?remote=true"
+            "theprotocol" -> "https://theprotocol.it/filtry/${protocolChip(stack)}?remote=true"
             else -> throw IllegalArgumentException("unknown board source: $source")
         }
 
         private fun justjoinCategory(stack: String): String = when (stack) {
-            "kotlin" -> "java"
-            "node", "react" -> "javascript"
+            "kotlin", "spring" -> "java"
+            "node", "react", "typescript" -> "javascript"
+            else -> stack
+        }
+
+        /**
+         * spring and typescript are NOT theprotocol chips: their /filtry
+         * pages silently fall back to the generic offer pool (verified in a
+         * real browser 2026-10-26), which would scrape the same general pool
+         * as java/javascript every window. Fold to the nearest real chip.
+         */
+        private fun protocolChip(stack: String): String = when (stack) {
+            "spring" -> "java"
+            "typescript" -> "javascript"
             else -> stack
         }
 

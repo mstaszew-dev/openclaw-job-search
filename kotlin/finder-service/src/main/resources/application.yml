@@ -38,7 +38,10 @@ finder:
   lease-ttl-minutes: ${FINDER_LEASE_TTL_MINUTES:30}
   lease-renew-seconds: ${FINDER_LEASE_RENEW_SECONDS:300}
   mcp-command: ${FINDER_MCP_COMMAND:node @playwright/mcp/cli.js --cdp-endpoint http://127.0.0.1:9222}
-  collect-stacks: ${FINDER_COLLECT_STACKS:java,kotlin,php,node,react}
+  # 2026-10-26 inflow expansion: 8 stack queries; NFJ serves spring,
+  # typescript and javascript as real categories, justjoin/theprotocol fold
+  # them to their nearest real chip (see McpListingCollector.pageUrl).
+  collect-stacks: ${FINDER_COLLECT_STACKS:java,kotlin,spring,php,node,react,javascript,typescript}
 
 finder.policy:
   pln-b2b-floor: ${POLICY_PLN_B2B_FLOOR:15000}

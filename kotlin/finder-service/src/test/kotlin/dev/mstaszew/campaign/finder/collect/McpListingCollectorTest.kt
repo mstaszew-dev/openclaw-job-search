@@ -93,6 +93,60 @@ class McpListingCollectorTest {
     }
 
     /**
+     * 2026-10-26 inflow expansion: the five original stack queries per board
+     * are 100% swept (every window: seen == dupWindow + deduped + ineligible
+     * + lowScore, enqueued 0). NFJ serves real category pages for spring,
+     * typescript and javascript (200, verified); justjoin has no such remote
+     * categories (404, verified) so they fold to the nearest real chip.
+     */
+    @Test
+    fun `nofluffjobs serves the expanded stacks as direct queries`() {
+        assertThat(McpListingCollector.pageUrl("nofluffjobs", "spring"))
+            .isEqualTo("https://nofluffjobs.com/pl/spring?criteria=cityId%3Dremote")
+        assertThat(McpListingCollector.pageUrl("nofluffjobs", "typescript"))
+            .isEqualTo("https://nofluffjobs.com/pl/typescript?criteria=cityId%3Dremote")
+        assertThat(McpListingCollector.pageUrl("nofluffjobs", "javascript"))
+            .isEqualTo("https://nofluffjobs.com/pl/javascript?criteria=cityId%3Dremote")
+    }
+
+    /**
+     * spring and typescript are not justjoin remote categories and NOT
+     * theprotocol chips (both /filtry pages fall back to the generic offer
+     * pool - verified in a real browser 2026-10-21); folding to the nearest
+     * real chip avoids scraping the same general pool twice per window.
+     */
+    @Test
+    fun `spring and typescript fold to real chips on justjoin and theprotocol`() {
+        assertThat(McpListingCollector.pageUrl("justjoin", "spring"))
+            .isEqualTo("https://justjoin.it/job-offers/remote/java")
+        assertThat(McpListingCollector.pageUrl("justjoin", "typescript"))
+            .isEqualTo("https://justjoin.it/job-offers/remote/javascript")
+        assertThat(McpListingCollector.pageUrl("theprotocol", "spring"))
+            .isEqualTo("https://theprotocol.it/filtry/java?remote=true")
+        assertThat(McpListingCollector.pageUrl("theprotocol", "typescript"))
+            .isEqualTo("https://theprotocol.it/filtry/javascript?remote=true")
+        // original stacks unchanged
+        assertThat(McpListingCollector.pageUrl("theprotocol", "java"))
+            .isEqualTo("https://theprotocol.it/filtry/java?remote=true")
+        assertThat(McpListingCollector.pageUrl("justjoin", "kotlin"))
+            .isEqualTo("https://justjoin.it/job-offers/remote/java")
+    }
+
+    /**
+     * The default stack list carries the expansion: eight queries per
+     * window; NFJ scrapes all eight pages, justjoin folds to three
+     * (java, javascript, php) and theprotocol to its real chips (java,
+     * javascript, php, plus the historical kotlin/node pages).
+     */
+    @Test
+    fun `default stacks include the expansion`() {
+        val stacks = McpListingCollector({ throw IllegalStateException() }).let { it }.stacksForTest()
+        assertThat(stacks).containsExactly(
+            "java", "kotlin", "spring", "php", "node", "react", "javascript", "typescript",
+        )
+    }
+
+    /**
      * justjoin's 2025+ taxonomy has no remote categories for kotlin, node or
      * react: /job-offers/remote/{kotlin,node,react} are 404 (checked
      * 2026-10-25). Kotlin roles post under java, node and react under
