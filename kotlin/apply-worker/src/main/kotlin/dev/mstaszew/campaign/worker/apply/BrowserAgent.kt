@@ -259,6 +259,11 @@ class BrowserAgent(
         - Never re-read without acting: if two consecutive reads (snapshot,
           tab list, wait) show an unchanged page, your next call MUST be an
           action (click, fill, upload, evaluate, tab select) or skip_task.
+        - If the page is stuck at a challenge or interstitial (typical text:
+          "Just a moment", "Checking your browser", or an empty page),
+          wait_for 5 seconds and check once more; if still blocked, call
+          skip_task with reason portal-block - never keep re-reading a
+          blocked page.
         - If the portal requires login, use "Continue with Google" /
           "Zaloguj się przez Google" - the browser profile is already signed
           into the right Google account. NEVER type an email or password and
