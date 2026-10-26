@@ -161,6 +161,18 @@ class Recorder(
     }
 
     /**
+     * The portal-block wall: same rationale as the captcha wall - a
+     * portal-blocked listing (login required without SSO, dead ATS form,
+     * paywall) is blocked for the SAME reasons on every future grind, so
+     * the first block is terminal for the listing. Distinct event action so
+     * ops can tell the classes apart.
+     */
+    @Transactional
+    fun recordPortalBlockWall(listing: JobListingEntity, jobId: String, detail: String) {
+        wallListing("portalBlockWall", listing, detail)
+    }
+
+    /**
      * Shared write shape of both re-enqueue walls (dead-letter and
      * browser-failed): a DUPLICATE skip that stops THIS listing via the id
      * and url branches - never companyKey, which would wall the company's

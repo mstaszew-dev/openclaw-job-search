@@ -386,7 +386,13 @@ class WorkerLoop(
             is ApplyResult.DuplicateNow -> recorder.recordSkippedDuplicate(listing, job.id, result.detail)
             is ApplyResult.Blocked -> {
                 recorder.recordBlocked(listing, job.id, result.reason, result.detail)
-                if (result.reason == "captcha") wallCaptchaReenqueue(listing, job, result.detail)
+                // Review finding 2026-10-26: portal-block is as permanent per
+                // listing as captcha (no-SSO login wall, dead form, paywall);
+                // the first block is terminal for the listing either way.
+                when (result.reason) {
+                    "captcha" -> wallBlockedReenqueue(listing, job, "captcha", result.detail)
+                    "portal-block" -> wallBlockedReenqueue(listing, job, "portal-block", result.detail)
+                }
                 notifier.blocked(job.id, result.reason)
             }
             is ApplyResult.Failed -> {
@@ -399,21 +405,25 @@ class WorkerLoop(
     }
 
     /**
-     * The model cannot solve image/hCaptcha-class challenges, so a captcha
-     * block on a listing is terminal for that listing; without this wall the
-     * finder re-enqueued it and the worker ground the same doomed form a
-     * second time before the repeat-block company guard fired. Best-effort
-     * like the failed wall: the grind already happened, a failed wall write
-     * logs loudly and keeps the ack.
+     * The model cannot solve image/hCaptcha-class challenges and a
+     * portal-block (no-SSO login, dead form, paywall) recurs on every grind,
+     * so a Blocked outcome of either class is terminal for that listing;
+     * without this wall the finder re-enqueued it and the worker ground the
+     * same doomed form a second time before the repeat-block company guard
+     * fired. Best-effort like the failed wall: the grind already happened,
+     * a failed wall write logs loudly and keeps the ack.
      */
-    private fun wallCaptchaReenqueue(listing: JobListingEntity, job: JobMessage, detail: String) {
+    private fun wallBlockedReenqueue(listing: JobListingEntity, job: JobMessage, kind: String, detail: String) {
         try {
-            recorder.recordCaptchaWall(listing, job.id, "captcha: ${detail.take(300)}")
+            when (kind) {
+                "captcha" -> recorder.recordCaptchaWall(listing, job.id, "captcha: ${detail.take(300)}")
+                else -> recorder.recordPortalBlockWall(listing, job.id, "portal-block: ${detail.take(300)}")
+            }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
-            log.error("interrupted while captcha-walling job {}", job.id)
+            log.error("interrupted while {}-walling job {}", kind, job.id)
         } catch (e: Exception) {
-            log.error("failed to captcha-wall {} from re-enqueue; it may re-grind", job.id, e)
+            log.error("failed to {}-wall {} from re-enqueue; it may re-grind", kind, job.id, e)
         }
     }
 

@@ -555,6 +555,26 @@ class WorkerLoopTest {
         assertThat(ack.count).isEqualTo(1)
     }
 
+    /**
+     * Review finding 2026-10-26: portal-block is as permanent per listing as
+     * captcha (no-SSO login wall, dead ATS form, paywall); the first block
+     * walls the listing so it is never ground twice.
+     */
+    @Test
+    fun `live mode walls a portal-blocked listing on the first block`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Blocked("portal-block", "login required, no Google SSO")
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 1) {
+            recorder.recordPortalBlockWall(any(), eq("justjoin:jj-1"), match { it.contains("portal-block") })
+        }
+        verify(exactly = 0) { recorder.recordCaptchaWall(any(), any(), any()) }
+        assertThat(ack.count).isEqualTo(1)
+    }
+
     @Test
     fun `shadow mode never asks for the browser lease`() {
         every { dedup.check(any()) } returns DuplicateDecision.CLEAR
