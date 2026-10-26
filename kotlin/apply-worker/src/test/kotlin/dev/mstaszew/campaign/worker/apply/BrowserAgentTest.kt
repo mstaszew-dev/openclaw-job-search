@@ -636,7 +636,7 @@ class BrowserAgentTest {
         assertThat(system).contains("Never re-read without acting")
         assertThat(system).contains("Just a moment")
         assertThat(system).contains("BEFORE filling the form")
-        assertThat(system).contains("no file-chooser modal state")
+        assertThat(system).contains("no related modal state")
         assertThat(system).contains("continue the form without the CV")
         assertThat(system).doesNotContain("never open new tabs")
     }
