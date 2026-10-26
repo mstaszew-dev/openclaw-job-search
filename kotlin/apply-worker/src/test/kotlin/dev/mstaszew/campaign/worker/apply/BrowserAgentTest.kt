@@ -638,4 +638,49 @@ class BrowserAgentTest {
     fun `tool schemas expose tab switching for external ats applies`() {
         assertThat(BrowserAgent.TOOL_SCHEMAS.map { it.name }).contains("browser_tabs")
     }
+
+    /**
+     * The 2026-10-26 GET IT TOGETHER cap-out: 109 of 122 steps were
+     * browser_snapshot OK - the model re-read the page every ~15s and never
+     * assembled the apply sequence. No failure streak tripped because
+     * snapshots SUCCEED; the cap was not too low, the model was wandering.
+     * A wander breaker ends the unit at WANDER_THRESHOLD consecutive
+     * identical successful tool calls instead of paying the whole cap.
+     */
+    @Test
+    fun `wander breaker aborts repeated identical successful tool calls`() {
+        val transport = ScriptedTransport(
+            listOf(toolCallResponse("browser_snapshot", "{}")),
+        )
+
+        val result = run(agent(transport, maxSteps = 50))
+
+        assertThat(result).isEqualTo(
+            ApplyResult.Failed("wander breaker: browser_snapshot repeated 8 consecutive times without progress"),
+        )
+    }
+
+    /** A different successful tool between repeats resets the wander count. */
+    @Test
+    fun `an interleaved different tool resets the wander count`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_evaluate", """{"function":"1+1"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_evaluate", """{"function":"1+1"}"""),
+                toolCallResponse("skip_task", """{"reason":"portal-block","detail":"t"}"""),
+            ),
+        )
+
+        val result = run(agent(transport, maxSteps = 20))
+
+        // Reached the scripted terminal (Blocked via skip_task), not a
+        // wander failure: the evaluate between snapshot runs reset the count.
+        assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
+    }
 }

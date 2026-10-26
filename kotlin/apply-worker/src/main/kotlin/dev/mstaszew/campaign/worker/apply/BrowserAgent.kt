@@ -141,6 +141,30 @@ class BrowserAgent(
                             state.failingTool = null
                             state.failureStreak = 0
                         }
+                        // Wander breaker: the failure streak cannot see a model
+                        // stuck RE-READING (109 browser_snapshot OKs in a row,
+                        // GET IT TOGETHER 2026-10-26: 122 steps, no apply
+                        // sequence, cap-out) because those calls succeed. Count
+                        // consecutive identical successful calls and end the
+                        // unit before the whole cap burns on page reads.
+                        if (dispatched.failed) {
+                            state.repeatTool = null
+                            state.repeatStreak = 0
+                        } else if (dispatched.toolName == state.repeatTool) {
+                            state.repeatStreak += 1
+                        } else {
+                            state.repeatTool = dispatched.toolName
+                            state.repeatStreak = 1
+                        }
+                        if (state.repeatStreak >= WANDER_THRESHOLD) {
+                            return out(
+                                step,
+                                ApplyResult.Failed(
+                                    "wander breaker: ${dispatched.toolName} repeated " +
+                                        "$WANDER_THRESHOLD consecutive times without progress",
+                                ),
+                            )
+                        }
                         state.messages += ChatMessage("user", dispatched.text.take(4000))
                         if (state.failureStreak >= LOOP_BREAK_THRESHOLD) {
                             return out(
@@ -166,6 +190,10 @@ class BrowserAgent(
         /** Loop-breaker state: the tool name of the current failure streak and its length. */
         var failingTool: String? = null
         var failureStreak: Int = 0
+
+        /** Wander-breaker state: last SUCCESSFUL tool name and its consecutive run length. */
+        var repeatTool: String? = null
+        var repeatStreak: Int = 0
 
         val messages = mutableListOf<ChatMessage>(
             ChatMessage(
@@ -370,6 +398,15 @@ class BrowserAgent(
          * most a few seconds.
          */
         const val LOOP_BREAK_THRESHOLD = 5
+
+        /**
+         * Consecutive identical SUCCESSFUL tool calls that end the attempt as
+         * Failed. Snapshots are the observed case (109 in a row, each ~15s of
+         * model latency); 8 leaves room for a legitimate re-read after every
+         * action while still cutting a pure read loop at ~2 minutes instead
+         * of the full cap.
+         */
+        const val WANDER_THRESHOLD = 8
 
         fun parseMaxSteps(raw: String?): Int = AgentLoopBounds.parseMaxSteps(raw)
 
