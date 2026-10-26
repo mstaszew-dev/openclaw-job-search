@@ -155,13 +155,24 @@ class BrowserAgent(
                             state.readStreak = 0
                         }
                         if (state.readStreak >= WANDER_THRESHOLD) {
-                            return out(
-                                step,
-                                ApplyResult.Failed(
-                                    "wander breaker: $WANDER_THRESHOLD consecutive read-only steps " +
-                                        "without action (last read: ${dispatched.toolName})",
-                                ),
-                            )
+                            if (state.wanderTrips == 0) {
+                                // One corrective shove before the kill: a
+                                // single degenerate model run should not
+                                // permanently wall a listing (margo
+                                // 2026-10-26). The second trip ends it.
+                                state.wanderTrips = 1
+                                state.readStreak = 0
+                                log.warn("job {}: wander trip 1, injecting correction", jobId)
+                                state.messages += ChatMessage("user", WANDER_CORRECTION)
+                            } else {
+                                return out(
+                                    step,
+                                    ApplyResult.Failed(
+                                        "wander breaker: $WANDER_THRESHOLD consecutive read-only steps " +
+                                            "without action (last read: ${dispatched.toolName})",
+                                    ),
+                                )
+                            }
                         }
                         state.messages += ChatMessage("user", dispatched.text.take(4000))
                         if (state.failureStreak >= LOOP_BREAK_THRESHOLD) {
@@ -191,6 +202,9 @@ class BrowserAgent(
 
         /** Wander-breaker state: consecutive READ-ONLY steps, whatever their tool mix. */
         var readStreak: Int = 0
+
+        /** How many wander trips this unit has had; the second is terminal. */
+        var wanderTrips: Int = 0
 
         val messages = mutableListOf<ChatMessage>(
             ChatMessage(
@@ -242,6 +256,9 @@ class BrowserAgent(
         - If clicks time out or a cookie/consent overlay covers the page,
           dismiss it first (button "Accept all" / "Zaakceptuj wszystkie"),
           then retry the click.
+        - Never re-read without acting: if two consecutive reads (snapshot,
+          tab list, wait) show an unchanged page, your next call MUST be an
+          action (click, fill, upload, evaluate, tab select) or skip_task.
         - If the portal requires login, use "Continue with Google" /
           "Zaloguj się przez Google" - the browser profile is already signed
           into the right Google account. NEVER type an email or password and
@@ -406,6 +423,13 @@ class BrowserAgent(
          * snapshots, zero clicks) - at ~2 minutes instead of the full cap.
          */
         const val WANDER_THRESHOLD = 8
+
+        /** The one-time corrective shove injected on the first wander trip. */
+        const val WANDER_CORRECTION =
+            "CORRECTION: you just made $WANDER_THRESHOLD consecutive read-only calls without acting. " +
+                "Your next call MUST be an action: click an element, browser_fill_form, upload_cv, " +
+                "browser_evaluate, or browser_tabs(action=\"select\"). If there is truly nothing to " +
+                "act on, call skip_task. Another read-only streak will end this task."
 
         private val READ_ONLY_TOOLS = setOf("browser_snapshot", "browser_wait_for")
 

@@ -711,4 +711,45 @@ class BrowserAgentTest {
         // runs are actions and reset the count.
         assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
     }
+
+    /**
+     * A single degenerate model run should not permanently kill a listing
+     * (margo 2026-10-26: 8 reads, wall, listing lost for a wander blip).
+     * The FIRST wander trip injects a corrective shove and resets the
+     * streak; only the SECOND trip ends the unit.
+     */
+    @Test
+    fun `first wander trip corrects the model, second trip fails`() {
+        val transport = ScriptedTransport(
+            listOf(
+                // trip 1: eight reads
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                // the shove lands; the model wanders again (eight more reads)
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                // then repeats its last entry (snapshot) forever -> trip 2
+            ),
+        )
+
+        val result = run(agent(transport, maxSteps = 60))
+
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("wander breaker: 8 consecutive read-only steps")
+        // The correction was actually sent to the model between the trips.
+        val allBodies = transport.bodies.joinToString("\n")
+        assertThat(allBodies).contains("read-only calls without acting")
+    }
 }
