@@ -124,7 +124,7 @@ class BrowserAgentTest {
             it.path("function").path("name").asText() to it.path("function")
         }
         assertThat(byName.keys).containsExactlyInAnyOrder(
-            "browser_navigate", "browser_snapshot", "browser_click", "browser_fill_form",
+            "browser_navigate", "browser_snapshot", "browser_click", "browser_tabs", "browser_fill_form",
             "upload_cv", "browser_evaluate", "browser_wait_for",
             "record_submission", "skip_task",
         )
@@ -600,5 +600,36 @@ class BrowserAgentTest {
                 any(),
             )
         }
+    }
+
+    /**
+     * The 2026-10-25 justjoin failure chain, pinned in the instructions: the
+     * cookie-consent overlay intercepts every pointer event until dismissed,
+     * the Apply button opens the EXTERNAL ATS form in a new tab (the old
+     * "one tab, never open new tabs" hard rule made those applies
+     * structurally impossible), and some portals demand login first - the
+     * shared profile is already signed into Google, so that is the only
+     * sanctioned login path.
+     */
+    @Test
+    fun `system prompt teaches cookie walls, google login and external-tab applies`() {
+        val transport = ScriptedTransport(
+            listOf(toolCallResponse("skip_task", """{"reason":"portal-block","detail":"t"}""")),
+        )
+        run(agent(transport))
+
+        val system = ObjectMapper().readTree(transport.bodies.first())
+            .path("messages")
+            .filter { it.path("role").asText() == "system" }
+            .joinToString("\n") { it.path("content").asText() }
+        assertThat(system).contains("Continue with Google")
+        assertThat(system).contains("Accept all")
+        assertThat(system).contains("browser_tabs")
+        assertThat(system).doesNotContain("never open new tabs")
+    }
+
+    @Test
+    fun `tool schemas expose tab switching for external ats applies`() {
+        assertThat(BrowserAgent.TOOL_SCHEMAS.map { it.name }).contains("browser_tabs")
     }
 }

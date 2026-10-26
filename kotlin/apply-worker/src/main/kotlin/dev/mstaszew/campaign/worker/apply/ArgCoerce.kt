@@ -80,7 +80,7 @@ internal object ArgCoerce {
     private val STATEMENT_START = Regex("""^\s*(const|let|var|for|while|do|if|switch|try|class|return|await)\b""")
 
     /** Only these tool names are ever reshaped; ledger tools pass raw. */
-    private val COERCIBLE_TOOLS = setOf("browser_fill_form", "browser_evaluate", "browser_navigate")
+    private val COERCIBLE_TOOLS = setOf("browser_fill_form", "browser_evaluate", "browser_navigate", "browser_tabs")
 
     private val mapper = ObjectMapper()
 
@@ -102,6 +102,7 @@ internal object ArgCoerce {
             "browser_fill_form" -> normalizeFillForm(obj, lastSnapshot)
             "browser_evaluate" -> normalizeEvaluate(obj)
             "browser_navigate" -> normalizeNavigate(obj)
+            "browser_tabs" -> normalizeTabs(obj)
             else -> obj
         }
     }
@@ -138,6 +139,30 @@ internal object ArgCoerce {
         args.fieldNames().asSequence()
             .filter { it != alias && it != "url" }
             .forEach { out.set<JsonNode>(it, args.get(it)) }
+        return out
+    }
+
+    /**
+     * playwright-mcp's browser_tabs wants {action: enum, index?: number};
+     * models send "Select" and index "1" (or a tab/tabIndex alias), which the
+     * zod schema rejects - each rejection burns a step toward the loop
+     * breaker. An uncoercible index passes through untouched so the failure
+     * stays loud instead of selecting a guessed tab.
+     */
+    private fun normalizeTabs(args: ObjectNode): JsonNode {
+        val action = args.path("action").asText("").lowercase()
+            .ifBlank { args.path("tab_action").asText("").lowercase() }
+        val idx = args.get("index") ?: args.get("tab") ?: args.get("tabIndex")
+        if (action.isEmpty() && (idx == null || idx.isNull)) return args
+        val out = mapper.createObjectNode()
+        if (action.isNotEmpty()) out.put("action", action)
+        when {
+            idx == null || idx.isNull -> {}
+            idx.isNumber -> out.put("index", idx.asInt())
+            idx.isTextual && idx.asText().trim().toIntOrNull() != null ->
+                out.put("index", idx.asText().trim().toInt())
+            else -> return args
+        }
         return out
     }
 

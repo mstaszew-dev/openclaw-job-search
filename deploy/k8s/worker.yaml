@@ -44,6 +44,12 @@ spec:
               # the shared Chrome for real. Rollback = "shadow" + restart; the
               # gateway must stay up while live (see msrouter.yaml).
               value: "live"
+            - name: WORKER_MAX_STEPS
+              # 120 (was 80): external-ATS applies (justjoin 2026-10-25+) need
+              # cookie-wall dismissal + tab switch + a full second form; three
+              # units died at the 80 cap that night. AgentLoopBounds raises the
+              # Kafka poll budget with it, so the pair cannot drift.
+              value: "120"
             - name: MSROUTER_URL
               value: http://msrouter.campaign.svc.cluster.local:3000/v1
             - name: WORKER_MCP_COMMAND

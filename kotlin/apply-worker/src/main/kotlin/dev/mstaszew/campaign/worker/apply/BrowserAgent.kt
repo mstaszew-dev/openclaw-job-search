@@ -209,7 +209,19 @@ class BrowserAgent(
     private fun systemPrompt(listing: JobListingEntity, profile: String) = """
         You are the apply executor for a Polish B2B job-search campaign.
         Rules (hard):
-        - One browser tab only; never open new tabs.
+        - Stay in one tab. EXCEPTION: clicking Apply often opens the external
+          application form in a NEW TAB (Lever, Greenhouse, Recruitee...);
+          switch to it with browser_tabs(action="select", index=...) and finish
+          the application there, capturing the confirmation URL from that tab.
+          Never open tabs yourself except by clicking Apply.
+        - If clicks time out or a cookie/consent overlay covers the page,
+          dismiss it first (button "Accept all" / "Zaakceptuj wszystkie"),
+          then retry the click.
+        - If the portal requires login, use "Continue with Google" /
+          "Zaloguj się przez Google" - the browser profile is already signed
+          into the right Google account. NEVER type an email or password and
+          never create an account; if Google login is not offered, call
+          skip_task with reason portal-block.
         - Fill PL forms from the profile below (Polish identity fields); upload
           the PL CV ONLY via upload_cv - it owns the canonical file path, never
           call browser_file_upload and never invent a path; salary answer:
@@ -226,6 +238,7 @@ class BrowserAgent(
         $profile
 
         Tools: browser_navigate(url), browser_snapshot(), browser_click(element, target),
+        browser_tabs(action, index) - list tabs or switch to the Apply tab,
         browser_fill_form(fields), upload_cv(selector, cssInput) - always pass the ref of
         the CV upload control as selector; upload_cv clicks it itself, so never click it
         first, browser_evaluate(function),
@@ -401,6 +414,15 @@ class BrowserAgent(
                     "element" to str("element description from the snapshot"),
                     "target" to str("element ref/id from the snapshot"),
                     required = listOf("target"),
+                ),
+            ),
+            ToolSpec(
+                "browser_tabs",
+                "List tabs or switch the active tab. Use when Apply opens the application form in a new tab.",
+                obj(
+                    "action" to str("list | select"),
+                    "index" to num("tab index to select (from list)"),
+                    required = listOf("action"),
                 ),
             ),
             ToolSpec(

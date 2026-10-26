@@ -337,4 +337,30 @@ class ArgCoerceTest {
             assertThat(ArgCoerce.normalize(tool, args, "snapshot")).isEqualTo(before)
         }
     }
+
+    /**
+     * Tab switching is now part of the apply contract (justjoin's Apply opens
+     * the external ATS form in a new tab), and free-tier models will emit the
+     * index as a string and the action with wrong case; playwright-mcp's zod
+     * schema would burn a step on each and three burn the attempt.
+     */
+    @Test
+    fun `browser_tabs arguments are coerced (action lowercase, string index to number, alias)`() {
+        val out = ArgCoerce.normalize(
+            "browser_tabs",
+            mapper.readTree("""{"action": "Select", "tab": "1"}"""),
+            "",
+        )
+
+        assertThat(out.path("action").asText()).isEqualTo("select")
+        assertThat(out.path("index").asInt()).isEqualTo(1)
+        assertThat(out.path("index").isNumber).isTrue()
+    }
+
+    @Test
+    fun `browser_tabs schema-valid input passes through untouched`() {
+        val args = mapper.readTree("""{"action": "list"}""")
+
+        assertThat(ArgCoerce.normalize("browser_tabs", args, "")).isEqualTo(args)
+    }
 }
