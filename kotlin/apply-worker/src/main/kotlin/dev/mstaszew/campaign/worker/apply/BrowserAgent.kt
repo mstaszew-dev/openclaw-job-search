@@ -275,6 +275,11 @@ class BrowserAgent(
           the PL CV ONLY via upload_cv - it owns the canonical file path, never
           call browser_file_upload and never invent a path; salary answer:
           15000 PLN net+VAT/month B2B.
+        - If upload_cv answers "no related modal state" or "could not re-read
+          the input node", there is NO CV input on the current page: take a
+          fresh snapshot and continue the form without the CV (many forms
+          upload later, or do not require it at all); retry upload_cv only
+          after reaching a step that actually shows an upload/attach control.
         - browser_fill_form discipline: after any tab switch or page change,
           take a fresh browser_snapshot of the tab that holds the form and copy
           each field's exact target ref and exact visible label from THAT
