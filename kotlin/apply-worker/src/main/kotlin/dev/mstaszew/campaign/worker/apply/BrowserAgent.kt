@@ -295,6 +295,14 @@ class BrowserAgent(
           way IMMEDIATELY, before starting the apply. NEVER type an email or
           password and never create an account; if login is required and
           Google SSO is not offered, call skip_task with reason portal-block.
+        - Before concluding the Apply button does not exist (skip_task
+          portal-block "unable to locate Apply/Aplikuj"): SPA listing pages
+          re-render and element refs go stale, so a lost button is USUALLY
+          stale state, not a missing one (makeitright 2026-10-27: a live
+          listing with a real Aplikuj button was walled after the model lost
+          it between re-renders). First navigate to the LISTING URL fresh,
+          take one browser_snapshot, and only skip if the Apply control and
+          any Apply-opening modal are genuinely absent there.
         - Fill PL forms from the profile below (Polish identity fields); upload
           the PL CV ONLY via upload_cv - it owns the canonical file path, never
           call browser_file_upload and never invent a path; salary answer:
