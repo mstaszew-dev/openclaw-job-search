@@ -626,4 +626,24 @@ class WorkerLoopTest {
         assertThat(ack.count).isEqualTo(1)
         verify(exactly = 0) { kafka.send(any<String>(), any<String>(), any<Any>()) }
     }
+
+    /**
+     * The 2026-10-27 wedge burn: a wedged browser (initializeServer
+     * timeouts) terminally failed unit after unit, and each failedWall
+     * burned a good listing - seven pracuj jobs walled in ~20 minutes for
+     * an infrastructure failure. Infrastructure signatures must NOT wall.
+     */
+    @Test
+    fun `infrastructure failures do not wall the listing`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns ApplyResult.Failed(
+            "loop breaker: browser_navigate failed 5 consecutive times; last error: " +
+                "tool browser_navigate failed: TimeoutError: async initializeServer: Timeout 30000ms exceeded",
+        )
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
+        assertThat(ack.count).isEqualTo(1)
+    }
 }

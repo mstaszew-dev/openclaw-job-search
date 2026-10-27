@@ -44,10 +44,30 @@ sig_worker=$(kubectl -n campaign logs deploy/apply-worker --since=16m 2>/dev/nul
 
 # Gate 2: the apply worker must hold no browser lease. An unreadable count
 # stays empty and fails safe below.
+# ESCAPE (2026-10-27 deadlock): a wedged browser fails every unit in ~3
+# minutes, but the worker re-acquires the lease for the next queued unit
+# immediately, so leases never reach 0 and the wipe never fires while good
+# listings burn. When the worker shows BOTH a heavy wedge signature AND at
+# least three recent unit terminals that all died fast against it, the
+# lease protects nothing - wipe anyway.
 lease=$(kubectl -n campaign exec mongo-0 -- sh -c 'mongosh --quiet -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --eval "print(db.getSiblingDB(\"campaign\").browser_leases.countDocuments({}))"' 2>/dev/null | tail -1)
 if [ "$lease" != "0" ]; then
-    log "wedge signature (finder=$sig_finder worker=$sig_worker) but lease='$lease'; not wiping"
-    exit 0
+    wedge_loop=0
+    if [ "${sig_worker:-0}" -ge 10 ]; then
+        recent=$(kubectl -n campaign logs deploy/apply-worker --since=16m 2>/dev/null | grep -aE "Failed after [0-9]+ steps|Submitted after|Blocked after" | tail -3)
+        fails=$(printf '%s' "$recent" | grep -ac "Failed after")
+        total=$(printf '%s' "$recent" | grep -acE "after [0-9]+ steps")
+        # all recent terminals are failures AND the worker wedge count is high
+        if [ "$total" -ge 3 ] && [ "$fails" = "$total" ]; then
+            wedge_loop=1
+        fi
+    fi
+    if [ "$wedge_loop" = "1" ]; then
+        log "wedge signature (worker=$sig_worker) with $fails fast-failed terminals under lease='$lease'; the lease protects nothing, wiping"
+    else
+        log "wedge signature (finder=$sig_finder worker=$sig_worker) but lease='$lease'; not wiping"
+        exit 0
+    fi
 fi
 
 # Gate 3: cooldown.

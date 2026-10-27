@@ -440,8 +440,23 @@ class WorkerLoop(
      * counter): past maxAttempts, overBound routes to deadLetter and its
      * strict wall-before-commit policy. Never weaken one side without the
      * other.
+     * INFRASTRUCTURE EXCEPTION: failures whose detail carries an
+     * infrastructure signature (initializeServer timeout = the wedged
+     * browser; process died = the MCP node crash) are OUR outage, not the
+     * listing's hostility - walling them burned seven good pracuj jobs in
+     * 20 minutes during the 2026-10-27 wedge. No wall: once the browser
+     * recovers, the finder re-enqueues them naturally.
      */
     private fun wallFailedReenqueue(listing: JobListingEntity, job: JobMessage, detail: String) {
+        if (INFRA_SIGNATURES.any { detail.contains(it) }) {
+            log.error(
+                "job {} failed with an infrastructure signature ({}); NOT walling - " +
+                    "the listing will be re-enqueued after recovery",
+                job.id,
+                detail.take(120),
+            )
+            return
+        }
         try {
             recorder.recordFailedWall(listing, job.id, "browser-failed: ${detail.take(300)}")
         } catch (e: InterruptedException) {
@@ -481,6 +496,13 @@ class WorkerLoop(
     private companion object {
         const val BACKOFF_BASE_MS = 2_000L
         const val DLQ_SEND_TIMEOUT_MS = 10_000L
+
+        /**
+         * Failure-text fragments that mean OUR infrastructure broke, not the
+         * listing: the wedged browser (initializeServer timeout) and the
+         * crashed MCP node process. Units failing with these must not wall.
+         */
+        val INFRA_SIGNATURES = listOf("initializeServer", "process died")
     }
 
 }
