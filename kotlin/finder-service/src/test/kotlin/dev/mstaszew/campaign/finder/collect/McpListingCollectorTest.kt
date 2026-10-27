@@ -642,6 +642,9 @@ verify(exactly = 1) {
         val script = McpListingCollector.extractionScript("pracuj", "kotlin")
         assertThat(script).contains(",oferta,")
         assertThat(script).contains("a.closest('dialog')")
+        // The card text lives in the anchor's enclosing container (thin
+        // anchors in the shared Chrome), so the script must walk UP.
+        assertThat(script).contains("node.parentElement")
         assertThat(script).contains("stack: [\"kotlin\"]")
         assertThat(script).doesNotContain("__STACK__")
         assertThat(script).doesNotContain("application/ld+json")

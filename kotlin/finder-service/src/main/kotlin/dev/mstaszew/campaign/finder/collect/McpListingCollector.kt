@@ -308,17 +308,20 @@ class McpListingCollector(
                 .replace("/", "\\/")
 
         /**
-         * pracuj.pl card extraction, validated against the live DOM on
-         * 2026-10-27: the offer anchor's own text is the card
-         * (badge? / title / salary? / company / city / employment chips
-         * including "Praca zdalna"). Promo CTAs inside dialogs share the
-         * href pattern and are excluded. The stack rides the keyword search
-         * that produced the page.
+         * pracuj.pl card extraction, validated against the SHARED Chrome on
+         * 2026-10-27 (finder-pod probe): the offer anchors themselves are
+         * thin (wrapper and title-only links, under 3 text lines); the card
+         * text (badge? / title / salary? / company / city / employment
+         * chips incl. "Praca zdalna") lives in the enclosing container, so
+         * the script walks UP from each anchor to the first container with
+         * card-shaped text. Promo CTAs inside dialogs (a recruiter upsell
+         * overlays the page) are excluded. The stack rides the keyword
+         * search that produced the page.
          */
         private val PRACUJ_SCRIPT = """(function(){
             const badge = /^(Superoferta|Oferta wyróżniona|Nowa|Top|Promowana)/i;
             const salary = /zł|PLN/i;
-            const noise = /^(Sprawdź profil firmy|Opublikowana)/i;
+            const noise = /^(Sprawdź profil firmy|Opublikowana|Aplikuj szybko)/i;
             const seen = new Set();
             const out = [];
             document.querySelectorAll('a[href*=",oferta,"]').forEach(a => {
@@ -326,8 +329,14 @@ class McpListingCollector(
                 const href = a.getAttribute('href') || '';
                 const id = (href.split('/').filter(Boolean).pop() || '').split('?')[0].split('#')[0];
                 if (!id || seen.has(id)) return;
-                const lines = (a.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
-                if (lines.length < 3) return;
+                let node = a, lines = [];
+                for (let i = 0; i < 8 && node && node !== document.body; i++) {
+                    node = node.parentElement;
+                    if (!node) break;
+                    const l = (node.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+                    if (l.length >= 4 && node.innerText.length < 700) { lines = l; break; }
+                }
+                if (lines.length < 4) return;
                 let i = 0;
                 while (i < lines.length && (badge.test(lines[i]) || noise.test(lines[i]))) i++;
                 const title = lines[i] || '';
