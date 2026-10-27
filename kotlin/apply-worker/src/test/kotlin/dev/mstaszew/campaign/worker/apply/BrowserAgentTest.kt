@@ -638,6 +638,7 @@ class BrowserAgentTest {
         assertThat(system).contains("BEFORE filling the form")
         assertThat(system).contains("no related modal state")
         assertThat(system).contains("continue the form without the CV")
+        assertThat(system).contains("element ref from")
         assertThat(system).doesNotContain("never open new tabs")
     }
 

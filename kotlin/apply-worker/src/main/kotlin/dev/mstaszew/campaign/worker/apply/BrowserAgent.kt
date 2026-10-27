@@ -335,6 +335,9 @@ class BrowserAgent(
         browser_wait_for(time|text), record_submission(confirmationUrl, confirmationText, ats),
         skip_task(reason, detail).
         Call exactly one tool per turn.
+        browser_click/browser_fill_form targets MUST be the element ref from
+        the snapshot (like f12e4) - never CSS selectors or :has-text(), they
+        resolve to multiple or zero elements.
     """.trimIndent()
 
     private data class ToolCall(val name: String, val arguments: JsonNode)
@@ -430,7 +433,17 @@ class BrowserAgent(
             // 800: tonight's upload_cv deaths were undebuggable because this
             // cap cut the MCP refusal JSON (real reason lives past char 300)
             // before the loop breaker or the model ever saw it.
-            ToolOutcome(call.name, "tool ${call.name} failed: ${e.message?.take(800)}", failed = true)
+            var text = "tool ${call.name} failed: ${e.message?.take(800)}"
+            // The ranlab class (2026-10-27): the model retried a CSS
+            // selector five times against strict-mode violations because the
+            // raw error never told it what to do instead.
+            if (e.message?.contains("strict mode violation") == true ||
+                e.message?.contains("does not match any elements") == true
+            ) {
+                text += " HINT: take a fresh browser_snapshot and use its element ref " +
+                    "(like f12e4) as the target - CSS selectors and :has-text() do not work here."
+            }
+            ToolOutcome(call.name, text, failed = true)
         }
 
     companion object {
