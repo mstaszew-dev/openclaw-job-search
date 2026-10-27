@@ -194,12 +194,28 @@ class McpListingCollector(
             // javascript), so they fold onto the nearest real one.
             "justjoin" -> "https://justjoin.it/job-offers/remote/${justjoinCategory(stack)}"
             "theprotocol" -> "https://theprotocol.it/filtry/${protocolChip(stack)}?remote=true"
+            // Keyword SEARCH board (the largest PL board, 956 java offers vs
+            // ~150 per category elsewhere): each keyword is a real search;
+            // the remote filter rides the URL, so every card is remote and
+            // the extractor can hardcode remote:true like the other boards.
+            "pracuj" -> "https://www.pracuj.pl/praca/${pracujKeyword(stack)};kw/praca%20zdalna;wm,home-office"
             else -> throw IllegalArgumentException("unknown board source: $source")
         }
 
         private fun justjoinCategory(stack: String): String = when (stack) {
             "kotlin", "spring" -> "java"
             "node", "react", "typescript" -> "javascript"
+            else -> stack
+        }
+
+        /**
+         * Five distinct pracuj searches per window (java, kotlin, php,
+         * react, javascript); the remaining stacks fold onto them so the
+         * window budget stays sane (~20s per search page).
+         */
+        private fun pracujKeyword(stack: String): String = when (stack) {
+            "spring" -> "java"
+            "node", "typescript" -> "javascript"
             else -> stack
         }
 
@@ -268,6 +284,12 @@ class McpListingCollector(
             // stack word still pass the eligibility stack gate.
             "justjoin" -> JUSTJOIN_JSONLD_SCRIPT.replace("__STACK__", justjoinCategory(stack))
             "theprotocol" -> scriptFor("'a[href*=\"/praca/\"]'")
+            // Keyword-search board: the offer anchor itself carries the card
+            // text (badge / title / salary? / company / city / employment
+            // chips incl. "Praca zdalna"). Anchors inside dialogs are promo
+            // CTAs, not listings. The URL query (?s=&searchId=) is session
+            // state and parse() already strips it from the id.
+            "pracuj" -> PRACUJ_SCRIPT.replace("__STACK__", pracujKeyword(stack))
             else -> throw IllegalArgumentException("unknown board source: $source")
         }
 
@@ -284,6 +306,51 @@ class McpListingCollector(
             (CompanyKeyNormalizer.CHIP_KEYS.map { it.replace('-', ' ') } + "remote" + "ai/ml")
                 .joinToString("|")
                 .replace("/", "\\/")
+
+        /**
+         * pracuj.pl card extraction, validated against the live DOM on
+         * 2026-10-27: the offer anchor's own text is the card
+         * (badge? / title / salary? / company / city / employment chips
+         * including "Praca zdalna"). Promo CTAs inside dialogs share the
+         * href pattern and are excluded. The stack rides the keyword search
+         * that produced the page.
+         */
+        private val PRACUJ_SCRIPT = """(function(){
+            const badge = /^(Superoferta|Oferta wyróżniona|Nowa|Top|Promowana)/i;
+            const salary = /zł|PLN/i;
+            const noise = /^(Sprawdź profil firmy|Opublikowana)/i;
+            const seen = new Set();
+            const out = [];
+            document.querySelectorAll('a[href*=",oferta,"]').forEach(a => {
+                if (a.closest('dialog')) return;
+                const href = a.getAttribute('href') || '';
+                const id = (href.split('/').filter(Boolean).pop() || '').split('?')[0].split('#')[0];
+                if (!id || seen.has(id)) return;
+                const lines = (a.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+                if (lines.length < 3) return;
+                let i = 0;
+                while (i < lines.length && (badge.test(lines[i]) || noise.test(lines[i]))) i++;
+                const title = lines[i] || '';
+                i++;
+                let company = '';
+                while (i < lines.length) {
+                    const l = lines[i];
+                    if (!salary.test(l) && !noise.test(l) && !badge.test(l) && l.length > 1) { company = l; break; }
+                    i++;
+                }
+                if (!title || !company) return;
+                seen.add(id);
+                out.push({
+                    remote: true,
+                    id: id,
+                    title: title.slice(0, 140),
+                    company: company.slice(0, 120),
+                    stack: ["__STACK__"],
+                    url: href.split('?')[0]
+                });
+            });
+            return JSON.stringify(out);
+        })()"""
 
         private fun scriptFor(selector: String): String = CARD_SCRIPT
             .replace("__SELECTOR__", selector)

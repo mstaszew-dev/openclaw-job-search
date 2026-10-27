@@ -616,4 +616,49 @@ verify(exactly = 1) {
             client.callToolText(eq("browser_wait_for"), any(), eq(Duration.ofSeconds(10)))
         }
     }
+
+    /**
+     * pracuj.pl is the fourth board and the first keyword-SEARCH board
+     * (956 java offers vs ~150 per category elsewhere, verified
+     * 2026-10-27): each keyword is a real search on the largest PL board
+     * with the remote filter riding the URL. Five distinct searches per
+     * window; the other stacks fold onto them.
+     */
+    @Test
+    fun `pracuj keyword searches carry the remote filter`() {
+        assertThat(McpListingCollector.pageUrl("pracuj", "java"))
+            .isEqualTo("https://www.pracuj.pl/praca/java;kw/praca%20zdalna;wm,home-office")
+        assertThat(McpListingCollector.pageUrl("pracuj", "spring"))
+            .isEqualTo("https://www.pracuj.pl/praca/java;kw/praca%20zdalna;wm,home-office")
+        assertThat(McpListingCollector.pageUrl("pracuj", "typescript"))
+            .isEqualTo("https://www.pracuj.pl/praca/javascript;kw/praca%20zdalna;wm,home-office")
+        assertThat(McpListingCollector.pageUrl("pracuj", "php"))
+            .isEqualTo("https://www.pracuj.pl/praca/php;kw/praca%20zdalna;wm,home-office")
+    }
+
+    /** The pracuj extractor is anchor-based with its own card-line parsing. */
+    @Test
+    fun `pracuj extraction is anchor-based and emits the search keyword as stack`() {
+        val script = McpListingCollector.extractionScript("pracuj", "kotlin")
+        assertThat(script).contains(",oferta,")
+        assertThat(script).contains("a.closest('dialog')")
+        assertThat(script).contains("stack: [\"kotlin\"]")
+        assertThat(script).doesNotContain("__STACK__")
+        assertThat(script).doesNotContain("application/ld+json")
+    }
+
+    /** A pracuj card parses into the listing shape, query stripped from the id. */
+    @Test
+    fun `pracuj card parses with a stable id and company from card lines`() {
+        val text = "[{\"remote\":true,\"id\":\"senior-java-backend-developer-warszawa,oferta,1005179361?s=a857cfe1&searchId=xyz\",\"title\":\"Senior Java Backend Developer\",\"company\":\"Edge One Solutions Sp. z o.o.\",\"stack\":[\"java\"],\"url\":\"https://www.pracuj.pl/praca/senior-java-backend-developer-warszawa,oferta,1005179361?s=a857cfe1\"}]"
+
+        val listings = McpListingCollector({ throw IllegalStateException() })
+            .let { it.parseForTest(text, "pracuj") }
+
+        assertThat(listings).hasSize(1)
+        val l = listings.single()
+        assertThat(l.sourceJobId).isEqualTo("senior-java-backend-developer-warszawa,oferta,1005179361")
+        assertThat(l.company).isEqualTo("Edge One Solutions Sp. z o.o.")
+        assertThat(l.remotePolicy).isEqualTo("remote")
+    }
 }

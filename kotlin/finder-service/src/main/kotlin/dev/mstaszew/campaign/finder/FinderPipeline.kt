@@ -97,7 +97,7 @@ class FinderPipeline(
         try {
             seenThisWindow.clear()
             val summary = WindowSummary()
-            for (source in listOf("nofluffjobs", "justjoin", "theprotocol")) {
+            for (source in listOf("nofluffjobs", "justjoin", "theprotocol", "pracuj")) {
                 val collected = try {
                     collector.collect(source)
                 } catch (e: Exception) {

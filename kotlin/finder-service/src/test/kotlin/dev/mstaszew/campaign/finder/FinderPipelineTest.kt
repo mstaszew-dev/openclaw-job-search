@@ -286,7 +286,7 @@ class FinderPipelineTest {
 
         pipeline(collector = collector).run()
 
-        assertThat(collectCalls).containsExactly("nofluffjobs", "justjoin", "theprotocol")
+        assertThat(collectCalls).containsExactly("nofluffjobs", "justjoin", "theprotocol", "pracuj")
         // The whole finder acquire contract, pinned: instance-unique owner,
         // discovery op, 30min ttl, no waiting (busy means skip the window),
         // default 2s poll, renewal every 5min so a long scan is never stolen

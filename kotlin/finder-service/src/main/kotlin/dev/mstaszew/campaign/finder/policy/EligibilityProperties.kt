@@ -35,5 +35,5 @@ data class EligibilityProperties(
     /** B2B monthly net+VAT floor applied only when the listing shows a salary. */
     var plnB2bFloor: Int = 15000,
     /** Boards accepted as sources (legacy IL sources are rejected). */
-    var allowedSources: Set<String> = setOf("nofluffjobs", "justjoin", "theprotocol"),
+    var allowedSources: Set<String> = setOf("nofluffjobs", "justjoin", "theprotocol", "pracuj"),
 )
