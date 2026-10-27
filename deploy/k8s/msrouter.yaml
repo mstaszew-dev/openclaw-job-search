@@ -51,7 +51,13 @@ spec:
             - name: VPN_ROTATION_INTERVAL_MINUTES
               value: "0"
             - name: LAPTOP_ENABLED
-              value: "false"
+              # 2026-10-27: local qwen35-2b-64k tail ON. Pods cannot reach
+              # tailscale serve on :443 (k3s Traefik's LB intercepts
+              # locally-originated traffic to the tailscale IP), so
+              # msrouter.env points LAPTOP_BASE_URL at the nginx tailnet bind
+              # http://100.94.153.31:11435/v1 (same llm-gateway chain serve
+              # proxies to; nginx sites-enabled/ollama-proxy listens there).
+              value: "true"
           ports: [{ containerPort: 3000 }]
           readinessProbe:
             httpGet: { path: /health/ready, port: 3000 }

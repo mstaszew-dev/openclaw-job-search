@@ -54,6 +54,8 @@ class McpStdioClient(
                 }
             } catch (_: InterruptedException) {
                 // closing: stop feeding
+            } catch (_: java.io.IOException) {
+                // process died / stream closed; stop feeding, signal EOF
             } finally {
                 runCatching { reader.close() }
                 lines.put(EOF_MARKER)

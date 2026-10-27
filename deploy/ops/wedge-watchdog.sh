@@ -36,10 +36,17 @@ log() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
 # Gate 1: wedge signature in the last 16 minutes. The finder cycles every
 # 15 min, so a 16-min window guarantees the signatures of every wedged
 # cycle are still visible at least one cron tick after the cycle ends; a
-# 12-min window let a cycle's wedge age out between cycles and added a
+# 12-min window let a wedge age out between cycles and added a
 # full 15-min wait to recovery (observed 2026-10-25 09:47Z).
-sig_finder=$(kubectl -n campaign logs deploy/finder --since=16m 2>/dev/null | grep -ac "initializeServer: Timeout")
-sig_worker=$(kubectl -n campaign logs deploy/apply-worker --since=16m 2>/dev/null | grep -ac "initializeServer: Timeout")
+# init_timeout counts ONLY the exact browser-wedge text: it alone drives
+# the under-lease ESCAPE in Gate 2, because "Stream closed" is generic
+# exception text (JDK HttpClient, Mongo, Kafka stack traces) and must not
+# be able to wipe a browser under a live lease (review 2026-10-27).
+# all_sig matches everything the worker treats as non-walling - it opens
+# Gate 1 only (some infra failure exists), the cheap gate.
+sig_finder=$(kubectl -n campaign logs deploy/finder --since=16m 2>/dev/null | grep -acE "initializeServer: Timeout|Stream closed|ECONNREFUSED")
+sig_worker=$(kubectl -n campaign logs deploy/apply-worker --since=16m 2>/dev/null | grep -acE "initializeServer: Timeout|Stream closed|ECONNREFUSED")
+init_worker=$(kubectl -n campaign logs deploy/apply-worker --since=16m 2>/dev/null | grep -ac "initializeServer: Timeout")
 [ "${sig_finder:-0}" = "0" ] && [ "${sig_worker:-0}" = "0" ] && exit 0
 
 # Gate 2: the apply worker must hold no browser lease. An unreadable count
@@ -53,7 +60,10 @@ sig_worker=$(kubectl -n campaign logs deploy/apply-worker --since=16m 2>/dev/nul
 lease=$(kubectl -n campaign exec mongo-0 -- sh -c 'mongosh --quiet -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --eval "print(db.getSiblingDB(\"campaign\").browser_leases.countDocuments({}))"' 2>/dev/null | tail -1)
 if [ "$lease" != "0" ]; then
     wedge_loop=0
-    if [ "${sig_worker:-0}" -ge 10 ]; then
+    # ESCAPE threshold counts only the exact initializeServer timeout text:
+    # the generic widened signatures (Stream closed etc.) must never push a
+    # lease-protected wipe over the line (see Gate 1 comment).
+    if [ "${init_worker:-0}" -ge 10 ]; then
         recent=$(kubectl -n campaign logs deploy/apply-worker --since=16m 2>/dev/null | grep -aE "Failed after [0-9]+ steps|Submitted after|Blocked after" | tail -3)
         fails=$(printf '%s' "$recent" | grep -ac "Failed after")
         total=$(printf '%s' "$recent" | grep -acE "after [0-9]+ steps")
@@ -63,7 +73,7 @@ if [ "$lease" != "0" ]; then
         fi
     fi
     if [ "$wedge_loop" = "1" ]; then
-        log "wedge signature (worker=$sig_worker) with $fails fast-failed terminals under lease='$lease'; the lease protects nothing, wiping"
+        log "wedge signature (init=$init_worker) with $fails fast-failed terminals under lease='$lease'; the lease protects nothing, wiping"
     else
         log "wedge signature (finder=$sig_finder worker=$sig_worker) but lease='$lease'; not wiping"
         exit 0

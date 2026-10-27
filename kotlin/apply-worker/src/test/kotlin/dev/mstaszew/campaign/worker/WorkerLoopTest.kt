@@ -17,6 +17,7 @@ import dev.mstaszew.campaign.common.repo.ChromeLease
 import dev.mstaszew.campaign.worker.apply.ApplyResult
 import dev.mstaszew.campaign.worker.apply.BrowserAgent
 import dev.mstaszew.campaign.worker.apply.Recorder
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -77,6 +78,10 @@ class WorkerLoopTest {
 
         override fun acknowledge() {
             count++
+        }
+
+        fun reset() {
+            count = 0
         }
     }
 
@@ -632,18 +637,40 @@ class WorkerLoopTest {
      * timeouts) terminally failed unit after unit, and each failedWall
      * burned a good listing - seven pracuj jobs walled in ~20 minutes for
      * an infrastructure failure. Infrastructure signatures must NOT wall.
+     * Parameterized over every signature so a future list addition is
+     * covered by construction (review 2026-10-27: the list had drifted to
+     * three untested entries).
      */
     @Test
     fun `infrastructure failures do not wall the listing`() {
-        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
-        every { browserAgent.run(any(), any(), any(), any(), any()) } returns ApplyResult.Failed(
-            "loop breaker: browser_navigate failed 5 consecutive times; last error: " +
-                "tool browser_navigate failed: TimeoutError: async initializeServer: Timeout 30000ms exceeded",
+        val signatures = listOf(
+            // Wedged CDP browser (MCP tool error text).
+            "TimeoutError: async initializeServer: Timeout 30000ms exceeded",
+            // Dead MCP node process (BrowserAgent process-death path).
+            "call failed: MCP server process died (exit=134)",
+            // MCP stdio stream torn down mid-call.
+            "Error: Stream closed",
+            // Node-side MCP-to-CDP refusal (2026-10-27 second wedge face).
+            "Error: async initializeServer: connect ECONNREFUSED 100.94.153.31:30922",
+            // Gateway outage: LLM unreachable (msrouter down / network cut).
+            "llm loop failed: chat failed after 3 attempts",
+            // Gateway outage: 429/5xx surfaced through the LlmClient wrapper.
+            "llm loop failed: gateway returned HTTP 502",
+            // MCP stdout closed while a call was in flight (EOF path).
+            "server closed stdout while waiting for tools/call",
         )
+        for (detail in signatures) {
+            clearMocks(dedup, browserAgent)
+            every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+            every { browserAgent.run(any(), any(), any(), any(), any()) } returns ApplyResult.Failed(
+                "loop breaker: browser_navigate failed 5 consecutive times; last error: $detail",
+            )
+            ack.reset()
 
-        loop("live").onMessage(job, ack)
+            loop("live").onMessage(job, ack)
 
-        verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
-        assertThat(ack.count).isEqualTo(1)
+            verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
+            assertThat(ack.count).isEqualTo(1)
+        }
     }
 }

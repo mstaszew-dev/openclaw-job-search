@@ -499,10 +499,22 @@ class WorkerLoop(
 
         /**
          * Failure-text fragments that mean OUR infrastructure broke, not the
-         * listing: the wedged browser (initializeServer timeout) and the
-         * crashed MCP node process. Units failing with these must not wall.
+         * listing: the wedged browser (initializeServer timeout / refused
+         * CDP), the crashed MCP node process, the torn stdio stream, and the
+         * unreachable LLM gateway ("llm loop failed: chat failed..." and its
+         * "gateway returned HTTP NNN" wrapper, WorkerConfig.msrouterUrl
+         * being in-cluster). Units failing with these must not wall.
+         * Mirrored in deploy/ops/wedge-watchdog.sh Gate 1 - evolve together.
          */
-        val INFRA_SIGNATURES = listOf("initializeServer", "process died")
+        val INFRA_SIGNATURES = listOf(
+            "initializeServer",
+            "process died",
+            "Stream closed",
+            "ECONNREFUSED",
+            "llm loop failed",
+            "gateway returned HTTP",
+            "server closed stdout",
+        )
     }
 
 }
