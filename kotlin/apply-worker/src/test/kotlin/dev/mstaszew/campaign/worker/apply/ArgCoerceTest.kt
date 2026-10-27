@@ -363,4 +363,23 @@ class ArgCoerceTest {
 
         assertThat(ArgCoerce.normalize("browser_tabs", args, "")).isEqualTo(args)
     }
+
+    /**
+     * The szczecin wander death (2026-10-27): 13 fast browser_tabs calls -
+     * the model tried to SELECT a tab but emitted only an index (no action),
+     * which playwright-mcp silently treats as a LIST. Every intent to act
+     * became a read; the wander breaker killed it. An index without an
+     * action means select.
+     */
+    @Test
+    fun `browser_tabs index without action is coerced to select`() {
+        val out = ArgCoerce.normalize(
+            "browser_tabs",
+            mapper.readTree("""{"index": "1"}"""),
+            "",
+        )
+
+        assertThat(out.path("action").asText()).isEqualTo("select")
+        assertThat(out.path("index").asInt()).isEqualTo(1)
+    }
 }

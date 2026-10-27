@@ -481,8 +481,9 @@ class BrowserAgent(
         const val WANDER_CORRECTION =
             "CORRECTION: you just made $WANDER_THRESHOLD consecutive read-only calls without acting. " +
                 "Your next call MUST be an action: click an element, browser_fill_form, upload_cv, " +
-                "browser_evaluate, or browser_tabs(action=\"select\"). If there is truly nothing to " +
-                "act on, call skip_task. Another read-only streak will end this task."
+                "browser_evaluate, or browser_tabs(action=\"select\", index=N - a bare index " +
+                "defaults to LIST, always pass action=\"select\" when switching tabs). If there is " +
+                "truly nothing to act on, call skip_task. Another read-only streak will end this task."
 
         /** Consecutive tool-less (prose) replies before the unit fails. */
         const val NARRATION_LIMIT = 3
@@ -492,7 +493,6 @@ class BrowserAgent(
             "You replied with prose instead of a tool call. Call EXACTLY ONE tool now: " +
                 "browser_snapshot to see the current page or modal, browser_tabs(action=\"list\") " +
                 "if a new tab may have opened, or skip_task to abandon. No prose."
-
         private val READ_ONLY_TOOLS = setOf("browser_snapshot", "browser_wait_for")
 
         /** A tab call is a read only as a LIST; SELECT changes state. */

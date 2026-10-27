@@ -147,7 +147,9 @@ internal object ArgCoerce {
      * models send "Select" and index "1" (or a tab/tabIndex alias), which the
      * zod schema rejects - each rejection burns a step toward the loop
      * breaker. An uncoercible index passes through untouched so the failure
-     * stays loud instead of selecting a guessed tab.
+     * stays loud instead of selecting a guessed tab. An index WITHOUT an
+     * action means select (the szczecin wander: index-only calls silently
+     * became LISTs, so every intent to act was a read).
      */
     private fun normalizeTabs(args: ObjectNode): JsonNode {
         val action = args.path("action").asText("").lowercase()
@@ -155,7 +157,8 @@ internal object ArgCoerce {
         val idx = args.get("index") ?: args.get("tab") ?: args.get("tabIndex")
         if (action.isEmpty() && (idx == null || idx.isNull)) return args
         val out = mapper.createObjectNode()
-        if (action.isNotEmpty()) out.put("action", action)
+        val effectiveAction = action.ifBlank { "select" }
+        if (effectiveAction.isNotEmpty()) out.put("action", effectiveAction)
         when {
             idx == null || idx.isNull -> {}
             idx.isNumber -> out.put("index", idx.asInt())
