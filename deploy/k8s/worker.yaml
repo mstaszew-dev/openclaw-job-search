@@ -51,6 +51,12 @@ spec:
               # expect 5000->15000ms (no --timeout-expect flag exists; the
               # file is written inline in deploy/docker/Dockerfile.jvm).
               value: node /opt/playwright-mcp/cli.js --cdp-endpoint http://100.94.153.31:30922 --config /app/pw-mcp.json
+            # V8 heap cap for the per-job node MCP process: exit=134 aborts
+            # (german-pracuj 2026-10-27) happen when node's default old-space
+            # exceeds the container budget mid-grind; capping below the pod
+            # limit makes V8 GC harder instead of aborting.
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=768"
             # Canonical PL CV inside the container (hostPath mount below). The
             # model never sees this path: upload_cv owns it (cv_upload.py port).
             # MUST stay under /app: playwright-mcp only accepts file paths

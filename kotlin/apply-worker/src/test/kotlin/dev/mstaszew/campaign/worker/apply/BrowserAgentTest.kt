@@ -793,4 +793,24 @@ class BrowserAgentTest {
 
         assertThat((result as ApplyResult.Failed).detail).startsWith("model produced no tool call after 3 tries")
     }
+
+    /**
+     * The german-pracuj death (2026-10-27): the node MCP process died with a
+     * V8 abort (exit=134) mid-grind; every later call failed instantly, the
+     * failure streak fired, and an infrastructure crash terminally FAILED
+     * and walled a perfectly good listing. A dead MCP process must ESCAPE
+     * the tool-catch as an exception so Kafka redelivers to a fresh process
+     * (mcpFactory spawns a new client per run).
+     */
+    @Test
+    fun `a dead MCP process escapes as a retryable exception, not a failure streak`() {
+        every { browser.callToolText(any(), any(), any()) } throws
+            RuntimeException("call failed: MCP server process died (exit=134)")
+        val transport = ScriptedTransport(
+            listOf(toolCallResponse("browser_evaluate", """{"function":"1+1"}""")),
+        )
+
+        org.assertj.core.api.Assertions.assertThatThrownBy { run(agent(transport)) }
+            .hasMessageContaining("process died")
+    }
 }

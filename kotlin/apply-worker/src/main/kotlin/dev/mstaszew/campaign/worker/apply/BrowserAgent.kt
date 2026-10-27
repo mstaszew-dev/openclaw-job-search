@@ -429,6 +429,13 @@ class BrowserAgent(
             }
             ToolOutcome(call.name, text, failed = false)
         } catch (e: Exception) {
+            // A dead MCP server process is infrastructure, not a tool
+            // failure: every subsequent call would fail against a corpse,
+            // the streak would terminally fail the unit, and a perfectly
+            // good listing would be walled (german-pracuj 2026-10-27,
+            // exit=134 V8 abort). Escaping turns it into a Kafka
+            // redelivery, and the next run spawns a fresh process.
+            if (e.message?.contains("process died") == true) throw e
             log.warn("tool {} failed: {}", call.name, e.message)
             // 800: tonight's upload_cv deaths were undebuggable because this
             // cap cut the MCP refusal JSON (real reason lives past char 300)
