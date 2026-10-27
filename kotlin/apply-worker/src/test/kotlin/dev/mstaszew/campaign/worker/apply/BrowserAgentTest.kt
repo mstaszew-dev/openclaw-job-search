@@ -633,6 +633,7 @@ class BrowserAgentTest {
         assertThat(system).contains("browser_tabs")
         assertThat(system).contains("browser_fill_form discipline")
         assertThat(system).contains("never guess labels")
+        assertThat(system).contains("declared gone")
         assertThat(system).contains("Never re-read without acting")
         assertThat(system).contains("Just a moment")
         assertThat(system).contains("BEFORE filling the form")
@@ -654,6 +655,76 @@ class BrowserAgentTest {
      * snapshots SUCCEED; the cap was not too low, the model was wandering.
      * A wander breaker ends the unit at WANDER_THRESHOLD consecutive
      * read-only steps (snapshot, tab list, wait) instead of paying the cap.
+     */
+    /**
+     * The pekao-conext stale-ref death (2026-10-27): fill_form failed five
+     * consecutive times on "Ref e29 not found in the current page snapshot" -
+     * the model retyped the SAME dead ref instead of re-snapshotting. A
+     * stale-ref failure must trigger the corrective shove (fresh snapshot
+     * ordered), after which a model that re-snapshots completes the apply.
+     */
+    @Test
+    fun `stale-ref failure injects a snapshot correction and the unit recovers`() {
+        var fillCalls = 0
+        every { browser.callToolText(eq("browser_fill_form"), any(), any()) } answers {
+            fillCalls++
+            if (fillCalls == 1) {
+                throw RuntimeException("Error: Ref e29 not found in the current page snapshot. Try capturing new snapshot.")
+            }
+            "form filled"
+        }
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://nfj.com/applied","confirmationText":"Application submitted","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        // First request: no correction yet. Some later request: correction
+        // text present ("the ref you used" is unique to the shove - the
+        // system prompt's own stale-ref rule words it differently).
+        assertThat(transport.bodies.first()).doesNotContain("the ref you used")
+        assertThat(transport.bodies.last()).contains("the ref you used")
+    }
+
+    /**
+     * The shove is bounded (STALE_REF_CORRECTION_LIMIT): a model that ignores
+     * it still dies at the 5-streak loop breaker, and at most LIMIT
+     * corrections were injected into the conversation.
+     */
+    @Test
+    fun `stale-ref corrections are bounded and the loop breaker still fires`() {
+        every { browser.callToolText(eq("browser_navigate"), any(), any()) } returns "listing page"
+        every { browser.callToolText(eq("browser_fill_form"), any(), any()) } throws
+            RuntimeException("Error: Ref e29 not found in the current page snapshot. Try capturing new snapshot.")
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
+            ),
+        )
+
+        val result = run(agent(transport, maxSteps = 20))
+
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("loop breaker: browser_fill_form failed 5")
+        val lastBody = transport.bodies.last()
+        assertThat(Regex("the ref you used").findAll(lastBody).count())
+            .isEqualTo(BrowserAgent.STALE_REF_CORRECTION_LIMIT)
+    }
+
+    /**
+     * Wander breaker tests follow: read-only successes never trip the failure
+     * streak, so a separate read-streak breaker is required.
      */
     @Test
     fun `wander breaker aborts repeated identical successful tool calls`() {

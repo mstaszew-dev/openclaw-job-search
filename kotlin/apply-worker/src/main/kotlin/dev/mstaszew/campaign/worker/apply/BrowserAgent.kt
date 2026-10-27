@@ -206,6 +206,26 @@ class BrowserAgent(
                                 ),
                             )
                         }
+                        // Stale-ref auto-correction (pekao-conext 2026-10-27):
+                        // "Ref e29 not found in the current page snapshot"
+                        // repeated five times burned the unit - the model
+                        // retried the SAME dead ref instead of re-snapshotting
+                        // despite the prompt rule. A failed call carrying that
+                        // error text gets a bounded corrective shove ordering a
+                        // fresh snapshot; the failure streak above still ends
+                        // the unit if the model ignores it.
+                        if (dispatched.failed &&
+                            STALE_REF_MARKERS.any { dispatched.text.contains(it) } &&
+                            state.staleRefCorrections < STALE_REF_CORRECTION_LIMIT
+                        ) {
+                            state.staleRefCorrections += 1
+                            log.warn(
+                                "job {}: stale-ref failure {}, injecting snapshot correction",
+                                jobId,
+                                state.staleRefCorrections,
+                            )
+                            state.messages += ChatMessage("user", STALE_REF_CORRECTION)
+                        }
                     }
                 }
             }
@@ -223,6 +243,10 @@ class BrowserAgent(
 
         /** How many wander trips this unit has had; the second is terminal. */
         var wanderTrips: Int = 0
+
+        /** Stale-ref corrective shoves injected so far (bounded, see the
+         * dispatch-site stale-ref block). */
+        var staleRefCorrections: Int = 0
 
         val messages = mutableListOf<ChatMessage>(
             ChatMessage(
@@ -318,7 +342,10 @@ class BrowserAgent(
           snapshot - never guess labels like "name" or "email". If a fill
           fails, re-snapshot and retry with the fresh refs; if one field still
           fails, fill the other fields in a separate call and retry the bad
-          field alone.
+          field alone. If the error says a ref is "not found in the current
+          page snapshot" or says "Try capturing new snapshot", your VERY next
+          call MUST be browser_snapshot - never retype a ref the error
+          declared gone.
         - NEVER mention relocation or Israel anywhere.
         - Captcha: if a captcha/challenge widget (hCaptcha, reCAPTCHA,
           Turnstile, Cloudflare) is already VISIBLE when the form loads,
@@ -502,6 +529,25 @@ class BrowserAgent(
 
         /** Consecutive tool-less (prose) replies before the unit fails. */
         const val NARRATION_LIMIT = 3
+
+        /**
+         * Playwright-MCP refusal fragments that mean element refs went stale:
+         * the page re-rendered (SPA) and the model must re-snapshot before
+         * retrying, not retype the same ref (pekao-conext 2026-10-27).
+         */
+        private val STALE_REF_MARKERS = listOf(
+            "not found in the current page snapshot",
+            "Try capturing new snapshot",
+        )
+
+        /** Corrective shoves for stale refs before the failure streak ends the unit. */
+        const val STALE_REF_CORRECTION_LIMIT = 2
+
+        const val STALE_REF_CORRECTION =
+            "CORRECTION: the ref you used no longer exists - the page re-rendered and ALL refs " +
+                "may have changed. Your next call MUST be browser_snapshot; then re-issue the " +
+                "failed action using ONLY refs and labels from THAT fresh snapshot. Never retype " +
+                "a ref the error already declared gone."
 
         /** The nudge that pushes a narrating model back into tool use. */
         const val NARRATION_NUDGE =
