@@ -204,13 +204,14 @@ class McpListingCollector(
         }
 
         /**
-         * justjoin paginates with ?page=N (verified live 2026-10-26: page 2
-         * serves a different set of 50 offers per category, and the board's
-         * meta claims 738 remote offers vs the ~150 page 1 yields). The
-         * other boards have no verified page param yet: one page each.
+         * justjoin paginates with ?page=N (verified live 2026-10-26/27:
+         * pages 2 and 3 each serve a different set of 50 offers per
+         * category, and the board's meta claims 738 remote offers vs the
+         * ~150 page 1 yields). The other boards have no verified page param
+         * yet: one page each.
          */
         internal fun pageVariants(source: String, page: String): List<String> =
-            if (source == "justjoin") listOf(page, "$page?page=2") else listOf(page)
+            if (source == "justjoin") listOf(page, "$page?page=2", "$page?page=3") else listOf(page)
 
         /**
          * spring and typescript are NOT theprotocol chips: their /filtry

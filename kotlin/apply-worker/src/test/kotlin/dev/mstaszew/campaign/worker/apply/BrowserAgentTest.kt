@@ -759,4 +759,37 @@ class BrowserAgentTest {
         val allBodies = transport.bodies.joinToString("\n")
         assertThat(allBodies).contains("read-only calls without acting")
     }
+
+    /**
+     * The randlab death (2026-10-27): the model narrated ONE prose reply
+     * ("I need to take action... a modal appeared") after clicking Apply and
+     * the agent failed the unit instantly. Free-tier models do this
+     * occasionally; a nudge recovers them. Fail only after NARRATION_LIMIT
+     * consecutive tool-less replies.
+     */
+    @Test
+    fun `a narrated reply is nudged back into tool use`() {
+        val transport = ScriptedTransport(
+            listOf(
+                """{"choices":[{"message":{"content":"I need to take action. The Apply button was clicked but the URL has not changed, so a modal appeared."},"finish_reason":"stop"}]}""",
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("skip_task", """{"reason":"portal-block","detail":"t"}"""),
+            ),
+        )
+
+        val result = run(agent(transport, maxSteps = 10))
+
+        assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
+        assertThat(transport.bodies.joinToString("\n")).contains("EXACTLY ONE tool now")
+    }
+
+    @Test
+    fun `narration fails the unit only after the limit`() {
+        val prose = """{"choices":[{"message":{"content":"thinking..."},"finish_reason":"stop"}]}"""
+        val transport = ScriptedTransport(listOf(prose))
+
+        val result = run(agent(transport, maxSteps = 10))
+
+        assertThat((result as ApplyResult.Failed).detail).startsWith("model produced no tool call after 3 tries")
+    }
 }

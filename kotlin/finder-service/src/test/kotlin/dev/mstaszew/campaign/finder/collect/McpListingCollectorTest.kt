@@ -183,7 +183,14 @@ class McpListingCollectorTest {
                 any(),
             )
         }
-        verify(exactly = 6) {
+verify(exactly = 1) {
+            client.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "https://justjoin.it/job-offers/remote/java?page=3" },
+                any(),
+            )
+        }
+        verify(exactly = 9) {
             client.callToolText(
                 eq("browser_navigate"),
                 match { it.path("url").asText().contains("justjoin.it") },
@@ -256,8 +263,8 @@ class McpListingCollectorTest {
             }
         }
         // No unexpected extra justjoin page beyond the three categories x
-        // two pages (page 2 added 2026-10-26).
-        verify(exactly = 6) {
+        // three pages (pages 2-3 added 2026-10-26/27).
+        verify(exactly = 9) {
             client.callToolText(
                 eq("browser_navigate"),
                 match { it.path("url").asText().contains("justjoin.it") },

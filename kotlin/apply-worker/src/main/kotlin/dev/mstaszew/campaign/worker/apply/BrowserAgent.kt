@@ -76,6 +76,7 @@ class BrowserAgent(
         McpStdioClientClient(mcpFactory, jobId, mapper).use { browser ->
             val state = LoopState(jobId, listing, cvPathPl)
             val system = systemPrompt(listing, applicantProfileText)
+            var narrationTrips = 0
 
             // Step telemetry: one line per terminal outcome, so cap sizing is
             // driven by measured apply lengths instead of guesses.
@@ -114,7 +115,24 @@ class BrowserAgent(
                         ToolCall(selected.name, selected.arguments)
                     }
                     ?: parseToolCall(response.content)
-                    ?: return out(step, ApplyResult.Failed("model produced no tool call: ${response.content.take(150)}"))
+                if (toolCall == null) {
+                    // Free-tier models occasionally narrate instead of calling
+                    // a tool (randlab 2026-10-27: one prose reply after an
+                    // Apply click killed the unit). Nudge, and only fail after
+                    // NARRATION_LIMIT consecutive tool-less replies.
+                    narrationTrips += 1
+                    if (narrationTrips >= NARRATION_LIMIT) {
+                        return out(
+                            step,
+                            ApplyResult.Failed(
+                                "model produced no tool call after $narrationTrips tries: ${response.content.take(150)}",
+                            ),
+                        )
+                    }
+                    log.info("job {}: narration trip {}, nudging back to tools", jobId, narrationTrips)
+                    state.messages += ChatMessage("user", NARRATION_NUDGE)
+                    continue
+                }
                 val dispatchStart = System.nanoTime()
                 when (val dispatched = dispatch(browser, toolCall, state)) {
                     is ApplyResult -> {
@@ -259,6 +277,12 @@ class BrowserAgent(
         - Never re-read without acting: if two consecutive reads (snapshot,
           tab list, wait) show an unchanged page, your next call MUST be an
           action (click, fill, upload, evaluate, tab select) or skip_task.
+        - After a click, if nothing seems to happen (URL unchanged, no
+          confirmation), do NOT reason blindly: call browser_snapshot first -
+          a MODAL may have opened on the same page (justjoin shows a consent
+          modal whose confirm button also reads Aplikuj) - then
+          browser_tabs(action="list") if the snapshot shows no modal, because
+          the form may have opened in a NEW TAB.
         - If the page is stuck at a challenge or interstitial (typical text:
           "Just a moment", "Checking your browser", or an empty page),
           wait_for 5 seconds and check once more; if still blocked, call
@@ -418,8 +442,7 @@ class BrowserAgent(
          *  Alias of TabCleanup.CALL_TIMEOUT, which now owns the bound. */
         val PAGE_CLEANUP_TIMEOUT: Duration = TabCleanup.CALL_TIMEOUT
 
-        /**
-         * Consecutive same-tool failures that end the attempt as Failed.
+        /** Consecutive same-tool failures that end the attempt as Failed.
          * Raised 3 -> 5 on 2026-10-26: the dominant failure is now a fast
          * (~30ms) fill_form rejection from a guessed label, and the inflancka
          * unit was lost to three of them while the winning natek submission
@@ -447,6 +470,15 @@ class BrowserAgent(
                 "Your next call MUST be an action: click an element, browser_fill_form, upload_cv, " +
                 "browser_evaluate, or browser_tabs(action=\"select\"). If there is truly nothing to " +
                 "act on, call skip_task. Another read-only streak will end this task."
+
+        /** Consecutive tool-less (prose) replies before the unit fails. */
+        const val NARRATION_LIMIT = 3
+
+        /** The nudge that pushes a narrating model back into tool use. */
+        const val NARRATION_NUDGE =
+            "You replied with prose instead of a tool call. Call EXACTLY ONE tool now: " +
+                "browser_snapshot to see the current page or modal, browser_tabs(action=\"list\") " +
+                "if a new tab may have opened, or skip_task to abandon. No prose."
 
         private val READ_ONLY_TOOLS = setOf("browser_snapshot", "browser_wait_for")
 
