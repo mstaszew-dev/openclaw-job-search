@@ -3,6 +3,7 @@ package dev.mstaszew.campaign.worker
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.mstaszew.campaign.common.dedupe.Candidate
 import dev.mstaszew.campaign.common.dedupe.DedupService
+import dev.mstaszew.campaign.common.domain.AttemptHistoryEntry
 import dev.mstaszew.campaign.common.domain.EventEntity
 import dev.mstaszew.campaign.common.domain.JobListingEntity
 import dev.mstaszew.campaign.common.domain.JobStateDocument
@@ -353,6 +354,9 @@ class WorkerLoop(
         ) ?: throw BrowserBusyException(jobId)
 
     private fun applyWithBrowser(job: JobMessage, listing: JobListingEntity) {
+        // Read previous attempt history from job_state
+        val previousHistory = jobState.findById(job.id).map { it.attemptHistory }.orElse(emptyList())
+
         val result = browserAgent.run(
             jobId = job.id,
             listingId = listing.id
@@ -366,6 +370,7 @@ class WorkerLoop(
                         .split(' '),
                 )
             },
+            previousAttemptsHistory = previousHistory,
         )
         when (result) {
             is ApplyResult.Submitted -> {

@@ -11,6 +11,7 @@ import dev.mstaszew.campaign.common.domain.JobStateDocument
 import dev.mstaszew.campaign.common.domain.JobStatus
 import dev.mstaszew.campaign.common.domain.SkipEntity
 import dev.mstaszew.campaign.common.domain.SkipReason
+import dev.mstaszew.campaign.common.domain.AttemptHistoryEntry
 import dev.mstaszew.campaign.common.repo.ApplicationRepository
 import dev.mstaszew.campaign.common.repo.BlockerRepository
 import dev.mstaszew.campaign.common.repo.EventRepository
@@ -250,6 +251,22 @@ class Recorder(
             }
         }
         markJobState(jobId, JobStatus.FAILED, "blocked: $reason")
+    }
+
+    /**
+     * Record attempt history for the current job. Only adds entries for serious failures.
+     */
+    @Transactional
+    fun recordAttemptHistory(jobId: String, historyEntry: AttemptHistoryEntry) {
+        val existing = jobState.findById(jobId).orElse(null)
+        if (existing == null) {
+            log.warn("Cannot record attempt history for job $jobId: no job_state exists")
+            return
+        }
+        jobState.save(existing.apply {
+            this.attemptHistory = (this.attemptHistory + historyEntry).takeLast(3) // Keep only last 3
+            touch()
+        })
     }
 
     private fun markJobState(jobId: String, status: JobStatus, lastError: String? = null) {

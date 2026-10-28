@@ -27,11 +27,24 @@ class JobStateDocument(
     var lastError: String? = null,
     var createdAt: Instant = Instant.now(),
     var updatedAt: Instant = Instant.now(),
+    /** History of previous attempts (max 3). Only contains serious failures. */
+    var attemptHistory: List<AttemptHistoryEntry> = emptyList(),
 ) {
     fun touch() {
         updatedAt = Instant.now()
     }
 }
+
+/**
+ * One attempt's failure pattern, stored to help subsequent attempts avoid the same mistakes.
+ */
+data class AttemptHistoryEntry(
+    val attemptNumber: Int,
+    val wanderTrips: Int,
+    val maxReadStreak: Int,
+    val staleRefCorrections: Int,
+    val finalStatus: String,
+)
 
 enum class JobStatus {
     PENDING,

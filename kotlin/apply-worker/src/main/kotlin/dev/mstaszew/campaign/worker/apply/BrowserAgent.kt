@@ -9,8 +9,10 @@ import dev.mstaszew.campaign.common.net.ChatMessage
 import dev.mstaszew.campaign.common.net.LlmClient
 import dev.mstaszew.campaign.common.net.LlmClientException
 import dev.mstaszew.campaign.common.net.ToolSpec
+import dev.mstaszew.campaign.common.domain.AttemptHistoryEntry
 import dev.mstaszew.campaign.common.domain.JobListingEntity
 import dev.mstaszew.campaign.common.repo.JobListingRepository
+import dev.mstaszew.campaign.common.repo.JobStateRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.time.Duration
@@ -56,6 +58,7 @@ class BrowserAgent(
     private val llm: LlmClient,
     private val recorder: Recorder,
     private val listings: JobListingRepository,
+    private val jobStateRepository: JobStateRepository,
     private val cvUploader: CvUploader,
     private val mapper: ObjectMapper = ObjectMapper(),
     /** Injected for tests; production resolves WORKER_MAX_STEPS via AgentLoopBounds. */
@@ -70,12 +73,13 @@ class BrowserAgent(
         applicantProfileText: String,
         cvPathPl: String,
         mcpFactory: () -> McpStdioClient,
+        previousAttemptsHistory: List<AttemptHistoryEntry> = emptyList(),
     ): ApplyResult {
         val listing = listings.findById(listingId).orElse(null)
             ?: return ApplyResult.Failed("listing $listingId vanished")
         McpStdioClientClient(mcpFactory, jobId, mapper).use { browser ->
-            val state = LoopState(jobId, listing, cvPathPl)
-            val system = systemPrompt(listing, applicantProfileText)
+            val state = LoopState(jobId, listing, cvPathPl, jobStateRepository)
+            val system = systemPrompt(listing, applicantProfileText, previousAttemptsHistory)
             var narrationTrips = 0
 
             // Step telemetry: one line per terminal outcome, so cap sizing is
@@ -122,12 +126,14 @@ class BrowserAgent(
                     // NARRATION_LIMIT consecutive tool-less replies.
                     narrationTrips += 1
                     if (narrationTrips >= NARRATION_LIMIT) {
-                        return out(
+                        val result = out(
                             step,
                             ApplyResult.Failed(
                                 "model produced no tool call after $narrationTrips tries: ${response.content.take(150)}",
                             ),
                         )
+                        state.createAttemptHistoryEntry(result::class.simpleName ?: "Failed")?.let { recorder.recordAttemptHistory(jobId, it) }
+                        return result
                     }
                     log.info("job {}: narration trip {}, nudging back to tools", jobId, narrationTrips)
                     state.messages += ChatMessage("user", NARRATION_NUDGE)
@@ -137,7 +143,9 @@ class BrowserAgent(
                 when (val dispatched = dispatch(browser, toolCall, state)) {
                     is ApplyResult -> {
                         logStep(step, maxSteps, toolCall.name, "terminal", dispatchStart)
-                        return out(step, dispatched)
+                        val result = out(step, dispatched)
+                        state.createAttemptHistoryEntry(result::class.simpleName ?: "Failed")?.let { recorder.recordAttemptHistory(jobId, it) }
+                        return result
                     }
                     is ToolOutcome -> {
                         logStep(step, maxSteps, toolCall.name, if (dispatched.failed) "failed" else "ok", dispatchStart)
@@ -233,7 +241,12 @@ class BrowserAgent(
         }
     }
 
-    private class LoopState(val jobId: String, val listing: JobListingEntity, val cvPath: String) {
+    private class LoopState(
+        val jobId: String,
+        val listing: JobListingEntity,
+        val cvPath: String,
+        private val jobState: JobStateRepository,
+    ) {
         /** Loop-breaker state: the tool name of the current failure streak and its length. */
         var failingTool: String? = null
         var failureStreak: Int = 0
@@ -256,6 +269,30 @@ class BrowserAgent(
             ),
         )
         var lastSnapshot: String = ""
+
+        /** Create an AttemptHistoryEntry if this attempt failed with serious issues. */
+        fun createAttemptHistoryEntry(finalStatus: String): AttemptHistoryEntry? {
+            // Only include history for serious failures (wander breaker, loop breaker, etc.)
+            // Exclude narration trips, minor tool failures, step cap reached
+            val isSerious = finalStatus.contains("wander breaker") ||
+                finalStatus.contains("loop breaker") ||
+                finalStatus.contains("portal-block") ||
+                finalStatus.contains("captcha")
+
+            return if (isSerious) {
+                val currentJobState = jobState.findById(jobId).orElse(null)
+                val attempts = currentJobState?.attempts ?: 1 // Use current attempts or default to 1
+                AttemptHistoryEntry(
+                    attemptNumber = attempts,
+                    wanderTrips = wanderTrips,
+                    maxReadStreak = readStreak,
+                    staleRefCorrections = staleRefCorrections,
+                    finalStatus = finalStatus.take(200),
+                )
+            } else {
+                null
+            }
+        }
     }
 
     /**
@@ -287,93 +324,110 @@ class BrowserAgent(
         }
     }
 
-    private fun systemPrompt(listing: JobListingEntity, profile: String) = """
-        You are the apply executor for a Polish B2B job-search campaign.
-        Rules (hard):
-        - Stay in one tab. EXCEPTION: clicking Apply often opens the external
-          application form in a NEW TAB (Lever, Greenhouse, Recruitee...);
-          switch to it with browser_tabs(action="select", index=...) and finish
-          the application there, capturing the confirmation URL from that tab.
-          Never open tabs yourself except by clicking Apply.
-        - If clicks time out or a cookie/consent overlay covers the page,
-          dismiss it first (button "Accept all" / "Zaakceptuj wszystkie"),
-          then retry the click.
-        - Never re-read without acting: if two consecutive reads (snapshot,
-          tab list, wait) show an unchanged page, your next call MUST be an
-          action (click, fill, upload, evaluate, tab select) or skip_task.
-        - After a click, if nothing seems to happen (URL unchanged, no
-          confirmation), do NOT reason blindly: call browser_snapshot first -
-          a MODAL may have opened on the same page (justjoin shows a consent
-          modal whose confirm button also reads Aplikuj) - then
-          browser_tabs(action="list") if the snapshot shows no modal, because
-          the form may have opened in a NEW TAB.
-        - If the page is stuck at a challenge or interstitial (typical text:
-          "Just a moment", "Checking your browser", or an empty page),
-          wait_for 5 seconds and check once more; if still blocked, call
-          skip_task with reason portal-block - never keep re-reading a
-          blocked page.
-        - Login: the shared browser is signed into the correct Gmail. When
-          you open a portal, check whether you are logged in (user avatar /
-          profile menu); if not, and the portal offers Google SSO (button
-          "Continue with Google" / "Zaloguj się przez Google"), log in that
-          way IMMEDIATELY, before starting the apply. NEVER type an email or
-          password and never create an account; if login is required and
-          Google SSO is not offered, call skip_task with reason portal-block.
-        - Before concluding the Apply button does not exist (skip_task
-          portal-block "unable to locate Apply/Aplikuj"): SPA listing pages
-          re-render and element refs go stale, so a lost button is USUALLY
-          stale state, not a missing one (makeitright 2026-10-27: a live
-          listing with a real Aplikuj button was walled after the model lost
-          it between re-renders). First navigate to the LISTING URL fresh,
-          take one browser_snapshot, and only skip if the Apply control and
-          any Apply-opening modal are genuinely absent there.
-        - Fill PL forms from the profile below (Polish identity fields); upload
-          the PL CV ONLY via upload_cv - it owns the canonical file path, never
-          call browser_file_upload and never invent a path; salary answer:
-          15000 PLN net+VAT/month B2B.
-        - If upload_cv answers "no related modal state" or "could not re-read
-          the input node", there is NO CV input on the current page: take a
-          fresh snapshot and continue the form without the CV (many forms
-          upload later, or do not require it at all); retry upload_cv only
-          after reaching a step that actually shows an upload/attach control.
-        - browser_fill_form discipline: after any tab switch or page change,
-          take a fresh browser_snapshot of the tab that holds the form and copy
-          each field's exact target ref and exact visible label from THAT
-          snapshot - never guess labels like "name" or "email". If a fill
-          fails, re-snapshot and retry with the fresh refs; if one field still
-          fails, fill the other fields in a separate call and retry the bad
-          field alone. If the error says a ref is "not found in the current
-          page snapshot" or says "Try capturing new snapshot", your VERY next
-          call MUST be browser_snapshot - never retype a ref the error
-          declared gone.
-        - NEVER mention relocation or Israel anywhere.
-        - Captcha: if a captcha/challenge widget (hCaptcha, reCAPTCHA,
-          Turnstile, Cloudflare) is already VISIBLE when the form loads,
-          attempt it exactly once BEFORE filling the form; if it does not
-          solve, call skip_task with reason captcha IMMEDIATELY - do not
-          fill the form first, it would be wasted. If the captcha appears
-          only at submit, fill the form, attempt once, then skip_task.
-        - If the portal says already applied, call skip_task with reason duplicate.
-        - Before record_submission you MUST have visible confirmation evidence
-          (thank-you text or success URL). No evidence means no record_submission.
-        - Finish by calling record_submission (with the confirmation text/url you
-          captured) or skip_task (reason: captcha | duplicate | portal-block).
+    private fun systemPrompt(listing: JobListingEntity, profile: String, previousAttempts: List<AttemptHistoryEntry> = emptyList()): String {
+        val historySection = if (previousAttempts.isNotEmpty()) {
+            "\n\n> **Previous Attempts (to avoid repeating the same mistakes):**\n" +
+            previousAttempts.map { entry ->
+                "  - Attempt ${entry.attemptNumber}: wanderTrips=${entry.wanderTrips}, readStreak=${entry.maxReadStreak}, " +
+                "staleRefCorrections=${entry.staleRefCorrections} → ${entry.finalStatus}"
+            }.joinToString("\n") +
+            "\n  **What to learn from this history:**\n" +
+            "  - If readStreak is high (>10), avoid reading the same DOM repeatedly - take an action instead.\n" +
+            "  - If wanderTrips=1, the first correction was injected; take it seriously and try differently.\n" +
+            "  - If this is the 2nd or 3rd attempt, you must succeed now - no more retries.\n"
+        } else {
+            ""
+        }
 
-        Applicant profile:
-        $profile
+        return """
+            You are the apply executor for a Polish B2B job-search campaign.
+            Rules (hard):
+            - Stay in one tab. EXCEPTION: clicking Apply often opens the external
+              application form in a NEW TAB (Lever, Greenhouse, Recruitee...);
+              switch to it with browser_tabs(action="select", index=...) and finish
+              the application there, capturing the confirmation URL from that tab.
+              Never open tabs yourself except by clicking Apply.
+            - If clicks time out or a cookie/consent overlay covers the page,
+              dismiss it first (button "Accept all" / "Zaakceptuj wszystkie"),
+              then retry the click.
+            - Never re-read without acting: if two consecutive reads (snapshot,
+              tab list, wait) show an unchanged page, your next call MUST be an
+              action (click, fill, upload, evaluate, tab select) or skip_task.
+            - After a click, if nothing seems to happen (URL unchanged, no
+              confirmation), do NOT reason blindly: call browser_snapshot first -
+              a MODAL may have opened on the same page (justjoin shows a consent
+              modal whose confirm button also reads Aplikuj) - then
+              browser_tabs(action="list") if the snapshot shows no modal, because
+              the form may have opened in a NEW TAB.
+            - If the page is stuck at a challenge or interstitial (typical text:
+              "Just a moment", "Checking your browser", or an empty page),
+              wait_for 5 seconds and check once more; if still blocked, call
+              skip_task with reason portal-block - never keep re-reading a
+              blocked page.
+            - Login: the shared browser is signed into the correct Gmail. When
+              you open a portal, check whether you are logged in (user avatar /
+              profile menu); if not, and the portal offers Google SSO (button
+              "Continue with Google" / "Zaloguj się przez Google"), log in that
+              way IMMEDIATELY, before starting the apply. NEVER type an email or
+              password and never create an account; if login is required and
+              Google SSO is not offered, call skip_task with reason portal-block.
+            - Before concluding the Apply button does not exist (skip_task
+              portal-block "unable to locate Apply/Aplikuj"): SPA listing pages
+              re-render and element refs go stale, so a lost button is USUALLY
+              stale state, not a missing one (makeitright 2026-10-27: a live
+              listing with a real Aplikuj button was walled after the model lost
+              it between re-renders). First navigate to the LISTING URL fresh,
+              take one browser_snapshot, and only skip if the Apply control and
+              any Apply-opening modal are genuinely absent there.
+            - Fill PL forms from the profile below (Polish identity fields); upload
+              the PL CV ONLY via upload_cv - it owns the canonical file path, never
+              call browser_file_upload and never invent a path; salary answer:
+              15000 PLN net+VAT/month B2B.
+            - If upload_cv answers "no related modal state" or "could not re-read
+              the input node", there is NO CV input on the current page: take a
+              fresh snapshot and continue the form without the CV (many forms
+              upload later, or do not require it at all); retry upload_cv only
+              after reaching a step that actually shows an upload/attach control.
+            - browser_fill_form discipline: after any tab switch or page change,
+              take a fresh browser_snapshot of the tab that holds the form and copy
+              each field's exact target ref and exact visible label from THAT
+              snapshot - never guess labels like "name" or "email". If a fill
+              fails, re-snapshot and retry with the fresh refs; if one field still
+              fails, fill the other fields in a separate call and retry the bad
+              field alone. If the error says a ref is "not found in the current
+              page snapshot" or says "Try capturing new snapshot", your VERY next
+              call MUST be browser_snapshot - never retype a ref the error
+              declared gone.
+            - NEVER mention relocation or Israel anywhere.
+            - Captcha: if a captcha/challenge widget (hCaptcha, reCAPTCHA,
+              Turnstile, Cloudflare) is already VISIBLE when the form loads,
+              attempt it exactly once BEFORE filling the form; if it does not
+              solve, call skip_task with reason captcha IMMEDIATELY - do not
+              fill the form first, it would be wasted. If the captcha appears
+              only at submit, fill the form, attempt once, then skip_task.
+            - If the portal says already applied, call skip_task with reason duplicate.
+            - Before record_submission you MUST have visible confirmation evidence
+              (thank-you text or success URL). No evidence means no record_submission.
+            - Finish by calling record_submission (with the confirmation text/url you
+              captured) or skip_task (reason: captcha | duplicate | portal-block).
+            $historySection
 
-        Tools: browser_navigate(url), browser_snapshot(), browser_click(element, target),
-        browser_tabs(action, index) - list tabs or switch to the Apply tab,
-        browser_fill_form(fields), upload_cv(selector, cssInput) - always pass the ref of
-        the CV upload control as selector; upload_cv clicks it itself, so never click it
-        first, browser_evaluate(function),
-        browser_wait_for(time|text), record_submission(confirmationUrl, confirmationText, ats),
-        skip_task(reason, detail).
-        Call exactly one tool per turn.
-        browser_click/browser_fill_form targets MUST be the element ref from
-        the snapshot (like f12e4) - never CSS selectors or :has-text(), they
-        resolve to multiple or zero elements.
-    """.trimIndent()
+            Applicant profile:
+            $profile
+
+            Tools: browser_navigate(url), browser_snapshot(), browser_click(element, target),
+            browser_tabs(action, index) - list tabs or switch to the Apply tab,
+            browser_fill_form(fields), upload_cv(selector, cssInput) - always pass the ref of
+            the CV upload control as selector; upload_cv clicks it itself, so never click it
+            first, browser_evaluate(function),
+            browser_wait_for(time|text), record_submission(confirmationUrl, confirmationText, ats),
+            skip_task(reason, detail).
+            Call exactly one tool per turn.
+            browser_click/browser_fill_form targets MUST be the element ref from
+            the snapshot (like f12e4) - never CSS selectors or :has-text(), they
+            resolve to multiple or zero elements.
+        """.trimIndent()
+    }
 
     private data class ToolCall(val name: String, val arguments: JsonNode)
 

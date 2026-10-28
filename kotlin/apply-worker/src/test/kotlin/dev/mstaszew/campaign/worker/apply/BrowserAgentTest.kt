@@ -6,6 +6,7 @@ import dev.mstaszew.campaign.common.mcp.McpStdioClient
 import dev.mstaszew.campaign.common.net.ChatTransport
 import dev.mstaszew.campaign.common.net.LlmClient
 import dev.mstaszew.campaign.common.repo.JobListingRepository
+import dev.mstaszew.campaign.common.repo.JobStateRepository
 import io.mockk.MockKMatcherScope
 import io.mockk.every
 import io.mockk.mockk
@@ -41,6 +42,7 @@ private fun toolCallResponse(name: String, argumentsJson: String) = """
 class BrowserAgentTest {
 
     private val recorder = mockk<Recorder>(relaxed = true)
+    private val jobStateRepo = mockk<JobStateRepository>(relaxed = true)
     private val listings = mockk<JobListingRepository> {
         every { findById("65f0000000000000000000a1") } returns Optional.of(
             JobListingEntity(
@@ -71,6 +73,7 @@ class BrowserAgentTest {
         ),
         recorder = recorder,
         listings = listings,
+        jobStateRepository = jobStateRepo,
         cvUploader = cvUploader,
         mapper = mapper,
         maxSteps = maxSteps,
