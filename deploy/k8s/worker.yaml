@@ -21,7 +21,7 @@ spec:
       terminationGracePeriodSeconds: 90
       containers:
         - name: worker
-          image: localhost:5000/campaign-worker:v1
+          image: localhost:5000/campaign-worker:v2
           imagePullPolicy: IfNotPresent
           env:
             # authSource=admin: the user is the image entrypoint's root user,
@@ -46,11 +46,12 @@ spec:
               value: "live"
             - name: MSROUTER_URL
               value: http://msrouter.campaign.svc.cluster.local:3000/v1
-            # Model alias used by the worker when calling msrouter. Default
-            # is mst/free (OpenRouter auto-router); overridden here to
-            # prioritize ZAI glm-4.7-flash (fast, good at Polish forms).
+            # Model alias used by the worker when calling msrouter. mst/free
+            # walks the full pool: ZAI glm-4.7-flash first (prioritized at
+            # front of the routing queue), then OpenRouter and the rest as
+            # fallbacks when ZAI rate-limits.
             - name: MSROUTER_MODEL
-              value: "glm-4.7-flash"
+              value: "mst/free"
             - name: APPLICANT_PROFILE_TEXT
               value: "IDENTITY (use EXACTLY these values on every application form; never invent, guess, or vary any of them): - Name: Michał Staszewski (Michael Staszewski) - Email: mst.rocking@gmail.com - the ONLY email you may ever type into a form field - Phone (PL): +48790775407 - Phone (IL): +972559344507 - Location: Biała Parcela, województwo łódzkie, Polska - City: Biała Parcela, Poland - LinkedIn: https://www.linkedin.com/in/micha%C5%82-staszewski-220315179 - GitHub: https://github.com/mstaszew-dev - Salary expectation (PL B2B): 15000 PLN net+VAT/month - CV (PL): /app/cv/michael-staszewski-cv-pl.pdf - Cover note (PL): Senior backend/full-stack (Java/Kotlin/Spring, PHP/Laravel, Node/React), 14+ lat doświadczenia. - PL B2B note: Mam firmę zarejestrowaną w Polsce i mogę pracować w pełni zdalnie na B2B."
             - name: WORKER_MCP_COMMAND
