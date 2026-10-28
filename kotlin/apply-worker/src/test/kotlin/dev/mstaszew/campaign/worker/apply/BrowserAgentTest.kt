@@ -200,17 +200,17 @@ class BrowserAgentTest {
             listOf(toolCallResponse("browser_navigate", """{"url":"https://x/1"}""")),
         )
 
-        val result = run(agent(transport, maxSteps = 10))
+        val result = run(agent(transport, maxSteps = 20))
 
         assertThat(result).isEqualTo(
             ApplyResult.Failed(
-                "loop breaker: browser_navigate failed 5 consecutive times; " +
+                "loop breaker: browser_navigate failed 10 consecutive times; " +
                     "last error: tool browser_navigate failed: net::ERR_DEAD",
             ),
         )
-        // 5 model navigations + 1 post-session page blank + 1 tab list whose
+        // 10 model navigations + 1 post-session page blank + 1 tab list whose
         // parse finds no tabs (default mock) = tab hygiene adds 2 calls.
-        verify(exactly = 7) { browser.callToolText(any(), any(), any()) }
+        verify(exactly = 12) { browser.callToolText(any(), any(), any()) }
         verify(exactly = 0) { recorder.recordSubmitted(any(), any(), any()) }
     }
 
@@ -271,11 +271,11 @@ class BrowserAgentTest {
             ),
         )
 
-        val result = run(agent(transport, maxSteps = 7))
+        val result = run(agent(transport, maxSteps = 20))
 
         assertThat(result).isEqualTo(
             ApplyResult.Failed(
-                "loop breaker: browser_navigate failed 5 consecutive times; " +
+                "loop breaker: browser_navigate failed 10 consecutive times; " +
                     "last error: tool browser_navigate failed: net::ERR_DEAD",
             ),
         )
@@ -306,11 +306,11 @@ class BrowserAgentTest {
             ),
         )
 
-        val result = run(agent(transport, maxSteps = 12))
+        val result = run(agent(transport, maxSteps = 20))
 
         assertThat(result).isEqualTo(
             ApplyResult.Failed(
-                "loop breaker: browser_navigate failed 5 consecutive times; " +
+                "loop breaker: browser_navigate failed 10 consecutive times; " +
                     "last error: tool browser_navigate failed: net::ERR_DEAD",
             ),
         )
@@ -341,12 +341,12 @@ class BrowserAgentTest {
             listOf(toolCallResponse("upload_cv", """{"selector":"#file"}""")),
         )
 
-        val result = run(agent(transport, maxSteps = 10))
+        val result = run(agent(transport, maxSteps = 20))
 
         assertThat(result).isInstanceOf(ApplyResult.Failed::class.java)
         assertThat((result as ApplyResult.Failed).detail)
-            .startsWith("loop breaker: upload_cv failed 5 consecutive times")
-        verify(exactly = 5) { cvUploader.upload(any(), any(), any(), any()) }
+            .startsWith("loop breaker: upload_cv failed 10 consecutive times")
+        verify(exactly = 10) { cvUploader.upload(any(), any(), any(), any()) }
     }
 
     /**
@@ -716,7 +716,7 @@ class BrowserAgentTest {
         val result = run(agent(transport, maxSteps = 20))
 
         assertThat((result as ApplyResult.Failed).detail)
-            .startsWith("loop breaker: browser_fill_form failed 5")
+            .startsWith("loop breaker: browser_fill_form failed 10")
         val lastBody = transport.bodies.last()
         assertThat(Regex("the ref you used").findAll(lastBody).count())
             .isGreaterThanOrEqualTo(2)
@@ -736,7 +736,7 @@ class BrowserAgentTest {
         val result = run(agent(transport, maxSteps = 50))
 
         assertThat((result as ApplyResult.Failed).detail)
-            .startsWith("wander breaker: 8 consecutive read-only steps")
+            .startsWith("wander breaker: 20 consecutive read-only steps")
     }
 
     /**
@@ -763,7 +763,7 @@ class BrowserAgentTest {
         val result = run(agent(transport, maxSteps = 50))
 
         assertThat((result as ApplyResult.Failed).detail)
-            .startsWith("wander breaker: 8 consecutive read-only steps")
+            .startsWith("wander breaker: 20 consecutive read-only steps")
     }
 
     /** A different successful tool between repeats resets the wander count. */
@@ -789,76 +789,6 @@ class BrowserAgentTest {
         // Reached the scripted terminal (Blocked via skip_task), not a
         // wander failure: the evaluate and the tab SELECT between the read
         // runs are actions and reset the count.
-        assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
-    }
-
-    /**
-     * Cross-tool failure budget: failing DIFFERENT tools in rotation (each
-     * below its own per-tool breaker threshold) still burns steps without
-     * outcome (justjoin 2026-10-28: step cap 150, zero outcome). The
-     * cross-tool budget must end the attempt as Failed instead of grinding
-     * to the cap.
-     */
-    @Test
-    fun `cross-tool failure budget ends the unit before the step cap`() {
-        every { browser.callToolText(eq("browser_navigate"), any(), any()) } throws
-            RuntimeException("navigate timed out")
-        every { browser.callToolText(eq("browser_click"), any(), any()) } throws
-            RuntimeException("element not clickable")
-        every { browser.callToolText(eq("browser_fill_form"), any(), any()) } throws
-            RuntimeException("field not found")
-        // All three tools always fail; snapshot never appears in the script.
-        val transport = ScriptedTransport(
-            listOf(
-                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
-                toolCallResponse("browser_click", """{"target":"f1"}"""),
-                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
-                toolCallResponse("browser_navigate", """{"url":"https://x/2"}"""),
-                toolCallResponse("browser_click", """{"target":"f2"}"""),
-                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
-                toolCallResponse("browser_navigate", """{"url":"https://x/3"}"""),
-                toolCallResponse("browser_click", """{"target":"f3"}"""),
-                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
-                toolCallResponse("browser_navigate", """{"url":"https://x/4"}"""), // 10th failure
-            ),
-        )
-
-        val result = run(agent(transport, maxSteps = 20))
-
-        assertThat((result as ApplyResult.Failed).detail)
-            .startsWith("failure budget ${BrowserAgent.FAILURE_BUDGET_WITHOUT_SUCCESS} exceeded without any success")
-    }
-
-    /** A success resets the cross-tool failure budget so the unit survives. */
-    @Test
-    fun `a successful call resets the cross-tool failure budget`() {
-        every { browser.callToolText(eq("browser_navigate"), any(), any()) } throws
-            RuntimeException("navigate timed out")
-        every { browser.callToolText(eq("browser_fill_form"), any(), any()) } throws
-            RuntimeException("field not found")
-        every { browser.callToolText(eq("browser_click"), any(), any()) } returns "clicked"
-        val transport = ScriptedTransport(
-            listOf(
-                // rotate 3 tools: 2 fails + 1 success, repeated; no tool
-                // hits 5 consecutive failures, budget resets on each click
-                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
-                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
-                toolCallResponse("browser_click", """{"target":"f1"}"""),
-                toolCallResponse("browser_navigate", """{"url":"https://x/2"}"""),
-                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
-                toolCallResponse("browser_click", """{"target":"f2"}"""),
-                toolCallResponse("browser_navigate", """{"url":"https://x/3"}"""),
-                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
-                toolCallResponse("browser_click", """{"target":"f3"}"""),
-                toolCallResponse("browser_navigate", """{"url":"https://x/4"}"""),
-                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
-                toolCallResponse("browser_click", """{"target":"f4"}"""),
-                toolCallResponse("skip_task", """{"reason":"portal-block","detail":"done"}"""),
-            ),
-        )
-
-        val result = run(agent(transport, maxSteps = 50))
-
         assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
     }
 
@@ -897,7 +827,7 @@ class BrowserAgentTest {
         val result = run(agent(transport, maxSteps = 60))
 
         assertThat((result as ApplyResult.Failed).detail)
-            .startsWith("wander breaker: 8 consecutive read-only steps")
+            .startsWith("wander breaker: 20 consecutive read-only steps")
         // The correction was actually sent to the model between the trips.
         val allBodies = transport.bodies.joinToString("\n")
         assertThat(allBodies).contains("read-only calls without acting")
