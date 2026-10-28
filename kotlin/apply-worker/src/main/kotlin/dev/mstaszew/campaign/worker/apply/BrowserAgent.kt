@@ -159,6 +159,24 @@ class BrowserAgent(
                             state.failingTool = null
                             state.failureStreak = 0
                         }
+                        // Cross-tool failure budget: failures across different
+                        // tools (each below its own breaker) still burn steps.
+                        // Cap total failures without any success so a wedged
+                        // unit dies fast instead of grinding to the step cap.
+                        if (dispatched.failed) {
+                            state.totalFailuresSinceSuccess++
+                            if (state.totalFailuresSinceSuccess >= FAILURE_BUDGET_WITHOUT_SUCCESS) {
+                                return out(
+                                    step,
+                                    ApplyResult.Failed(
+                                        "failure budget $FAILURE_BUDGET_WITHOUT_SUCCESS exceeded without any success; " +
+                                            "last error: ${dispatched.text.take(1200)}",
+                                    ),
+                                )
+                            }
+                        } else {
+                            state.totalFailuresSinceSuccess = 0
+                        }
                         // Wander breaker: the failure streak cannot see a model
                         // stuck RE-READING (GET IT TOGETHER 2026-10-26: 109
                         // snapshots; sql-rybnik same day: 39 tab-lists + 30
@@ -237,6 +255,9 @@ class BrowserAgent(
         /** Loop-breaker state: the tool name of the current failure streak and its length. */
         var failingTool: String? = null
         var failureStreak: Int = 0
+
+        /** Cross-tool failures without a single success (catch-all breaker). */
+        var totalFailuresSinceSuccess: Int = 0
 
         /** Wander-breaker state: consecutive READ-ONLY steps, whatever their tool mix. */
         var readStreak: Int = 0
@@ -509,6 +530,16 @@ class BrowserAgent(
         const val LOOP_BREAK_THRESHOLD = 5
 
         /**
+         * Cross-tool failure budget: a model can dodge every single-tool
+         * breaker by failing different tools in rotation, interspersing
+         * reads, and never narrating - then grind to the step cap with zero
+         * outcome (justjoin 2026-10-28: 150 steps, nothing). Any failure
+         * increments the counter; any success resets it. Exceeding the
+         * budget ends the attempt as Failed instead of burning the cap.
+         */
+        const val FAILURE_BUDGET_WITHOUT_SUCCESS = 10
+
+        /**
          * Consecutive READ-ONLY steps that end the attempt as Failed.
          * Reads are snapshot, tab LIST and wait_for; everything else
          * (including tab SELECT, which changes the active tab) is an action
@@ -541,7 +572,7 @@ class BrowserAgent(
         )
 
         /** Corrective shoves for stale refs before the failure streak ends the unit. */
-        const val STALE_REF_CORRECTION_LIMIT = 2
+        const val STALE_REF_CORRECTION_LIMIT = 5
 
         const val STALE_REF_CORRECTION =
             "CORRECTION: the ref you used no longer exists - the page re-rendered and ALL refs " +

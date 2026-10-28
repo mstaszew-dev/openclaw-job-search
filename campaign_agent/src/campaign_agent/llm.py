@@ -107,7 +107,7 @@ class LLMClient:
         self,
         base_url: str = "http://127.0.0.1:8787/v1",
         api_key: str = "msrouter-local",
-        model: str = "mst/free",
+        model: str = "glm-4.7-flash",
         max_tokens: int = 4096,
         max_retries: int = 3,
         timeout: int = 120,

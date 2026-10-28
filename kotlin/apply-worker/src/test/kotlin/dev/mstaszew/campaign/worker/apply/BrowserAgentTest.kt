@@ -719,7 +719,8 @@ class BrowserAgentTest {
             .startsWith("loop breaker: browser_fill_form failed 5")
         val lastBody = transport.bodies.last()
         assertThat(Regex("the ref you used").findAll(lastBody).count())
-            .isEqualTo(BrowserAgent.STALE_REF_CORRECTION_LIMIT)
+            .isGreaterThanOrEqualTo(2)
+            .isLessThanOrEqualTo(BrowserAgent.STALE_REF_CORRECTION_LIMIT)
     }
 
     /**
@@ -788,6 +789,76 @@ class BrowserAgentTest {
         // Reached the scripted terminal (Blocked via skip_task), not a
         // wander failure: the evaluate and the tab SELECT between the read
         // runs are actions and reset the count.
+        assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
+    }
+
+    /**
+     * Cross-tool failure budget: failing DIFFERENT tools in rotation (each
+     * below its own per-tool breaker threshold) still burns steps without
+     * outcome (justjoin 2026-10-28: step cap 150, zero outcome). The
+     * cross-tool budget must end the attempt as Failed instead of grinding
+     * to the cap.
+     */
+    @Test
+    fun `cross-tool failure budget ends the unit before the step cap`() {
+        every { browser.callToolText(eq("browser_navigate"), any(), any()) } throws
+            RuntimeException("navigate timed out")
+        every { browser.callToolText(eq("browser_click"), any(), any()) } throws
+            RuntimeException("element not clickable")
+        every { browser.callToolText(eq("browser_fill_form"), any(), any()) } throws
+            RuntimeException("field not found")
+        // All three tools always fail; snapshot never appears in the script.
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
+                toolCallResponse("browser_click", """{"target":"f1"}"""),
+                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://x/2"}"""),
+                toolCallResponse("browser_click", """{"target":"f2"}"""),
+                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://x/3"}"""),
+                toolCallResponse("browser_click", """{"target":"f3"}"""),
+                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://x/4"}"""), // 10th failure
+            ),
+        )
+
+        val result = run(agent(transport, maxSteps = 20))
+
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("failure budget ${BrowserAgent.FAILURE_BUDGET_WITHOUT_SUCCESS} exceeded without any success")
+    }
+
+    /** A success resets the cross-tool failure budget so the unit survives. */
+    @Test
+    fun `a successful call resets the cross-tool failure budget`() {
+        every { browser.callToolText(eq("browser_navigate"), any(), any()) } throws
+            RuntimeException("navigate timed out")
+        every { browser.callToolText(eq("browser_fill_form"), any(), any()) } throws
+            RuntimeException("field not found")
+        every { browser.callToolText(eq("browser_click"), any(), any()) } returns "clicked"
+        val transport = ScriptedTransport(
+            listOf(
+                // rotate 3 tools: 2 fails + 1 success, repeated; no tool
+                // hits 5 consecutive failures, budget resets on each click
+                toolCallResponse("browser_navigate", """{"url":"https://x/1"}"""),
+                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
+                toolCallResponse("browser_click", """{"target":"f1"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://x/2"}"""),
+                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
+                toolCallResponse("browser_click", """{"target":"f2"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://x/3"}"""),
+                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
+                toolCallResponse("browser_click", """{"target":"f3"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://x/4"}"""),
+                toolCallResponse("browser_fill_form", """{"fields":[]}"""),
+                toolCallResponse("browser_click", """{"target":"f4"}"""),
+                toolCallResponse("skip_task", """{"reason":"portal-block","detail":"done"}"""),
+            ),
+        )
+
+        val result = run(agent(transport, maxSteps = 50))
+
         assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
     }
 

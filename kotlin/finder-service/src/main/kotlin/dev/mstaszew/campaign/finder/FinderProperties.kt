@@ -7,7 +7,7 @@ data class FinderProperties(
     /** msrouter OpenAI-compatible base URL, e.g. http://127.0.0.1:8787/v1 */
     var msrouterUrl: String = "http://127.0.0.1:8787/v1",
     var msrouterApiKey: String? = null,
-    var msrouterModel: String = "mst/free",
+    var msrouterModel: String = "glm-4.7-flash",
     /**
      * Operator kill switch for gateway CV scoring. When false the finder still
      * collects and produces, but never calls the gateway, so a paused msrouter

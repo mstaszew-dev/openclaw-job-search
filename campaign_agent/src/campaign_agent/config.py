@@ -61,7 +61,7 @@ class Config:
 
     # msrouter (LLM gateway)
     msrouter_url: str = "http://127.0.0.1:8787/v1"
-    msrouter_model: str = "mst/free"
+    msrouter_model: str = "glm-4.7-flash"
     msrouter_api_key: str = "msrouter-local"
 
     # Campaign state
