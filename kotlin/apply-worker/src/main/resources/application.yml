@@ -29,7 +29,7 @@ worker:
   worker-id: ${WORKER_ID:worker-1}
   msrouter-url: ${MSROUTER_URL:http://127.0.0.1:8787/v1}
   msrouter-api-key: ${MSROUTER_API_KEY:}
-  msrouter-model: ${MSROUTER_MODEL:glm-4.7-flash}
+  msrouter-model: ${MSROUTER_MODEL:mst/free}
   # CDP endpoint of the shared campaign Chrome (CV upload fallback only).
   cdp-url: ${WORKER_CDP_URL:http://127.0.0.1:9222}
   # Mutual exclusion on the shared Chrome. The worker waits for a busy
