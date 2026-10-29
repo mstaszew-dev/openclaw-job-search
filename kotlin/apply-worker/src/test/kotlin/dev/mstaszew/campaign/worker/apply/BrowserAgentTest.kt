@@ -42,7 +42,13 @@ private fun toolCallResponse(name: String, argumentsJson: String) = """
 class BrowserAgentTest {
 
     private val recorder = mockk<Recorder>(relaxed = true)
-    private val jobStateRepo = mockk<JobStateRepository>(relaxed = true)
+    // findById is stubbed typed and empty: createAttemptHistoryEntry reads
+    // it for the attempt counter, and a bare relaxed mock answers an
+    // untyped Optional whose content casts to Object - each terminal-return
+    // test then dies on a ClassCastException instead of its assertion.
+    private val jobStateRepo = mockk<JobStateRepository>(relaxed = true) {
+        every { findById(any()) } returns Optional.empty()
+    }
     private val listings = mockk<JobListingRepository> {
         every { findById("65f0000000000000000000a1") } returns Optional.of(
             JobListingEntity(
@@ -860,13 +866,22 @@ class BrowserAgentTest {
     }
 
     @Test
-    fun `narration fails the unit only after the limit`() {
+    fun `narration fails the unit only after the limit, as TRANSIENT`() {
         val prose = """{"choices":[{"message":{"content":"thinking..."},"finish_reason":"stop"}]}"""
         val transport = ScriptedTransport(listOf(prose))
 
         val result = run(agent(transport, maxSteps = 10))
 
-        assertThat((result as ApplyResult.Failed).detail).startsWith("model produced no tool call after 3 tries")
+        // Transient, not Failed: a narration fluke must NOT wall the listing.
+        // Thrown as ApplyRetryException by WorkerLoop -> the offset stays
+        // uncommitted and the job redelivers with attempt-history context.
+        assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
+        assertThat((result as ApplyResult.Transient).detail)
+            .startsWith("model produced no tool call after 3 tries")
+
+        // Narration exhaustion is a serious failure now: the retry prompt
+        // learns about this death from the attempt-history section.
+        verify { recorder.recordAttemptHistory(any(), match { it.finalStatus.contains("no tool call") }) }
     }
 
     /**

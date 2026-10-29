@@ -105,21 +105,18 @@ class AttemptHistoryTest {
 
     @Test
     fun `attempt history correctly filters serious failures`() {
-        // Arrange - Test the filter logic
+        // Arrange - production classifier: the serious set also covers
+        // narration exhaustion ("no tool call") as of the 2026-10-29 fix.
         val seriousFailures = listOf(
             "wander breaker: 20 consecutive read-only steps",
             "loop breaker: click failed 120 consecutive times",
-            "portal-block",
-            "captcha"
+            "portal-block: no SSO login wall",
+            "captcha",
+            "model produced no tool call after 3 tries: browser_snapshot()",
         )
 
-        // Act
-        val seriousFailuresFiltered = seriousFailures.filter { status ->
-            status.contains("wander breaker") ||
-            status.contains("loop breaker") ||
-            status.contains("portal-block") ||
-            status.contains("captcha")
-        }
+        // Act - the exact production filter the worker records history with
+        val seriousFailuresFiltered = seriousFailures.filter { BrowserAgent.isSeriousFailure(it) }
 
         // Assert
         assertThat(seriousFailuresFiltered).containsExactlyElementsOf(seriousFailures)
@@ -130,18 +127,13 @@ class AttemptHistoryTest {
         // Arrange - Test the filter logic
         val allFailures = listOf(
             "wander breaker: 20 consecutive read-only steps", // serious
-            "model produced no tool call after 5 tries",      // not serious
             "step cap 80 reached without outcome",             // not serious
-            "click failed once"                                 // not serious
+            "click failed once",                               // not serious
+            "llm loop failed: chat failed"                     // not serious
         )
 
         // Act
-        val seriousFailuresFiltered = allFailures.filter { status ->
-            status.contains("wander breaker") ||
-            status.contains("loop breaker") ||
-            status.contains("portal-block") ||
-            status.contains("captcha")
-        }
+        val seriousFailuresFiltered = allFailures.filter { BrowserAgent.isSeriousFailure(it) }
 
         // Assert
         assertThat(seriousFailuresFiltered).hasSize(1)

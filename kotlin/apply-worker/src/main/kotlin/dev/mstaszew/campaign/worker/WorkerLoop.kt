@@ -406,6 +406,18 @@ class WorkerLoop(
                 wallFailedReenqueue(listing, job, result.detail)
                 notifier.failed(job.id, result.detail)
             }
+            is ApplyResult.Transient -> {
+                // Model-flake failure (narration exhaustion): NOT terminal and
+                // NOT walled. Throwing escapes the listener before the offset
+                // commits, so Kafka redelivers the job (bounded by
+                // maxAttempts=3) and the retry arrives with this attempt in
+                // its attempt-history prompt. Walling here - as Failed does -
+                // burned the 2026-10-29 Angular listing on one formatting
+                // fluke after a single attempt.
+                log.warn("job {} transient failure, requeueing: {}", job.id, result.detail)
+                notifier.failed(job.id, "${result.detail} (requeued for retry)")
+                throw ApplyRetryException(result.detail)
+            }
         }
     }
 
@@ -523,3 +535,11 @@ class WorkerLoop(
     }
 
 }
+
+/**
+ * Escape hatch for model-flake failures ([ApplyResult.Transient]): aborts the
+ * Kafka listener before the offset commits so the message redelivers without
+ * a wall or a terminal job_state write. Bounded by the listener's error
+ * handler / maxAttempts, same as any listener exception.
+ */
+class ApplyRetryException(message: String) : RuntimeException(message)

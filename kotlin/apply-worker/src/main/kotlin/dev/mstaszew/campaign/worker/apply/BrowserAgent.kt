@@ -30,6 +30,16 @@ sealed class ApplyResult {
     data class DuplicateNow(val detail: String) : ApplyResult()
 
     data class Failed(val detail: String) : ApplyResult()
+
+    /**
+     * Model-flake failure that says nothing about the PORTAL: the listing is
+     * not walled and the message redelivers (bounded by maxAttempts), so a
+     * retry arrives with the history of this failure injected into its prompt.
+     * Distinguishable from Failed, whose outcomes wall the listing: a prose
+     * narration trip (2026-10-29 Angular alert: 3 tries of "browser_snapshot()"
+     * text) is a formatting fluke, not a structural portal problem.
+     */
+    data class Transient(val detail: String) : ApplyResult()
 }
 
 /**
@@ -119,20 +129,31 @@ class BrowserAgent(
                         ToolCall(selected.name, selected.arguments)
                     }
                     ?: parseToolCall(response.content)
+                ?: parseProseToolCall(response.content)
+                    ?.also {
+                        log.info(
+                            "job {}: rescued prose tool call {} (model wrote the call as text)",
+                            jobId, it.name,
+                        )
+                    }
                 if (toolCall == null) {
                     // Free-tier models occasionally narrate instead of calling
                     // a tool (randlab 2026-10-27: one prose reply after an
                     // Apply click killed the unit). Nudge, and only fail after
-                    // NARRATION_LIMIT consecutive tool-less replies.
+                    // NARRATION_LIMIT consecutive tool-less replies. The
+                    // failure is TRANSIENT (no wall): the formatting fluke
+                    // says nothing about the portal, so the job redelivers
+                    // with attempt-history context instead of burning the
+                    // listing on one model flake (Angular 2026-10-29).
                     narrationTrips += 1
                     if (narrationTrips >= NARRATION_LIMIT) {
                         val result = out(
                             step,
-                            ApplyResult.Failed(
+                            ApplyResult.Transient(
                                 "model produced no tool call after $narrationTrips tries: ${response.content.take(150)}",
                             ),
                         )
-                        state.createAttemptHistoryEntry(result::class.simpleName ?: "Failed")?.let { recorder.recordAttemptHistory(jobId, it) }
+                        state.createAttemptHistoryEntry(result.detailText())?.let { recorder.recordAttemptHistory(jobId, it) }
                         return result
                     }
                     log.info("job {}: narration trip {}, nudging back to tools", jobId, narrationTrips)
@@ -144,7 +165,7 @@ class BrowserAgent(
                     is ApplyResult -> {
                         logStep(step, maxSteps, toolCall.name, "terminal", dispatchStart)
                         val result = out(step, dispatched)
-                        state.createAttemptHistoryEntry(result::class.simpleName ?: "Failed")?.let { recorder.recordAttemptHistory(jobId, it) }
+                        state.createAttemptHistoryEntry(result.detailText())?.let { recorder.recordAttemptHistory(jobId, it) }
                         return result
                     }
                     is ToolOutcome -> {
@@ -191,18 +212,20 @@ class BrowserAgent(
                                 log.warn("job {}: wander trip 1, injecting correction", jobId)
                                 state.messages += ChatMessage("user", WANDER_CORRECTION)
                             } else {
-                                return out(
+                                val result = out(
                                     step,
                                     ApplyResult.Failed(
                                         "wander breaker: $WANDER_THRESHOLD consecutive read-only steps " +
                                             "without action (last read: ${dispatched.toolName})",
                                     ),
                                 )
+                                state.createAttemptHistoryEntry(result.detailText())?.let { recorder.recordAttemptHistory(jobId, it) }
+                                return result
                             }
                         }
                         state.messages += ChatMessage("user", dispatched.text.take(4000))
                         if (state.failureStreak >= LOOP_BREAK_THRESHOLD) {
-                            return out(
+                            val result = out(
                                 step,
                                 ApplyResult.Failed(
                                     "loop breaker: ${dispatched.toolName} failed $LOOP_BREAK_THRESHOLD " +
@@ -213,6 +236,8 @@ class BrowserAgent(
                                         "consecutive times; last error: ${dispatched.text.take(1200)}",
                                 ),
                             )
+                            state.createAttemptHistoryEntry(result.detailText())?.let { recorder.recordAttemptHistory(jobId, it) }
+                            return result
                         }
                         // Stale-ref auto-correction (pekao-conext 2026-10-27):
                         // "Ref e29 not found in the current page snapshot"
@@ -237,7 +262,9 @@ class BrowserAgent(
                     }
                 }
             }
-            return out(maxSteps, ApplyResult.Failed("step cap $maxSteps reached without outcome"))
+            val capped = out(maxSteps, ApplyResult.Failed("step cap $maxSteps reached without outcome"))
+            state.createAttemptHistoryEntry(capped.detailText())?.let { recorder.recordAttemptHistory(jobId, it) }
+            return capped
         }
     }
 
@@ -272,14 +299,10 @@ class BrowserAgent(
 
         /** Create an AttemptHistoryEntry if this attempt failed with serious issues. */
         fun createAttemptHistoryEntry(finalStatus: String): AttemptHistoryEntry? {
-            // Only include history for serious failures (wander breaker, loop breaker, etc.)
-            // Exclude narration trips, minor tool failures, step cap reached
-            val isSerious = finalStatus.contains("wander breaker") ||
-                finalStatus.contains("loop breaker") ||
-                finalStatus.contains("portal-block") ||
-                finalStatus.contains("captcha")
-
-            return if (isSerious) {
+            // Companion-level classifier: serious failures only (wander
+            // breaker, loop breaker, portal-block, captcha, narration
+            // exhaustion). Minor tool failures and step caps stay uncounted.
+            return if (isSeriousFailure(finalStatus)) {
                 val currentJobState = jobState.findById(jobId).orElse(null)
                 val attempts = currentJobState?.attempts ?: 1 // Use current attempts or default to 1
                 AttemptHistoryEntry(
@@ -334,6 +357,8 @@ class BrowserAgent(
             "\n  **What to learn from this history:**\n" +
             "  - If readStreak is high (>10), avoid reading the same DOM repeatedly - take an action instead.\n" +
             "  - If wanderTrips=1, the first correction was injected; take it seriously and try differently.\n" +
+            "  - If a previous attempt died writing tool calls as prose text (\"no tool call\"), " +
+            "emit every action as a real tool call in the tool_calls mechanism, never as text.\n" +
             "  - If this is the 2nd or 3rd attempt, you must succeed now - no more retries.\n"
         } else {
             ""
@@ -429,7 +454,26 @@ class BrowserAgent(
         """.trimIndent()
     }
 
-    private data class ToolCall(val name: String, val arguments: JsonNode)
+    /**
+     * Human-readable failure text of an outcome; what
+     * [LoopState.createAttemptHistoryEntry] classifies. Sealed subclasses
+     * carry their reasons differently (Blocked has reason+detail, Failed
+     * only detail), so each branch maps to the exact text the user/ops sees
+     * in alerts and job_state.lastError.
+     */
+    private fun ApplyResult.detailText(): String =
+        when (this) {
+            is ApplyResult.Submitted -> "submitted"
+            is ApplyResult.Blocked -> "$reason: $detail"
+            is ApplyResult.DuplicateNow -> "duplicate: $detail"
+            is ApplyResult.Failed -> detail
+            is ApplyResult.Transient -> detail
+        }
+
+    /** One model-issued tool call: name + parsed argument object. */
+    // internal so the narration-rescue unit tests can assert parsed shape.
+    internal data class ToolCall(val name: String, val arguments: JsonNode)
+
 
     private fun parseToolCall(content: String): ToolCall? {
         val start = content.indexOf('{')
@@ -550,6 +594,148 @@ class BrowserAgent(
         /** Post-attempt blank navigate bound well below the tool timeout.
          *  Alias of TabCleanup.CALL_TIMEOUT, which now owns the bound. */
         val PAGE_CLEANUP_TIMEOUT: Duration = TabCleanup.CALL_TIMEOUT
+
+        /**
+         * Tool names the prose-rescue parser will accept. A restricted set
+         * matters: the parser fires on messages that carry tool_calls
+         * mechanism failures (free models emit the call as text), and a
+         * wide-open set would turn ordinary prose mentioning a tool into a
+         * spurious action. The model nudge teaches these exact names.
+         */
+        private val KNOWN_TOOLS = setOf(
+            "browser_navigate",
+            "browser_snapshot",
+            "browser_click",
+            "browser_tabs",
+            "browser_fill_form",
+            "upload_cv",
+            "browser_evaluate",
+            "browser_wait_for",
+            "record_submission",
+            "skip_task",
+        )
+
+        /**
+         * Model-flake fallback tool-call parser: rescues replies where the
+         * model WROTE the call as text ("browser_snapshot()", the 2026-10-29
+         * Angular alert burned a listing on three such tries) instead of
+         * emitting the OpenAI tool_calls JSON. Strict acceptance: the whole
+         * trimmed content must be ONE call - it starts with a known tool
+         * name, holds a balanced (...) argument block, and carries nothing
+         * after the closing paren. Prose that merely MENTIONS a tool
+         * ("I'll call browser_snapshot() next") stays a narration trip.
+         */
+        // internal: the test module sees it, but it is not part of any
+        // public API surface (returns internal ToolCall).
+        internal fun parseProseToolCall(content: String): ToolCall? {
+            val trimmed = content.trim()
+            val open = trimmed.indexOf('(')
+            if (open <= 0) return null
+            val name = trimmed.substring(0, open).trim()
+            if (name !in KNOWN_TOOLS) return null
+            val close = trimmed.lastIndexOf(')')
+            // Balanced-one-block requirement: the '(' of the call is the FIRST
+            // char-run, the ')' must be the content's LAST meaningful char.
+            if (close < open) return null
+            if (trimmed.substring(close + 1).isNotBlank()) return null
+            val inner = trimmed.substring(open + 1, close).trim()
+            val args = mapperForProseParse(inner)
+            return if (args != null) ToolCall(name, args) else null
+        }
+
+        /**
+         * Argument object from the inner text of a prose call. Shapes, in
+         * order: empty -> {}; JSON object -> verbatim; "k=v" comma pairs ->
+         * strings/numbers/booleans (quotes stripped, escapes kept verbatim;
+         * negative numbers and integers hit NumberFormatException-coercing
+         * paths guarded by toNumberOrNull). Array values inside "k=v" pairs
+         * (fill_form's fields=[...]) must arrive as JSON, not prose.
+         */
+        private fun mapperForProseParse(inner: String): JsonNode? {
+            val mapper = ObjectMapper()
+            if (inner.isEmpty()) return mapper.createObjectNode()
+            if (inner.startsWith("{") && inner.endsWith("}")) {
+                return try {
+                    val node = mapper.readTree(inner)
+                    if (node.isObject) node else null
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            return proseKvpToJson(mapper, inner)
+        }
+
+        /**
+         * Parse comma-separated key=value pairs; comma inside quotes is a
+         * separator to CALL arguments, not list boundaries, e.g.
+         * skip_task(reason="portal-block", detail="login wall, no SSO").
+         */
+        private fun proseKvpToJson(mapper: ObjectMapper, inner: String): JsonNode? {
+            val obj = mapper.createObjectNode()
+            var i = 0
+            val n = inner.length
+            while (i < n) {
+                // key up to '='
+                val eq = inner.indexOf('=', i)
+                if (eq < 0) return null
+                val key = inner.substring(i, eq).trim()
+                if (!key.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) return null
+                // value: quoted string or bare token up to a top-level comma
+                var j = eq + 1
+                while (j < n && inner[j] == ' ') j++
+                var valueText: String
+                if (j < n && (inner[j] == '"' || inner[j] == '\'')) {
+                    val quote = inner[j]
+                    var k = j + 1
+                    val sb = StringBuilder()
+                    while (k < n && inner[k] != quote) {
+                        if (inner[k] == '\\' && k + 1 < n) {
+                            // keep the escape verbatim for the JSON parser at
+                            // dispatch; only the closing quote must terminate
+                            sb.append(inner[k]).append(inner[k + 1])
+                            k += 2
+                        } else {
+                            sb.append(inner[k])
+                            k += 1
+                        }
+                    }
+                    if (k >= n) return null
+                    valueText = sb.toString()
+                    i = k + 1
+                    obj.put(key, valueText)
+                } else {
+                    // bare token: number, boolean, or identifier
+                    var k = j
+                    while (k < n && inner[k] != ',') k++
+                    valueText = inner.substring(j, k).trim().trimEnd(',')
+                    if (valueText.isEmpty()) return null
+                    valueText.toLongOrNull()?.let { obj.put(key, it) }
+                        ?: valueText.toDoubleOrNull()?.let { obj.put(key, it) }
+                        ?: when (valueText.lowercase()) {
+                            "true" -> obj.put(key, true)
+                            "false" -> obj.put(key, false)
+                            else -> obj.put(key, valueText)
+                        }
+                    i = k
+                }
+                // skip separators/whitespace
+                while (i < n && (inner[i] == ',' || inner[i] == ' ')) i++
+            }
+            return obj
+        }
+
+        /**
+         * Attempt-history proper filter: only serious failures are recorded
+         * for a NEXT attempt's prompt. Companion-level pure function so the
+         * unit tests exercise the exact production filter without instantiating
+         * the private LoopState.
+         */
+        fun isSeriousFailure(status: String): Boolean =
+            status.contains("wander breaker") ||
+                status.contains("loop breaker") ||
+                status.contains("portal-block") ||
+                status.contains("captcha") ||
+                status.contains("no tool call")
 
         /** Consecutive same-tool failures that end the attempt as Failed.
          * Raised 3 -> 5 on 2026-10-26: the dominant failure is now a fast
