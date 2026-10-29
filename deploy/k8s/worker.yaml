@@ -21,7 +21,7 @@ spec:
       terminationGracePeriodSeconds: 90
       containers:
         - name: worker
-          image: localhost:5000/campaign-worker:v3
+          image: localhost:5000/campaign-worker:v4
           imagePullPolicy: IfNotPresent
           env:
             # authSource=admin: the user is the image entrypoint's root user,
