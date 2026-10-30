@@ -196,7 +196,7 @@ class BrowserAgent(
                         // the streak whatever their mix; any action (click,
                         // fill, upload, navigate, evaluate, tab select) or any
                         // failure resets it.
-                        if (!dispatched.failed && isReadOnlyCall(toolCall)) {
+                        if (!dispatched.failed && isReadOnlyCall(toolCall, state.wanderTrips >= 1)) {
                             state.readStreak += 1
                         } else {
                             state.readStreak = 0
@@ -355,7 +355,9 @@ class BrowserAgent(
                 "staleRefCorrections=${entry.staleRefCorrections} → ${entry.finalStatus}"
             }.joinToString("\n") +
             "\n  **What to learn from this history:**\n" +
-            "  - If readStreak is high (>10), avoid reading the same DOM repeatedly - take an action instead.\n" +
+            "  - If readStreak is high (>10), avoid reading the same DOM repeatedly - take an action instead. " +
+            "ONLY browser_click, browser_fill_form, upload_cv and record_submission count as actions: " +
+            "browser_evaluate and browser_tabs are NOT actions.\n" +
             "  - If wanderTrips=1, the first correction was injected; take it seriously and try differently.\n" +
             "  - If a previous attempt died writing tool calls as prose text (\"no tool call\"), " +
             "emit every action as a real tool call in the tool_calls mechanism, never as text.\n" +
@@ -763,9 +765,11 @@ class BrowserAgent(
         const val WANDER_CORRECTION =
             "CORRECTION: you just made $WANDER_THRESHOLD consecutive read-only calls without acting. " +
                 "Your next call MUST be an action: click an element, browser_fill_form, upload_cv, " +
-                "browser_evaluate, or browser_tabs(action=\"select\", index=N - a bare index " +
+                "or browser_tabs(action=\"select\", index=N - a bare index " +
                 "defaults to LIST, always pass action=\"select\" when switching tabs). If there is " +
-                "truly nothing to act on, call skip_task. Another read-only streak will end this task."
+                "truly nothing to act on, call skip_task. WARNING: browser_evaluate and repeated " +
+                "tab switching DO NOT count as actions - only click, fill_form, upload_cv, " +
+                "record_submission do. Another read-only streak will end this task."
 
         /** Consecutive tool-less (prose) replies before the unit fails. */
         const val NARRATION_LIMIT = 3
@@ -796,11 +800,24 @@ class BrowserAgent(
                 "if a new tab may have opened, or skip_task to abandon. No prose."
         private val READ_ONLY_TOOLS = setOf("browser_snapshot", "browser_wait_for")
 
-        /** A tab call is a read only as a LIST; SELECT changes state. */
-        private fun isReadOnlyCall(call: ToolCall): Boolean =
+        /**
+         * A tab call is a read only as a LIST; SELECT changes state.
+         *
+         * `tightenAfterWanderTrip`: once the model consumed its one corrective
+         * shove, PSEUDO-ACTIONS stop resetting the read streak. The 2026-10-30
+         * theprotocol PHP/Symfony grind rode to cap 150 on 104 snapshots +
+         * 30 tab toggles + 12 evaluates, ZERO clicks or fills: tabs(SELECT)
+         * and browser_evaluate counted as actions, so readStreak never
+         * re-armed the second (terminal) wander trip. A legit external-ATS
+         * tab switch is interleaved with real calls (fill_form, click) and
+         * never accumulates 20 consecutive steps - only a wander grind does.
+         */
+        private fun isReadOnlyCall(call: ToolCall, tightenAfterWanderTrip: Boolean = false): Boolean =
             call.name in READ_ONLY_TOOLS ||
                 (call.name == "browser_tabs" &&
-                    call.arguments.path("action").asText("list").lowercase() != "select")
+                    call.arguments.path("action").asText("list").lowercase() != "select") ||
+                (tightenAfterWanderTrip &&
+                    (call.name == "browser_evaluate" || call.name == "browser_tabs"))
 
         fun parseMaxSteps(raw: String?): Int = AgentLoopBounds.parseMaxSteps(raw)
 

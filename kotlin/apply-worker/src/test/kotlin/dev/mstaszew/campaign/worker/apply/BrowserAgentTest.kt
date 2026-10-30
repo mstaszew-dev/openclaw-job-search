@@ -775,6 +775,38 @@ class BrowserAgentTest {
             .startsWith("wander breaker: 20 consecutive read-only steps")
     }
 
+    /**
+     * The 2026-10-30 theprotocol PHP/Symfony cap-out exploit: AFTER the
+     * first wander trip's correction, the model kept grinding with
+     * browser_tabs(SELECT) and browser_evaluate interleaved into snapshot
+     * waves - pseudo-actions that reset readStreak, so the second (terminal)
+     * trip never fired and the unit rode to cap 150 with zero clicks or
+     * fills. Once tightened (wanderTrips >= 1), evaluate and ANY tab call
+     * count as read-only and the second wave dies at the breaker, far below
+     * the step cap.
+     */
+    @Test
+    fun `after a wander trip, pseudo-actions no longer reset the streak`() {
+        // trip 1: the snapshot wave + the interleaved evaluate/tab-select
+        // reset trick reach the 20-step streak, the correction is injected
+        // and readStreak resets; the model relapses with the SAME trick.
+        val transports = buildList {
+            repeat(19) { add(toolCallResponse("browser_snapshot", "{}")) }
+            add(toolCallResponse("browser_evaluate", """{"function":"1+1"}"""))
+            repeat(19) { add(toolCallResponse("browser_snapshot", "{}")) }
+            add(toolCallResponse("browser_tabs", """{"action":"select","index":1}"""))
+            repeat(19) { add(toolCallResponse("browser_snapshot", "{}")) }
+        }
+
+        val result = run(agent(ScriptedTransport(transports), maxSteps = 150))
+
+        // The relapse kills at ~step 60 (well below cap 150) with the
+        // wander breaker as a Failed (NOT transient: the model knowingly
+        // ignored the corrective shove).
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("wander breaker: 20 consecutive read-only steps")
+    }
+
     /** A different successful tool between repeats resets the wander count. */
     @Test
     fun `an interleaved different tool resets the wander count`() {
