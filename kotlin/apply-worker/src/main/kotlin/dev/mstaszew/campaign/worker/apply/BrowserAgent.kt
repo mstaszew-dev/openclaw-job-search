@@ -386,6 +386,16 @@ class BrowserAgent(
               modal whose confirm button also reads Aplikuj) - then
               browser_tabs(action="list") if the snapshot shows no modal, because
               the form may have opened in a NEW TAB.
+            - The SAME portal may render buttons in ENGLISH or POLISH: look for
+              the apply control under ANY of these labels: Aplikuj, Zaaplikuj,
+              Apply, Apply quickly, Quick apply. (The 2026-10-30 Miele/Intrec/
+              Consid portal-blocks: justjoin rendered an English UI where the
+              Aplikuj-only search missed real Apply buttons.)
+            - justjoin resume modal: after clicking Apply, a modal may announce
+              "We see you're back! Did you manage to complete your application?"
+              (button texts are glyph-obfuscated: "Skip" may not match the
+              visible string exactly). Dismiss it by clicking the LAST button of
+              the modal (Skip) via its element ref, never by guessing text.
             - If the page is stuck at a challenge or interstitial (typical text:
               "Just a moment", "Checking your browser", or an empty page),
               wait_for 5 seconds and check once more; if still blocked, call
@@ -404,8 +414,9 @@ class BrowserAgent(
               stale state, not a missing one (makeitright 2026-10-27: a live
               listing with a real Aplikuj button was walled after the model lost
               it between re-renders). First navigate to the LISTING URL fresh,
-              take one browser_snapshot, and only skip if the Apply control and
-              any Apply-opening modal are genuinely absent there.
+              take one browser_snapshot, and only skip if the Apply control
+              (in ANY language variant listed above) and any Apply-opening
+              modal are genuinely absent there.
             - Fill PL forms from the profile below (Polish identity fields); upload
               the PL CV ONLY via upload_cv - it owns the canonical file path, never
               call browser_file_upload and never invent a path; salary answer:
