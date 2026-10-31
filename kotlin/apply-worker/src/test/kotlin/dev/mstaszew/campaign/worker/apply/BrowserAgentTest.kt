@@ -744,8 +744,9 @@ class BrowserAgentTest {
 
         val result = run(agent(transport, maxSteps = 50))
 
+        // 20 reads -> trip 1 (correction), next read -> trip 2 immediately.
         assertThat((result as ApplyResult.Failed).detail)
-            .startsWith("wander breaker: 20 consecutive read-only steps")
+            .startsWith("wander breaker:")
     }
 
     /**
@@ -771,8 +772,9 @@ class BrowserAgentTest {
 
         val result = run(agent(transport, maxSteps = 50))
 
+        // 20 alternating reads -> trip 1 (correction), next read -> trip 2 immediately.
         assertThat((result as ApplyResult.Failed).detail)
-            .startsWith("wander breaker: 20 consecutive read-only steps")
+            .startsWith("wander breaker:")
     }
 
     /**
@@ -800,11 +802,10 @@ class BrowserAgentTest {
 
         val result = run(agent(ScriptedTransport(transports), maxSteps = 150))
 
-        // The relapse kills at ~step 60 (well below cap 150) with the
-        // wander breaker as a Failed (NOT transient: the model knowingly
-        // ignored the corrective shove).
+        // Trip 1 at step 20 (correction injected); trip 2 fires immediately
+        // on the next read-only call - the model ignored the shove.
         assertThat((result as ApplyResult.Failed).detail)
-            .startsWith("wander breaker: 20 consecutive read-only steps")
+            .startsWith("wander breaker:")
     }
 
     /** A different successful tool between repeats resets the wander count. */
@@ -843,7 +844,9 @@ class BrowserAgentTest {
     fun `first wander trip corrects the model, second trip fails`() {
         val transport = ScriptedTransport(
             listOf(
-                // trip 1: eight reads
+                // trip 1 fires at WANDER_THRESHOLD (20) reads; ScriptedTransport
+                // clamps to its last entry after the list is exhausted, so the
+                // "eight reads" comments below describe the pattern, not the count
                 toolCallResponse("browser_snapshot", "{}"),
                 toolCallResponse("browser_snapshot", "{}"),
                 toolCallResponse("browser_snapshot", "{}"),
@@ -852,7 +855,7 @@ class BrowserAgentTest {
                 toolCallResponse("browser_snapshot", "{}"),
                 toolCallResponse("browser_snapshot", "{}"),
                 toolCallResponse("browser_snapshot", "{}"),
-                // the shove lands; the model wanders again (eight more reads)
+                // the shove lands; the model wanders again with reads
                 toolCallResponse("browser_snapshot", "{}"),
                 toolCallResponse("browser_snapshot", "{}"),
                 toolCallResponse("browser_snapshot", "{}"),
@@ -868,10 +871,222 @@ class BrowserAgentTest {
         val result = run(agent(transport, maxSteps = 60))
 
         assertThat((result as ApplyResult.Failed).detail)
-            .startsWith("wander breaker: 20 consecutive read-only steps")
+            .startsWith("wander breaker:")
         // The correction was actually sent to the model between the trips.
         val allBodies = transport.bodies.joinToString("\n")
         assertThat(allBodies).contains("read-only calls without acting")
+    }
+
+    /**
+     * After trip 1 injects WANDER_CORRECTION, the model's next read-only call
+     * (ignoring the shove) must trip the breaker immediately - not grant
+     * another full 20-read grace period. This is the 2026-10-31 theprotocol
+     * pattern: 17 reads, trip 1, one click, then reads again to cap 150.
+     */
+    @Test
+    fun `wander trip 2 fires immediately after correction is ignored`() {
+        val transport = ScriptedTransport(buildList {
+            repeat(20) { add(toolCallResponse("browser_snapshot", "{}")) }
+            // model ignores the shove and reads again -> trip 2 immediately
+            add(toolCallResponse("browser_snapshot", "{}"))
+        })
+
+        val result = run(agent(transport, maxSteps = 150))
+
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("wander breaker:")
+        // The correction was actually sent to the model between the trips.
+        val allBodies = transport.bodies.joinToString("\n")
+        assertThat(allBodies).contains("read-only calls without acting")
+        // Trip 2 detail names the correction that was ignored.
+        assertThat((result as ApplyResult.Failed).detail).contains("ignored")
+    }
+
+    /**
+     * If the model heeds the correction (takes an action after trip 1),
+     * wanderCorrectionPending clears and the normal 20-read threshold applies
+     * to any subsequent wander. The model gets one warning per trip, not one
+     * per attempt.
+     */
+    @Test
+    fun `wander correction heeded resumes normal wander threshold`() {
+        val transport = ScriptedTransport(buildList {
+            repeat(20) { add(toolCallResponse("browser_snapshot", "{}")) }
+            // model heeds the shove: an action clears the pending correction
+            add(toolCallResponse("browser_click", """{"ref":"apply-btn"}"""))
+            // model wanders again: 20 reads -> trip 2 at normal threshold
+            repeat(20) { add(toolCallResponse("browser_snapshot", "{}")) }
+        })
+
+        val result = run(agent(transport, maxSteps = 150))
+
+        val detail = (result as ApplyResult.Failed).detail
+        // Normal 20-read threshold resumed (not immediate "ignored shove" trip 2)
+        assertThat(detail).contains("20 consecutive read-only steps")
+        assertThat(detail).doesNotContain("ignored")
+    }
+
+    /**
+     * Trip 1 is non-terminal: 20 read-only calls inject WANDER_CORRECTION and
+     * the loop continues. Only trip 2 (ignoring the shove) ends the unit.
+     * Regression guard for SHOULD #3 in code review.
+     */
+    @Test
+    fun `wander trip 1 corrects and continues, does not fail`() {
+        val transport = ScriptedTransport(buildList {
+            repeat(20) { add(toolCallResponse("browser_snapshot", "{}")) }
+            // model heeds the shove: an action clears the pending correction
+            add(toolCallResponse("browser_click", """{"ref":"apply-btn"}"""))
+            // then a skip_task to terminate cleanly
+            add(toolCallResponse("skip_task", """{"reason":"portal-block","detail":"done"}"""))
+        })
+
+        val result = run(agent(transport, maxSteps = 50))
+
+        // Trip 1 did NOT fail: the action after the correction was processed.
+        assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
+        val allBodies = transport.bodies.joinToString("\n")
+        assertThat(allBodies).contains("read-only calls without acting")
+    }
+
+    /**
+     * SHOULD #4: a failed read-only call while wanderCorrectionPending is true
+     * must still trip 2 immediately — a failed read is still reading, not acting.
+     */
+    @Test
+    fun `failed read-only call after correction still trips wander breaker`() {
+        val transport = ScriptedTransport(buildList {
+            repeat(20) { add(toolCallResponse("browser_snapshot", "{}")) }
+            add(toolCallResponse("browser_snapshot", "{}")) // this call will fail in the mock
+        })
+
+        var callCount = 0
+        val throwingBrowser = mockk<McpStdioClient>(relaxed = true) {
+            every { callToolText(any(), any(), any()) } answers {
+                callCount++
+                if (callCount > 20) throw Exception("simulated snapshot failure")
+                "page snapshot"
+            }
+        }
+
+        val agentWithThrowingBrowser = BrowserAgent(
+            llm = LlmClient(
+                baseUrl = "http://gateway.invalid/v1",
+                apiKey = null,
+                model = "mst/free",
+                transport = transport,
+                attempts = 1,
+                sleeper = {},
+            ),
+            recorder = recorder,
+            listings = listings,
+            jobStateRepository = jobStateRepo,
+            cvUploader = cvUploader,
+            mapper = mapper,
+            maxSteps = 50,
+        )
+
+        val result = agentWithThrowingBrowser.run(
+            jobId = "nofluffjobs:n-1",
+            listingId = "65f0000000000000000000a1",
+            applicantProfileText = "15 years Java",
+            cvPathPl = "/app/cv/pl.pdf",
+            mcpFactory = { throwingBrowser },
+        )
+
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("wander breaker: ignored corrective shove")
+    }
+
+    /**
+     * SHOULD #5: stale-ref failure after trip 1 clears wanderCorrectionPending
+     * (it's an action attempt, not a read), so a subsequent read-only call
+     * starts a fresh streak — trip 2 needs another 20 reads.
+     * Documents intended semantics: stale-ref shove != wander shove.
+     */
+    @Test
+    fun `stale-ref failure after trip 1 clears pending correction`() {
+        val transport = ScriptedTransport(buildList {
+            repeat(20) { add(toolCallResponse("browser_snapshot", "{}")) }
+            // model tries to fill but gets a stale-ref failure (an action attempt)
+            add(toolCallResponse("browser_fill_form", """{"fields":{}}"""))
+            // 20 more reads -> trip 2 at normal threshold (not immediate)
+            repeat(20) { add(toolCallResponse("browser_snapshot", "{}")) }
+        })
+
+        var callCount2 = 0
+        val failingBrowser = mockk<McpStdioClient>(relaxed = true) {
+            every { callToolText(any(), any(), any()) } answers {
+                callCount2++
+                if (callCount2 == 21) {
+                    // 21st call = the fill_form after 20 snapshots
+                    throw Exception("Ref e29 not found in the current page snapshot")
+                }
+                "page snapshot"
+            }
+        }
+
+        val agentWithFailingBrowser = BrowserAgent(
+            llm = LlmClient(
+                baseUrl = "http://gateway.invalid/v1",
+                apiKey = null,
+                model = "mst/free",
+                transport = transport,
+                attempts = 1,
+                sleeper = {},
+            ),
+            recorder = recorder,
+            listings = listings,
+            jobStateRepository = jobStateRepo,
+            cvUploader = cvUploader,
+            mapper = mapper,
+            maxSteps = 150,
+        )
+
+        val result = agentWithFailingBrowser.run(
+            jobId = "nofluffjobs:n-1",
+            listingId = "65f0000000000000000000a1",
+            applicantProfileText = "15 years Java",
+            cvPathPl = "/app/cv/pl.pdf",
+            mcpFactory = { failingBrowser },
+        )
+
+        val detail = (result as ApplyResult.Failed).detail
+        assertThat(detail).contains("20 consecutive read-only steps")
+        assertThat(detail).doesNotContain("ignored")
+    }
+
+    /**
+     * NICE #2: boundary test — exactly 19 reads stays under the threshold.
+     * Guards against off-by-one regressions in readStreak >= WANDER_THRESHOLD.
+     */
+    @Test
+    fun `19 reads does not trip wander breaker`() {
+        val transport = ScriptedTransport(buildList {
+            repeat(19) { add(toolCallResponse("browser_snapshot", "{}")) }
+            // then skip_task to terminate
+            add(toolCallResponse("skip_task", """{"reason":"portal-block","detail":"done"}"""))
+        })
+
+        val result = run(agent(transport, maxSteps = 50))
+
+        assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
+    }
+
+    /**
+     * NICE #3: browser_wait_for is a read-only tool and counts toward wander.
+     */
+    @Test
+    fun `browser_wait_for counts as read-only for wander streak`() {
+        val transport = ScriptedTransport(buildList {
+            repeat(20) { add(toolCallResponse("browser_wait_for", """{"ms":100}""")) }
+            add(toolCallResponse("browser_snapshot", "{}")) // trip 2 immediately
+        })
+
+        val result = run(agent(transport, maxSteps = 50))
+
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("wander breaker: ignored corrective shove")
     }
 
     /**

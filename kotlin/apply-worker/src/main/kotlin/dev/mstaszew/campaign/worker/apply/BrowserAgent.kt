@@ -196,10 +196,26 @@ class BrowserAgent(
                         // the streak whatever their mix; any action (click,
                         // fill, upload, navigate, evaluate, tab select) or any
                         // failure resets it.
-                        if (!dispatched.failed && isReadOnlyCall(toolCall, state.wanderTrips >= 1)) {
+                        val readOnly = !dispatched.failed && isReadOnlyCall(toolCall, state.wanderTrips >= 1)
+                        // Trip 2 first: pending + read-only (success or failure) → immediate fail.
+                        // A failed read-only call is still reading, not taking an action.
+                        if (state.wanderCorrectionPending &&
+                            isReadOnlyCall(toolCall, tightenAfterWanderTrip = true)) {
+                            val result = out(
+                                step,
+                                ApplyResult.Failed(
+                                    "wander breaker: ignored corrective shove, read-only call after correction",
+                                ),
+                            )
+                            state.createAttemptHistoryEntry(result.detailText())?.let { recorder.recordAttemptHistory(jobId, it) }
+                            return result
+                        }
+                        if (readOnly) {
                             state.readStreak += 1
                         } else {
                             state.readStreak = 0
+                            // Only clear the pending correction when the model actually attempts an action
+                            state.wanderCorrectionPending = false
                         }
                         if (state.readStreak >= WANDER_THRESHOLD) {
                             if (state.wanderTrips == 0) {
@@ -209,6 +225,7 @@ class BrowserAgent(
                                 // 2026-10-26). The second trip ends it.
                                 state.wanderTrips = 1
                                 state.readStreak = 0
+                                state.wanderCorrectionPending = true
                                 log.warn("job {}: wander trip 1, injecting correction", jobId)
                                 state.messages += ChatMessage("user", WANDER_CORRECTION)
                             } else {
@@ -283,6 +300,11 @@ class BrowserAgent(
 
         /** How many wander trips this unit has had; the second is terminal. */
         var wanderTrips: Int = 0
+
+        /** After trip 1 injects WANDER_CORRECTION, true until the model takes an action.
+         * If the model reads again while pending, trip 2 fires immediately instead of
+         * granting another full WANDER_THRESHOLD grace period. */
+        var wanderCorrectionPending: Boolean = false
 
         /** Stale-ref corrective shoves injected so far (bounded, see the
          * dispatch-site stale-ref block). */
