@@ -90,12 +90,12 @@ spec:
             - name: SLACK_WEBHOOK
               valueFrom: { secretKeyRef: { name: campaign-msrouter, key: SLACK_WEBHOOK, optional: true } }
             # Step cap for the browser tool loop (AgentLoopBounds derives the
-            # Kafka poll budget from the same env). 150 (was 120): the SSO
+            # Kafka poll budget from the same env). 200 (was 150): the SSO
             # login step added to portal applies plus external-ATS forms
-            # pushed one unit (bold-pl 2026-10-26) to a 120-step cap-out on
-            # an ACTING grind. 150 = 8.75h bounded worst case.
+            # pushed units to cap-outs (bold-pl 2026-10-26 at 120; justjoin
+            # grinds at 149/150 on 2026-10-31). 200 = 11.7h bounded worst case.
             - name: WORKER_MAX_STEPS
-              value: "150"
+              value: "200"
             - name: CAMPAIGN_API_URL
               value: http://campaign-api.campaign.svc.cluster.local:8080
           ports: [{ containerPort: 8082 }]
