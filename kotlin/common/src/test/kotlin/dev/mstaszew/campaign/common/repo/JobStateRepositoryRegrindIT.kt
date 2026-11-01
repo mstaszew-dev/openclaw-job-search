@@ -25,9 +25,17 @@ class JobStateRepositoryRegrindIT {
     @Autowired
     lateinit var mongo: MongoTemplate
 
-    private val rgrind = impl()
+    private lateinit var rgrind: JobStateRepositoryImpl
 
-    private fun impl() = JobStateRepositoryImpl(mongo)
+    @BeforeEach
+    fun setup() {
+        rgrind = JobStateRepositoryImpl(mongo)
+    }
+
+    @BeforeEach
+    fun clean() {
+        mongo.getCollection("job_state").drop()
+    }
 
     companion object {
         @JvmStatic
@@ -36,11 +44,6 @@ class JobStateRepositoryRegrindIT {
             registry.add("spring.data.mongodb.uri") { MongoReplicaSet.connectionUri }
             registry.add("spring.data.mongodb.database") { "regrind_it" }
         }
-    }
-
-    @BeforeEach
-    fun clean() {
-        mongo.getCollection("job_state").drop()
     }
 
     private fun failedRow(
