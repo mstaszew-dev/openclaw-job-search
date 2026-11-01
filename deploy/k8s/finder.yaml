@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: finder
-          image: localhost:5000/campaign-finder:v1
+          image: localhost:5000/campaign-finder:v2
           imagePullPolicy: IfNotPresent
           env:
             - name: MONGO_PASSWORD
