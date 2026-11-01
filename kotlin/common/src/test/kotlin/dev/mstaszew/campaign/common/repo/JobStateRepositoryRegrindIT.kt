@@ -72,8 +72,9 @@ class JobStateRepositoryRegrindIT {
 
     @Test
     fun `selects failed rows with attempts left that cooled down, oldest first, capped at the batch`() {
-        failedRow("justjoin:b", attempts = 1)
-        failedRow("justjoin:a", attempts = 2)
+        // distinct updatedAt so the oldest-first sort is deterministic
+        failedRow("justjoin:b", attempts = 1, updatedBefore = Instant.parse("2026-10-30T00:00:01Z"))
+        failedRow("justjoin:a", attempts = 2, updatedBefore = Instant.parse("2026-10-30T00:00:00Z"))
         failedRow("justjoin:hot", attempts = 1, updatedBefore = Instant.now()) // inside cooldown
         failedRow("justjoin:exhausted", attempts = 3) // attempts == maxAttempts
         failedRow("justjoin:blocked", attempts = 1, lastError = "blocked: portal-block")
