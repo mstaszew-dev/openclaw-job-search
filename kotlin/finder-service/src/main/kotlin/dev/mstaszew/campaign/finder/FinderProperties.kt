@@ -27,4 +27,28 @@ data class FinderProperties(
     /** Full command that starts the Playwright MCP stdio server. */
     var mcpCommand: String = "node @playwright/mcp/cli.js --cdp-endpoint http://127.0.0.1:9222",
     var collectStacks: List<String> = listOf("java", "kotlin", "php", "node", "react"),
+    /**
+     * Operator kill switch for the periodic re-grind pass. When false the
+     * finder never re-enqueues rows that earlier attempts left FAILED.
+     */
+    var regrindEnabled: Boolean = true,
+    /**
+     * Re-grind batch cap per pass. One worker consumes the topic sequentially,
+     * so a small batch keeps it fed without flooding the queue with retries.
+     */
+    var regrindBatchPerWindow: Int = 4,
+    /**
+     * A row re-FAILED more recently than this is skipped, so one pass cannot
+     * grind the same jobs hour after hour before their next attempt has had
+     * a chance to run.
+     */
+    var regrindCooldownHours: Long = 12,
+    /**
+     * Campaign-wide attempt ceiling for re-grind selection. Matches the
+     * worker's default maxAttempts; per-row maxAttempts from the stored
+     * document is still what the claim guard enforces.
+     */
+    var regrindMaxAttempts: Int = 3,
+    /** Re-grind pass cadence; kept aligned with the discovery run interval. */
+    var regrindIntervalSeconds: Long = 900,
 )

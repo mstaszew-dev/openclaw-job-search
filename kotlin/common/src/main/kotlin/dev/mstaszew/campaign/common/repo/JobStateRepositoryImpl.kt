@@ -3,6 +3,7 @@ package dev.mstaszew.campaign.common.repo
 import dev.mstaszew.campaign.common.domain.JobStateDocument
 import dev.mstaszew.campaign.common.domain.JobStatus
 import org.slf4j.LoggerFactory
+import org.springframework.data.domain.Sort
 import org.springframework.data.mongodb.core.MongoTemplate
 import org.springframework.data.mongodb.core.query.Criteria
 import org.springframework.data.mongodb.core.query.Query
@@ -99,6 +100,64 @@ class JobStateRepositoryImpl(
         if (result.matchedCount == 0L) {
             log.debug("job_state {} is already terminal; re-enqueue leaves its status alone", seed.id)
         }
+    }
+
+    override fun findRegrindCandidates(
+        maxAttemptsParam: Int,
+        olderThan: Instant,
+        limit: Int,
+    ): List<RegrindCandidate> = mongo.find(
+        Query.query(
+            Criteria.where("status").`is`(JobStatus.FAILED.name)
+                .and("attempts").lt(maxAttemptsParam)
+                .and("updatedAt").lt(olderThan)
+                // "blocked:"-prefixed lastErrors are permanent portal blocks;
+                // grinding those again burns an attempt for a known dead end.
+                // Negative lookahead (PCRE) so this stays one criteria.
+                .and("lastError").regex("""^(?!blocked:)"""),
+        ).with(Sort.by(Sort.Direction.ASC, "updatedAt")).limit(limit),
+        JobStateDocument::class.java,
+    ).map { row ->
+        RegrindCandidate(
+            id = row.id,
+            source = row.source,
+            sourceJobId = row.sourceJobId,
+            companyKey = row.companyKey,
+            score = row.score,
+            attempts = row.attempts,
+            maxAttempts = row.maxAttempts,
+        )
+    }
+
+    override fun regrindClaim(id: String, maxAttempts: Int): Boolean {
+        val result = mongo.updateFirst(
+            Query.query(
+                Criteria.where("_id").`is`(id)
+                    .and("status").`is`(JobStatus.FAILED.name)
+                    .and("attempts").lt(maxAttempts),
+            ),
+            Update()
+                .set("status", JobStatus.PENDING.name)
+                .unset("lastError")
+                .set("updatedAt", Instant.now()),
+            JobStateDocument::class.java,
+        )
+        return result.matchedCount > 0L
+    }
+
+    override fun regrindRevert(id: String): Boolean {
+        val result = mongo.updateFirst(
+            Query.query(
+                Criteria.where("_id").`is`(id)
+                    .and("status").`is`(JobStatus.PENDING.name),
+            ),
+            Update()
+                .set("status", JobStatus.FAILED.name)
+                .set("lastError", "regrind: kafka send failed; row returned to FAILED")
+                .set("updatedAt", Instant.now()),
+            JobStateDocument::class.java,
+        )
+        return result.matchedCount > 0L
     }
 
     private companion object {
