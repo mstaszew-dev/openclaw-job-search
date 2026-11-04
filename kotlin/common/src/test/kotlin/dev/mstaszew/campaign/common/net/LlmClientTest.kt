@@ -122,6 +122,36 @@ class LlmClientTest {
     }
 
     /**
+     * Free-tier models improvise tool calls as prose when not forced. Sending
+     * tool_choice=required makes the gateway insist on a native tool call
+     * every turn, so narration ("I'll take a snapshot...") never reaches the
+     * loop. This is the fix for "model produced no tool call after 3 tries".
+     */
+    @Test
+    fun `chat sends tool_choice required when tools are present`() {
+        val transport = CapturingTransport(NAVIGATE_TOOL_CALL_RESPONSE)
+
+        client(transport).chat(listOf(ChatMessage("user", "go")), tools = tools)
+
+        val body = ObjectMapper().readTree(transport.lastBody)
+        assertThat(body.path("tool_choice").asText()).isEqualTo("required")
+    }
+
+    /**
+     * The scoring path sends no tools; tool_choice must not appear there
+     * (it would force a tool call on a non-tool request).
+     */
+    @Test
+    fun `chat omits tool_choice when no tools are given`() {
+        val transport = CapturingTransport(NAVIGATE_TOOL_CALL_RESPONSE)
+
+        client(transport).chat(listOf(ChatMessage("user", "score me")))
+
+        val body = ObjectMapper().readTree(transport.lastBody)
+        assertThat(body.has("tool_choice")).isFalse()
+    }
+
+    /**
      * The OpenAI wire format encodes arguments as a JSON STRING, but some
      * free-tier gateways inline it as an object; both must yield the same
      * parsed arguments.

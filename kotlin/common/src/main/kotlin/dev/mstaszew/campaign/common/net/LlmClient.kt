@@ -102,6 +102,11 @@ class LlmClient(
                     ),
                 )
             }
+            // Free-tier models improvise tool calls as prose when not forced.
+            // tool_choice=required makes the gateway insist on a native tool
+            // call every turn, so narration ("I'll take a snapshot...") never
+            // reaches the loop. Fixes "model produced no tool call after 3 tries".
+            payload["tool_choice"] = "required"
         }
         val body = mapper.writeValueAsString(payload)
         var lastError: Exception? = null

@@ -2,6 +2,7 @@ package dev.mstaszew.campaign.worker.apply
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.mstaszew.campaign.common.domain.JobListingEntity
+import dev.mstaszew.campaign.common.mcp.McpClientException
 import dev.mstaszew.campaign.common.mcp.McpStdioClient
 import dev.mstaszew.campaign.common.net.ChatTransport
 import dev.mstaszew.campaign.common.net.LlmClient
@@ -1133,21 +1134,27 @@ class BrowserAgentTest {
 
     /**
      * The german-pracuj death (2026-10-27): the node MCP process died with a
-     * V8 abort (exit=134) mid-grind; every later call failed instantly, the
-     * failure streak fired, and an infrastructure crash terminally FAILED
-     * and walled a perfectly good listing. A dead MCP process must ESCAPE
-     * the tool-catch as an exception so Kafka redelivers to a fresh process
-     * (mcpFactory spawns a new client per run).
+     * V8 abort (exit=134) mid-grind; every later call failed instantly. A dead
+     * MCP process must NOT escape run() as a raw exception - that bypasses
+     * attempt-history recording and the infrastructure-signature check in
+     * WorkerLoop.wallFailedReenqueue. Instead it must return ApplyResult.Transient
+     * so Kafka redelivers to a fresh MCP process (mcpFactory spawns a new client
+     * per run) and the retry prompt learns from the attempt history.
      */
     @Test
-    fun `a dead MCP process escapes as a retryable exception, not a failure streak`() {
+    fun `a dead MCP process returns Transient instead of escaping`() {
         every { browser.callToolText(any(), any(), any()) } throws
-            RuntimeException("call failed: MCP server process died (exit=134)")
+            McpClientException("call failed: MCP server process died (exit=134)")
         val transport = ScriptedTransport(
             listOf(toolCallResponse("browser_evaluate", """{"function":"1+1"}""")),
         )
 
-        org.assertj.core.api.Assertions.assertThatThrownBy { run(agent(transport)) }
-            .hasMessageContaining("process died")
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
+        assertThat((result as ApplyResult.Transient).detail)
+            .startsWith("MCP server process died")
+        // Attempt history must be recorded so the retry prompt learns from this death.
+        verify { recorder.recordAttemptHistory(any(), match { it.finalStatus.contains("process died") }) }
     }
 }

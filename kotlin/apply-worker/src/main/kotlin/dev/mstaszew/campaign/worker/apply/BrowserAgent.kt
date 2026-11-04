@@ -2,6 +2,7 @@ package dev.mstaszew.campaign.worker.apply
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.mstaszew.campaign.common.mcp.McpClientException
 import dev.mstaszew.campaign.common.mcp.McpStdioClient
 import dev.mstaszew.campaign.common.mcp.TabCleanup
 import dev.mstaszew.campaign.common.messaging.AgentLoopBounds
@@ -161,7 +162,23 @@ class BrowserAgent(
                     continue
                 }
                 val dispatchStart = System.nanoTime()
-                when (val dispatched = dispatch(browser, toolCall, state)) {
+                val dispatched = try {
+                    dispatch(browser, toolCall, state)
+                } catch (e: McpClientException) {
+                    val msg = e.message ?: ""
+                    // A dead MCP process is infrastructure, not a listing problem:
+                    // requeueing to Transient lets Kafka redeliver to a fresh
+                    // process (mcpFactory spawns a new client per run) and writes
+                    // attempt history so the retry prompt learns from this death.
+                    // Mirrors WorkerLoop.INFRA_SIGNATURES - evolve together.
+                    if (msg.contains("process died") || msg.contains("server closed stdout")) {
+                        val result = out(step, ApplyResult.Transient("MCP server process died; requeueing for fresh process: ${msg.take(200)}"))
+                        state.createAttemptHistoryEntry(result.detailText())?.let { recorder.recordAttemptHistory(jobId, it) }
+                        return result
+                    }
+                    throw e
+                }
+                when (dispatched) {
                     is ApplyResult -> {
                         logStep(step, maxSteps, toolCall.name, "terminal", dispatchStart)
                         val result = out(step, dispatched)
@@ -770,7 +787,8 @@ class BrowserAgent(
                 status.contains("loop breaker") ||
                 status.contains("portal-block") ||
                 status.contains("captcha") ||
-                status.contains("no tool call")
+                status.contains("no tool call") ||
+                status.contains("process died")
 
         /** Consecutive same-tool failures that end the attempt as Failed.
          * Raised 3 -> 5 on 2026-10-26: the dominant failure is now a fast
