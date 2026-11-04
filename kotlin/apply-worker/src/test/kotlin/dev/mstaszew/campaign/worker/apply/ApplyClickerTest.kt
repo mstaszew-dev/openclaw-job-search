@@ -121,6 +121,43 @@ class ApplyClickerTest {
     }
 
     /**
+     * The REAL 2026-11-04 22:51 MCP capture: browser_evaluate returns the
+     * string value JSON-ENCODED ("...\"found\":true..."), so a naive
+     * {...} slice from the raw text dies on the backslash escapes and every
+     * apply_click failed live ("Unexpected character ('\')"). The extractor
+     * must decode the enclosing string before parsing.
+     */
+    @Test
+    fun `parses the real mcp shape where the value comes back json encoded`() {
+        val encodedResult = "### Result\n" +
+            "\"APPLY_PROBE_MARKER_7f3a{\\\"found\\\":true,\\\"tag\\\":\\\"BUTTON\\\",\\\"disabled\\\":false,\\\"text\\\":\\\"Aplikuj\\\"}\"\n" +
+            "### Ran Playwright code\n```js\nawait page.evaluate('() => probe()');\n```\n" +
+            "### Page\n- Page URL: https://nofluffjobs.com/pl/job/x\n- Console: 0 errors, 7 warnings\n"
+        every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("APPLY_PROBE_MARKER") }, any()) } returns encodedResult
+        every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("el.click()") }, any()) } returns
+            "### Result\n" +
+            "\"APPLY_PROBE_MARKER_7f3a{\\\"clicked\\\":true,\\\"url\\\":\\\"https://nofluffjobs.com/pl/job/x/success\\\"}\"\n" +
+            "### Ran Playwright code\n```js\nawait page.evaluate('() => click()');\n```\n"
+        every { browser.callToolText(eq("browser_tabs"), any(), any()) } returns "- 0: (current) [](about:blank)"
+
+        val result = clicker().click(browser, selector = null)
+
+        assertThat(result).startsWith("apply_click: clicked")
+        assertThat(result).contains("/success")
+    }
+
+    @Test
+    fun `extractor decodes bare and json-encoded marker values`() {
+        val bare = "### Result\nAPPLY_PROBE_MARKER_7f3a{\"found\":false}\n"
+        val encoded = "### Result\n\"APPLY_PROBE_MARKER_7f3a{\\\"found\\\":true,\\\"tag\\\":\\\"A\\\"}\"\n"
+        val clicker = clicker()
+        assertThat(clicker.extractProbeJson(bare)?.path("found")?.asBoolean()).isFalse()
+        val decoded = clicker.extractProbeJson(encoded)
+        assertThat(decoded?.path("found")?.asBoolean()).isTrue()
+        assertThat(decoded?.path("tag")?.asText()).isEqualTo("A")
+    }
+
+    /**
      * Pins the escaping contract of the generated JS: the regex must arrive
      * with a real `$` (the Kotlin `\$` template escape), the marker must be
      * part of the returned VALUE, and a bad model selector must degrade to
