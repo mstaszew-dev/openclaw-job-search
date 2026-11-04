@@ -552,7 +552,8 @@ class BrowserAgent(
             Applicant profile:
             $profile
 
-            Tools: browser_navigate(url), browser_snapshot(), browser_click(element, target),
+            Tools: open_listing() - opens THIS job's listing URL with NO arguments (never
+            type a URL yourself; call this FIRST), browser_snapshot(), browser_click(element, target),
             browser_tabs(action, index) - list tabs or switch to the Apply tab,
             browser_fill_form(fields), upload_cv(selector, cssInput) - always pass the ref of
             the CV upload control as selector; upload_cv clicks it itself, so never click it
@@ -675,6 +676,17 @@ class BrowserAgent(
                 }.let { text ->
                     ToolOutcome("apply_click", text, failed = text.startsWith("Error"))
                 }
+            "open_listing" ->
+                // Deterministic listing navigation (2026-11-05: 6 of 8 recent
+                // failures were the model emitting garbage URLs - "https://: "
+                // and "https://}}" live - mangling even the URL the prompt
+                // states verbatim). Routed through the browser_navigate path
+                // so the navigate-repeat guard and loop breakers stay in force.
+                browserTool(
+                    browser,
+                    ToolCall("browser_navigate", mapper.createObjectNode().apply { put("url", state.listing.url) }),
+                    state,
+                )
             else -> browserTool(browser, call, state)
         }
 
@@ -789,6 +801,7 @@ class BrowserAgent(
             "record_submission",
             "skip_task",
             "apply_click",
+            "open_listing",
         )
 
         /**
@@ -1083,6 +1096,11 @@ class BrowserAgent(
                     "JavaScript from you: it probes, waits out a [disabled] button, clicks, and reports the tabs " +
                     "(the ATS form usually opens in a NEW tab). Prefer this over browser_click for the Apply button.",
                 obj("selector" to str("optional CSS selector; omit to auto-find by label text")),
+            ),
+            ToolSpec(
+                "open_listing",
+                "Open THIS job's listing URL with NO arguments - never type a URL yourself.",
+                obj(),
             ),
             ToolSpec(
                 "browser_evaluate",

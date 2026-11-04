@@ -140,7 +140,7 @@ class BrowserAgentTest {
         }
         assertThat(byName.keys).containsExactlyInAnyOrder(
             "browser_navigate", "browser_snapshot", "browser_click", "browser_tabs", "browser_fill_form",
-            "upload_cv", "apply_click", "browser_evaluate", "browser_wait_for",
+            "upload_cv", "apply_click", "open_listing", "browser_evaluate", "browser_wait_for",
             "record_submission", "skip_task",
         )
         val fields = byName.getValue("browser_fill_form").path("parameters").path("properties").path("fields")
@@ -1051,6 +1051,37 @@ class BrowserAgentTest {
 
         assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
         io.mockk.verify(exactly = 1) { clicker.click(any(), null) }
+    }
+
+    /**
+     * 2026-11-05: 6 of 8 recent failures were the model emitting garbage
+     * URLs ("https://: ", "https://}}") on browser_navigate - it mangles
+     * even the listing URL it is told verbatim. open_listing must navigate
+     * to the LISTING url deterministically, ignoring any model argument,
+     * while riding the same navigate path (guard + breakers).
+     */
+    @Test
+    fun `open_listing navigates to the listing url ignoring model arguments`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", """{"url":"https://garbage.example/}"}"""),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        verify(exactly = 1) {
+            browser.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "https://nofluffjobs.com/pl/job/x" },
+                any(),
+            )
+        }
     }
 
     /**
