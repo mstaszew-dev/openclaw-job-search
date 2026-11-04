@@ -1005,10 +1005,14 @@ class BrowserAgentTest {
     }
 
     /**
-     * NFJ hydration gate + success shape (2026-11-04): the Aplikuj button is
-     * disabled until the SPA hydrates, and a working click opens the ATS in a
-     * NEW TAB while the NFJ tab lands on /success - the model kept navigating
-     * back to the listing because nothing taught it these two facts.
+     * NFJ recipe + success shape (2026-11-04): the Aplikuj button is marked
+     * [disabled] in the snapshot until the SPA hydrates, and a working click
+     * opens the ATS in a NEW TAB while the NFJ tab lands on /success - the
+     * model kept clicking a dead button and navigating back because nothing
+     * taught it these two facts. The recipe must need NO JavaScript: the
+     * free-tier model cannot compose a syntactically valid evaluate call
+     * (2026-11-04 21:56 run: 10 consecutive SyntaxErrors on a taught
+     * ternary), so the check reads the [disabled] snapshot marker instead.
      */
     @Test
     fun `system prompt teaches the NFJ hydration gate and success shape`() {
@@ -1027,9 +1031,8 @@ class BrowserAgentTest {
             .path("messages")
             .filter { it.path("role").asText() == "system" }
             .joinToString("\n") { it.path("content").asText() }
-        assertThat(system).contains("applyButton")
-        assertThat(system).contains("disabled")
-        assertThat(system).contains("location.reload()")
+        assertThat(system).contains("[disabled]")
+        assertThat(system).contains("wait_for(time=3)")
         assertThat(system).contains("/success")
         assertThat(system).contains("Zaznacz")
     }

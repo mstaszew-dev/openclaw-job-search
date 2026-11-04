@@ -463,18 +463,15 @@ class BrowserAgent(
               modal whose confirm button also reads Aplikuj) - then
               browser_tabs(action="list") if the snapshot shows no modal, because
               the form may have opened in a NEW TAB.
-            - nofluffjobs hydration gate (2026-11-04): the Aplikuj button
-              (#applyButton) renders DISABLED for the first seconds after the
-              page loads; the SPA enables it once hydration finishes. NEVER
-              click it while disabled - a disabled button ignores every click,
-              including JS clicks. Before clicking, check with browser_evaluate:
-              `document.getElementById('applyButton') ? String(document.getElementById('applyButton').disabled) : 'missing'`.
-              If it prints true: browser_wait_for(time=3), evaluate again; if
-              it is STILL true, reload the page in place with browser_evaluate
-              `location.reload()`, browser_wait_for(time=5) and re-check once
-              (a repeat browser_navigate to the same URL is blocked by the
-              agent); if even the reloaded page keeps it disabled, call
-              skip_task with reason portal-block.
+            - nofluffjobs recipe (2026-11-04): after navigating to a listing,
+              call browser_wait_for(time=3) BEFORE the first snapshot - the
+              Aplikuj button renders marked [disabled] for the first seconds
+              while the SPA hydrates. NEVER click a control whose snapshot
+              line ends in [disabled] (a disabled button ignores every click,
+              including JS clicks): browser_wait_for(time=3) and take a new
+              snapshot, and click only once the [disabled] mark is gone. If
+              it is STILL [disabled] after two waits, call skip_task with
+              reason portal-block.
             - nofluffjobs success shape (2026-11-04): a WORKING Apply click
               opens the external ATS form (e.g. *.traffit.com, Lever,
               Greenhouse) in a NEW TAB, while the NFJ tab itself navigates to a
@@ -686,8 +683,8 @@ class BrowserAgent(
                     "BLOCKED: this is navigate #${state.identicalNavigateStreak} in a row to the exact same URL " +
                         "($url) - re-navigating reloads the page and destroys progress. Stay on the current page: " +
                         "browser_snapshot to re-orient, then ACT on what you see (click the apply control, fill the " +
-                        "form) or call skip_task. If the apply button is disabled, browser_wait_for(time=3) and " +
-                        "re-check it with browser_evaluate - do NOT navigate again.",
+                        "form) or call skip_task. If the apply control is marked [disabled] in the snapshot, " +
+                        "browser_wait_for(time=3) and take a fresh snapshot instead of navigating again.",
                     failed = true,
                 )
             }
