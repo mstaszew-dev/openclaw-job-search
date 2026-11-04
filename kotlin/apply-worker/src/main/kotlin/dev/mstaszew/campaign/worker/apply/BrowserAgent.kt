@@ -71,6 +71,7 @@ class BrowserAgent(
     private val listings: JobListingRepository,
     private val jobStateRepository: JobStateRepository,
     private val cvUploader: CvUploader,
+    private val applyClicker: ApplyClicker = ApplyClicker(),
     private val mapper: ObjectMapper = ObjectMapper(),
     /** Injected for tests; production resolves WORKER_MAX_STEPS via AgentLoopBounds. */
     private val maxSteps: Int = AgentLoopBounds.effectiveMaxSteps,
@@ -211,8 +212,8 @@ class BrowserAgent(
                         // snapshots ALTERNATING, zero clicks) because those
                         // calls succeed. Count consecutive read-only steps in
                         // the streak whatever their mix; any action (click,
-                        // fill, upload, navigate, evaluate, tab select) or any
-                        // failure resets it.
+                        // fill, upload, apply_click, navigate, evaluate, tab
+                        // select) or any failure resets it.
                         val readOnly = !dispatched.failed && isReadOnlyCall(toolCall, state.wanderTrips >= 1)
                         // Trip 2 first: pending + read-only (success or failure) → immediate fail.
                         // A failed read-only call is still reading, not taking an action.
@@ -433,7 +434,7 @@ class BrowserAgent(
             }.joinToString("\n") +
             "\n  **What to learn from this history:**\n" +
             "  - If readStreak is high (>10), avoid reading the same DOM repeatedly - take an action instead. " +
-            "ONLY browser_click, browser_fill_form, upload_cv and record_submission count as actions: " +
+            "ONLY browser_click, browser_fill_form, upload_cv, apply_click and record_submission count as actions: " +
             "browser_evaluate and browser_tabs are NOT actions.\n" +
             "  - If wanderTrips=1, the first correction was injected; take it seriously and try differently.\n" +
             "  - If a previous attempt died writing tool calls as prose text (\"no tool call\"), " +
@@ -468,10 +469,10 @@ class BrowserAgent(
               Aplikuj button renders marked [disabled] for the first seconds
               while the SPA hydrates. NEVER click a control whose snapshot
               line ends in [disabled] (a disabled button ignores every click,
-              including JS clicks): browser_wait_for(time=3) and take a new
-              snapshot, and click only once the [disabled] mark is gone. If
-              it is STILL [disabled] after two waits, call skip_task with
-              reason portal-block.
+              including JS clicks). Then click the Aplikuj button with
+              apply_click (no ref needed; it waits out [disabled] itself and
+              reports the tabs). If it is STILL [disabled] after two waits,
+              call skip_task with reason portal-block.
             - nofluffjobs success shape (2026-11-04): a WORKING Apply click
               opens the external ATS form (e.g. *.traffit.com, Lever,
               Greenhouse) in a NEW TAB, while the NFJ tab itself navigates to a
@@ -555,7 +556,12 @@ class BrowserAgent(
             browser_tabs(action, index) - list tabs or switch to the Apply tab,
             browser_fill_form(fields), upload_cv(selector, cssInput) - always pass the ref of
             the CV upload control as selector; upload_cv clicks it itself, so never click it
-            first, browser_evaluate(function),
+            first, apply_click(selector?) - DETERMINISTIC Apply click with no ref and no JS
+            from you: it finds the primary apply control (Aplikuj/Zaaplikuj/Apply), waits out
+            a [disabled] button, clicks it, and reports the tab list (the ATS form usually
+            opens in a NEW tab). PREFER apply_click over browser_click for the main Apply
+            button on every portal; fall back to browser_click with a real snapshot ref only
+            when apply_click answers Error. browser_evaluate(function),
             browser_wait_for(time|text), record_submission(confirmationUrl, confirmationText, ats),
             skip_task(reason, detail).
             Call exactly one tool per turn.
@@ -653,6 +659,21 @@ class BrowserAgent(
                     // (refused chooser, missing CV file); it is the loop fuel
                     // of the 2026-10-21 darize cap-out.
                     ToolOutcome("upload_cv", text, failed = text.startsWith("Error"))
+                }
+            "apply_click" ->
+                // Worker-side like upload_cv (NFJ 2026-11-04): the model cannot
+                // reliably emit click refs or valid JS, so the Apply click runs
+                // deterministically with zero model arguments. Never throws.
+                try {
+                    applyClicker.click(
+                        browser.client,
+                        selector = call.arguments.path("selector").asText(null)?.takeIf { it.isNotBlank() },
+                    )
+                } catch (e: Exception) {
+                    if (e is InterruptedException) Thread.currentThread().interrupt()
+                    "Error: apply_click failed: ${e.message?.take(200)}"
+                }.let { text ->
+                    ToolOutcome("apply_click", text, failed = text.startsWith("Error"))
                 }
             else -> browserTool(browser, call, state)
         }
@@ -767,6 +788,7 @@ class BrowserAgent(
             "browser_wait_for",
             "record_submission",
             "skip_task",
+            "apply_click",
         )
 
         /**
@@ -1054,6 +1076,13 @@ class BrowserAgent(
                     "selector" to str("optional clickable selector that opens the file chooser"),
                     "cssInput" to str("optional CSS selector of the <input type=file>"),
                 ),
+            ),
+            ToolSpec(
+                "apply_click",
+                "Deterministically click the primary Apply control (Aplikuj/Zaaplikuj/Apply) with NO ref and NO " +
+                    "JavaScript from you: it probes, waits out a [disabled] button, clicks, and reports the tabs " +
+                    "(the ATS form usually opens in a NEW tab). Prefer this over browser_click for the Apply button.",
+                obj("selector" to str("optional CSS selector; omit to auto-find by label text")),
             ),
             ToolSpec(
                 "browser_evaluate",

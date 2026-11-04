@@ -69,7 +69,11 @@ class BrowserAgentTest {
     }
     private val mapper = ObjectMapper()
 
-    private fun agent(transport: ChatTransport, maxSteps: Int = BrowserAgent.EFFECTIVE_MAX_STEPS) = BrowserAgent(
+    private fun agent(
+        transport: ChatTransport,
+        maxSteps: Int = BrowserAgent.EFFECTIVE_MAX_STEPS,
+        applyClicker: ApplyClicker = ApplyClicker(),
+    ) = BrowserAgent(
         llm = LlmClient(
             baseUrl = "http://gateway.invalid/v1",
             apiKey = null,
@@ -82,6 +86,7 @@ class BrowserAgentTest {
         listings = listings,
         jobStateRepository = jobStateRepo,
         cvUploader = cvUploader,
+        applyClicker = applyClicker,
         mapper = mapper,
         maxSteps = maxSteps,
     )
@@ -135,7 +140,7 @@ class BrowserAgentTest {
         }
         assertThat(byName.keys).containsExactlyInAnyOrder(
             "browser_navigate", "browser_snapshot", "browser_click", "browser_tabs", "browser_fill_form",
-            "upload_cv", "browser_evaluate", "browser_wait_for",
+            "upload_cv", "apply_click", "browser_evaluate", "browser_wait_for",
             "record_submission", "skip_task",
         )
         val fields = byName.getValue("browser_fill_form").path("parameters").path("properties").path("fields")
@@ -1002,6 +1007,50 @@ class BrowserAgentTest {
 
         assertThat((result as ApplyResult.Failed).detail)
             .startsWith("loop breaker: browser_navigate failed 10 consecutive times")
+    }
+
+    /**
+     * apply_click is dispatched worker-side like upload_cv (NFJ 2026-11-04:
+     * the model cannot emit reliable click refs). Its Error verdicts must
+     * feed the ordinary same-tool failure streak, and a success must let the
+     * run continue to the ledger.
+     */
+    @Test
+    fun `relapsing apply_click failures hit the loop breaker`() {
+        val failingClicker = mockk<ApplyClicker> {
+            every { click(any(), any()) } returns "Error: apply_click: no apply control found on this page"
+        }
+        val transport = ScriptedTransport(
+            List(12) { toolCallResponse("apply_click", "{}") },
+        )
+
+        val result = run(agent(transport, maxSteps = 50, applyClicker = failingClicker))
+
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("loop breaker: apply_click failed 10 consecutive times")
+    }
+
+    @Test
+    fun `a successful apply_click continues the run to the ledger`() {
+        val clicker = mockk<ApplyClicker> {
+            every { click(any(), any()) } returns
+                "apply_click: clicked \"Aplikuj\"; URL after click: https://nofluffjobs.com/pl/job/x/success.\n" +
+                "Tabs now:\n- 1: [Traffit](https://x.traffit.com/form)"
+        }
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("apply_click", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x.traffit.com/thanks","confirmationText":"ok","ats":"traffit"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport, applyClicker = clicker))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        io.mockk.verify(exactly = 1) { clicker.click(any(), null) }
     }
 
     /**
