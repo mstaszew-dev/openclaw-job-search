@@ -734,6 +734,89 @@ class BrowserAgentTest {
     }
 
     /**
+     * Fallback as last resort: when browser_click fails with a stale-ref error
+     * and corrections are exhausted, the agent may try browser_evaluate with
+     * JavaScript to click via element text - this is a last resort, not the
+     * primary path. The model must be prompt-guided to prefer refs from fresh
+     * snapshots first.
+     */
+    @Test
+    fun `stale-ref click fallback to browser_evaluate is attempted as last resort`() {
+        var clickCalls = 0
+        every { browser.callToolText(eq("browser_click"), any(), any()) } answers {
+            clickCalls++
+            throw RuntimeException("Error: Ref f56e54 not found in the current page snapshot. Try capturing new snapshot.")
+        }
+        every { browser.callToolText(eq("browser_evaluate"), any(), any()) } returns "clicked via evaluate"
+        every { browser.callToolText(eq("browser_snapshot"), any(), any()) } returns """
+            [f56e54] button "Aplikuj"
+            [f56e55] link "Skip"
+        """
+        // Enough click responses to exhaust stale-ref corrections (10), then
+        // evaluate fallback and submission.
+        val clickResponses = List(BrowserAgent.STALE_REF_CORRECTION_LIMIT) {
+            toolCallResponse("browser_click", """{"target":"f56e54","element":"Apply button"}""")
+        }
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_snapshot", "{}"),
+            ) + clickResponses + listOf(
+                toolCallResponse("browser_evaluate", """{"function":"document.querySelector('button').click()"}"""),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://nfj.com/applied","confirmationText":"Application submitted","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport, maxSteps = 50))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        // Verify fallback was attempted (click failed at least LIMIT times)
+        assertThat(clickCalls).isGreaterThanOrEqualTo(BrowserAgent.STALE_REF_CORRECTION_LIMIT)
+    }
+
+    /**
+     * System prompt teaches proactive click recovery: when a click fails with
+     * "not found in the current page snapshot", the model must re-snapshot
+     * and use fresh refs - never retype a dead ref.
+     */
+    @Test
+    fun `system prompt teaches proactive click recovery`() {
+        val transport = ScriptedTransport(
+            listOf(toolCallResponse("skip_task", """{"reason":"portal-block","detail":"t"}""")),
+        )
+        run(agent(transport))
+
+        val system = ObjectMapper().readTree(transport.bodies.first())
+            .path("messages")
+            .filter { it.path("role").asText() == "system" }
+            .joinToString("\n") { it.path("content").asText() }
+        assertThat(system).contains("not found in the current page snapshot")
+        assertThat(system).contains("fresh snapshot")
+        assertThat(system).contains("dead ref")
+    }
+
+    /**
+     * System prompt suggests browser_evaluate as a last resort for clicks
+     * when refs keep going stale.
+     */
+    @Test
+    fun `system prompt mentions evaluate as last resort for clicks`() {
+        val transport = ScriptedTransport(
+            listOf(toolCallResponse("skip_task", """{"reason":"portal-block","detail":"t"}""")),
+        )
+        run(agent(transport))
+
+        val system = ObjectMapper().readTree(transport.bodies.first())
+            .path("messages")
+            .filter { it.path("role").asText() == "system" }
+            .joinToString("\n") { it.path("content").asText() }
+        assertThat(system).contains("browser_evaluate")
+        assertThat(system).contains("last resort")
+    }
+
+    /**
      * Wander breaker tests follow: read-only successes never trip the failure
      * streak, so a separate read-streak breaker is required.
      */

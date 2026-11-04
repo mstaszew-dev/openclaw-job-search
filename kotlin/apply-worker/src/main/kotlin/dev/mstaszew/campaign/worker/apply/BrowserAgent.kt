@@ -258,6 +258,50 @@ class BrowserAgent(
                             }
                         }
                         state.messages += ChatMessage("user", dispatched.text.take(4000))
+                        // Stale-ref auto-correction (pekao-conext 2026-10-27):
+                        // "Ref e29 not found in the current page snapshot"
+                        // repeated five times burned the unit - the model
+                        // retried the SAME dead ref instead of re-snapshotting
+                        // despite the prompt rule. A failed call carrying that
+                        // error text gets a bounded corrective shove ordering a
+                        // fresh snapshot; if corrections are exhausted and it's
+                        // a click, fall back to browser_evaluate as a last
+                        // resort before the loop breaker ends the unit.
+                        if (dispatched.failed &&
+                            STALE_REF_MARKERS.any { dispatched.text.contains(it) } &&
+                            toolCall.name == "browser_click" &&
+                            state.staleRefCorrections >= STALE_REF_CORRECTION_LIMIT - 1
+                        ) {
+                            // Last-resort fallback: click via JavaScript evaluate
+                            // when refs keep going stale after all corrections.
+                            // Not deterministic - the model decides whether to use it.
+                            val fallbackText = try {
+                                browser.client.callToolText(
+                                    "browser_evaluate",
+                                    mapper.createObjectNode().apply {
+                                        put("function", "(function(){const btns=[...document.querySelectorAll(\"button,a,[role=button]\")].find(b=>/(aplikuj|apply|skip)/i.test(b.textContent||\"\"));if(btns){btns.click();return \"clicked via evaluate\";}return \"no matching button\";})()")
+                                    },
+                                    TOOL_TIMEOUT,
+                                )
+                            } catch (e: Exception) {
+                                "evaluate fallback failed: ${e.message?.take(200)}"
+                            }
+                            state.messages += ChatMessage("user", "Evaluate fallback result: $fallbackText")
+                            // Reset the failure streak so the loop breaker doesn't fire
+                            state.failureStreak = 0
+                            state.failingTool = null
+                        } else if (dispatched.failed &&
+                            STALE_REF_MARKERS.any { dispatched.text.contains(it) } &&
+                            state.staleRefCorrections < STALE_REF_CORRECTION_LIMIT
+                        ) {
+                            state.staleRefCorrections += 1
+                            log.warn(
+                                "job {}: stale-ref failure {}, injecting snapshot correction",
+                                jobId,
+                                state.staleRefCorrections,
+                            )
+                            state.messages += ChatMessage("user", STALE_REF_CORRECTION)
+                        }
                         if (state.failureStreak >= LOOP_BREAK_THRESHOLD) {
                             val result = out(
                                 step,
@@ -272,26 +316,6 @@ class BrowserAgent(
                             )
                             state.createAttemptHistoryEntry(result.detailText())?.let { recorder.recordAttemptHistory(jobId, it) }
                             return result
-                        }
-                        // Stale-ref auto-correction (pekao-conext 2026-10-27):
-                        // "Ref e29 not found in the current page snapshot"
-                        // repeated five times burned the unit - the model
-                        // retried the SAME dead ref instead of re-snapshotting
-                        // despite the prompt rule. A failed call carrying that
-                        // error text gets a bounded corrective shove ordering a
-                        // fresh snapshot; the failure streak above still ends
-                        // the unit if the model ignores it.
-                        if (dispatched.failed &&
-                            STALE_REF_MARKERS.any { dispatched.text.contains(it) } &&
-                            state.staleRefCorrections < STALE_REF_CORRECTION_LIMIT
-                        ) {
-                            state.staleRefCorrections += 1
-                            log.warn(
-                                "job {}: stale-ref failure {}, injecting snapshot correction",
-                                jobId,
-                                state.staleRefCorrections,
-                            )
-                            state.messages += ChatMessage("user", STALE_REF_CORRECTION)
                         }
                     }
                 }
@@ -471,10 +495,12 @@ class BrowserAgent(
               snapshot - never guess labels like "name" or "email". If a fill
               fails, re-snapshot and retry with the fresh refs; if one field still
               fails, fill the other fields in a separate call and retry the bad
-              field alone. If the error says a ref is "not found in the current
-              page snapshot" or says "Try capturing new snapshot", your VERY next
+              field alone. If the error says a ref is "not found in the current page snapshot" or says "Try capturing new snapshot", your VERY next
               call MUST be browser_snapshot - never retype a ref the error
-              declared gone.
+              declared gone - it is a dead ref. If clicks keep failing after re-snapshot, try
+              browser_evaluate with JavaScript (e.g.
+              `document.querySelector("button").click()`) as a last resort -
+              never as the primary path.
             - NEVER mention relocation or Israel anywhere.
             - Captcha: if a captcha/challenge widget (hCaptcha, reCAPTCHA,
               Turnstile, Cloudflare) is already VISIBLE when the form loads,
