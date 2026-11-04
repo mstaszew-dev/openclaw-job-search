@@ -351,6 +351,20 @@ class BrowserAgent(
          * dispatch-site stale-ref block). */
         var staleRefCorrections: Int = 0
 
+        /** Navigate-loop guard: the URL of the last dispatched browser_navigate
+         * and how many times it was requested CONSECUTIVELY (NFJ 2026-11-04:
+         * 15 back-to-back navigates to the same listing rode to the step cap,
+         * because every navigate resets the wander breaker as an action). A
+         * repeat is blocked only when the previous identical navigate
+         * SUCCEEDED - a failed navigate earns one retry (403 rate-limit), and
+         * its repeats die on the ordinary loop breaker instead. (Known bound:
+         * strict alternation of two URLs evades this guard; it is bounded by
+         * the step cap and far less likely than the observed single-URL
+         * grind.) */
+        var lastNavigateUrl: String? = null
+        var identicalNavigateStreak: Int = 0
+        var lastNavigateSucceeded: Boolean = false
+
         val messages = mutableListOf<ChatMessage>(
             ChatMessage(
                 "user",
@@ -449,6 +463,26 @@ class BrowserAgent(
               modal whose confirm button also reads Aplikuj) - then
               browser_tabs(action="list") if the snapshot shows no modal, because
               the form may have opened in a NEW TAB.
+            - nofluffjobs hydration gate (2026-11-04): the Aplikuj button
+              (#applyButton) renders DISABLED for the first seconds after the
+              page loads; the SPA enables it once hydration finishes. NEVER
+              click it while disabled - a disabled button ignores every click,
+              including JS clicks. Before clicking, check with browser_evaluate:
+              `document.getElementById('applyButton') ? String(document.getElementById('applyButton').disabled) : 'missing'`.
+              If it prints true: browser_wait_for(time=3), evaluate again; if
+              it is STILL true, reload the page in place with browser_evaluate
+              `location.reload()`, browser_wait_for(time=5) and re-check once
+              (a repeat browser_navigate to the same URL is blocked by the
+              agent); if even the reloaded page keeps it disabled, call
+              skip_task with reason portal-block.
+            - nofluffjobs success shape (2026-11-04): a WORKING Apply click
+              opens the external ATS form (e.g. *.traffit.com, Lever,
+              Greenhouse) in a NEW TAB, while the NFJ tab itself navigates to a
+              URL ending in /success and shows a modal "Zaznacz czy
+              zaaplikowałeś(aś)". Seeing /success or that modal means the click
+              SUCCEEDED - do NOT navigate back to the listing. Take
+              browser_tabs(action="list"), select the ATS tab, and finish the
+              form there, capturing its confirmation URL.
             - The SAME portal may render buttons in ENGLISH or POLISH: look for
               the apply control under ANY of these labels: Aplikuj, Zaaplikuj,
               Apply, Apply quickly, Quick apply. (The 2026-10-30 Miele/Intrec/
@@ -476,8 +510,10 @@ class BrowserAgent(
               re-render and element refs go stale, so a lost button is USUALLY
               stale state, not a missing one (makeitright 2026-10-27: a live
               listing with a real Aplikuj button was walled after the model lost
-              it between re-renders). First navigate to the LISTING URL fresh,
-              take one browser_snapshot, and only skip if the Apply control
+              it between re-renders). First reload the listing in place with
+              browser_evaluate `location.reload()` (a repeat browser_navigate
+              to the same URL is blocked by the agent), take one
+              browser_snapshot, and only skip if the Apply control
               (in ANY language variant listed above) and any Apply-opening
               modal are genuinely absent there.
             - Fill PL forms from the profile below (Polish identity fields); upload
@@ -624,8 +660,39 @@ class BrowserAgent(
             else -> browserTool(browser, call, state)
         }
 
-    private fun browserTool(browser: McpStdioClientClient, call: ToolCall, state: LoopState): ToolOutcome =
-        try {
+    private fun browserTool(browser: McpStdioClientClient, call: ToolCall, state: LoopState): ToolOutcome {
+        // Navigate-loop guard (NFJ 2026-11-04 senior-ux-ui-designer): the model
+        // navigated to the SAME listing URL 15 times in a row and rode to the
+        // step cap. A navigate counts as an action, so the wander breaker never
+        // saw the loop; a repeat after a SUCCESSFUL identical navigate is
+        // blocked deterministically before dispatch (blocked calls do not
+        // reset the success flag, so a relapsing model stays blocked and dies
+        // on the ordinary 10-failure loop breaker). A FAILED navigate earns one
+        // retry (403 rate-limit); its repeats die on the loop breaker with the
+        // real error. ArgCoerce.normalize is pure, so normalizing twice (here
+        // and below) is safe.
+        if (call.name == "browser_navigate") {
+            val url = ArgCoerce.normalize(call.name, call.arguments, state.lastSnapshot)
+                .path("url").asText("")
+            if (url == state.lastNavigateUrl) {
+                state.identicalNavigateStreak += 1
+            } else {
+                state.lastNavigateUrl = url
+                state.identicalNavigateStreak = 1
+            }
+            if (state.identicalNavigateStreak >= NAVIGATE_REPEAT_LIMIT && state.lastNavigateSucceeded) {
+                return ToolOutcome(
+                    "browser_navigate",
+                    "BLOCKED: this is navigate #${state.identicalNavigateStreak} in a row to the exact same URL " +
+                        "($url) - re-navigating reloads the page and destroys progress. Stay on the current page: " +
+                        "browser_snapshot to re-orient, then ACT on what you see (click the apply control, fill the " +
+                        "form) or call skip_task. If the apply button is disabled, browser_wait_for(time=3) and " +
+                        "re-check it with browser_evaluate - do NOT navigate again.",
+                    failed = true,
+                )
+            }
+        }
+        return try {
             val text = if (call.name == "browser_snapshot") {
                 browser.client.callToolText("browser_snapshot", mapper.createObjectNode(), TOOL_TIMEOUT)
                     .also { state.lastSnapshot = it }
@@ -637,6 +704,9 @@ class BrowserAgent(
                 // on a zod error (and three of them trip the loop breaker).
                 val wire = ArgCoerce.normalize(call.name, call.arguments, state.lastSnapshot)
                 browser.client.callToolText(call.name, wire, TOOL_TIMEOUT).take(4000)
+                    // The navigate guard blocks only repeats of a SUCCEEDED
+                    // navigate; record the outcome for the next same-URL call.
+                    .also { if (call.name == "browser_navigate") state.lastNavigateSucceeded = true }
             }
             ToolOutcome(call.name, text, failed = false)
         } catch (e: Exception) {
@@ -647,6 +717,7 @@ class BrowserAgent(
             // exit=134 V8 abort). Escaping turns it into a Kafka
             // redelivery, and the next run spawns a fresh process.
             if (e.message?.contains("process died") == true) throw e
+            if (call.name == "browser_navigate") state.lastNavigateSucceeded = false
             log.warn("tool {} failed: {}", call.name, e.message)
             // 800: tonight's upload_cv deaths were undebuggable because this
             // cap cut the MCP refusal JSON (real reason lives past char 300)
@@ -663,11 +734,19 @@ class BrowserAgent(
             }
             ToolOutcome(call.name, text, failed = true)
         }
+    }
 
     companion object {
         val EFFECTIVE_MAX_STEPS: Int = AgentLoopBounds.effectiveMaxSteps
         val STEP_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.STEP_TIMEOUT_MS)
         val TOOL_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.TOOL_TIMEOUT_MS)
+
+        /**
+         * Navigate-loop guard threshold (NFJ 2026-11-04): the 2nd consecutive
+         * identical navigate is blocked with a corrective shove; a model that
+         * relapses dies on the ordinary failure streak instead of the step cap.
+         */
+        private const val NAVIGATE_REPEAT_LIMIT = 2
 
         /** Post-attempt blank navigate bound well below the tool timeout.
          *  Alias of TabCleanup.CALL_TIMEOUT, which now owns the bound. */

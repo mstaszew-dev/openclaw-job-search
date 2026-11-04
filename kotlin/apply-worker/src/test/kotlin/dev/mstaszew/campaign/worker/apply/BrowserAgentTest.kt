@@ -892,6 +892,148 @@ class BrowserAgentTest {
             .startsWith("wander breaker:")
     }
 
+    /**
+     * NFJ 2026-11-04 (senior-ux-ui-designer-bluebinary): the model navigated
+     * to the SAME listing URL 15 times in a row and rode to the 200-step cap.
+     * Every navigate counts as an action, so the wander breaker never fired.
+     * A consecutive identical navigate must be blocked deterministically
+     * (never reaching MCP) with a corrective shove, and the loop must
+     * continue afterward.
+     */
+    @Test
+    fun `repeated identical navigates are blocked and never reach the browser`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/success","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        // Only the FIRST navigate executed; repeats 2 and 3 were blocked
+        // before dispatch, and the corrective text reached the model.
+        // (TabCleanup's about:blank post-session navigate is not a model call.)
+        verify(exactly = 1) {
+            browser.callToolText(eq("browser_navigate"), match { it.path("url").asText() != "about:blank" }, any())
+        }
+        assertThat(transport.bodies[2]).contains("BLOCKED")
+        assertThat(transport.bodies[2]).contains("same URL")
+        // Repeat 3 was blocked too (streak kept growing), pinning that a
+        // relapsing model stays blocked rather than oscillating ok/blocked.
+        assertThat(transport.bodies[3]).contains("BLOCKED")
+    }
+
+    /** A different URL between repeats is a legitimate navigation, not a loop. */
+    @Test
+    fun `a different navigate URL resets the repeat guard`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://justjoin.it/job/y"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("skip_task", """{"reason":"captcha","detail":"t"}"""),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
+        // X, Y, X dispatched; the 4th (X again, after the URL change reset the
+        // guard) is blocked as the 2nd consecutive identical navigate.
+        verify(exactly = 3) {
+            browser.callToolText(eq("browser_navigate"), match { it.path("url").asText() != "about:blank" }, any())
+        }
+    }
+
+    /**
+     * A FAILED navigate earns one retry (the NFJ 403 rate-limit: navigation
+     * intermittently dies with net::ERR_HTTP_RESPONSE_CODE_FAILURE, and a
+     * same-URL retry is the correct response). The guard must stay dormant
+     * while the last identical navigate failed.
+     */
+    @Test
+    fun `a failed navigate earns a same-url retry before any block`() {
+        var navCalls = 0
+        every {
+            browser.callToolText(eq("browser_navigate"), match { it.path("url").asText() != "about:blank" }, any())
+        } answers {
+            navCalls++
+            if (navCalls == 1) throw RuntimeException("net::ERR_HTTP_RESPONSE_CODE_FAILURE")
+            "page loaded"
+        }
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("skip_task", """{"reason":"captcha","detail":"t"}"""),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
+        verify(exactly = 2) {
+            browser.callToolText(eq("browser_navigate"), match { it.path("url").asText() != "about:blank" }, any())
+        }
+    }
+
+    /**
+     * A model that relapses after the shove dies on the ordinary failure
+     * streak: every blocked navigate is a browser_navigate failure, so the
+     * loop breaker ends the unit far below the step cap instead of letting
+     * the navigate grind ride to 200 steps.
+     */
+    @Test
+    fun `relapsing into identical navigates hits the loop breaker`() {
+        val transport = ScriptedTransport(
+            List(12) { toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}""") },
+        )
+
+        val result = run(agent(transport, maxSteps = 50))
+
+        assertThat((result as ApplyResult.Failed).detail)
+            .startsWith("loop breaker: browser_navigate failed 10 consecutive times")
+    }
+
+    /**
+     * NFJ hydration gate + success shape (2026-11-04): the Aplikuj button is
+     * disabled until the SPA hydrates, and a working click opens the ATS in a
+     * NEW TAB while the NFJ tab lands on /success - the model kept navigating
+     * back to the listing because nothing taught it these two facts.
+     */
+    @Test
+    fun `system prompt teaches the NFJ hydration gate and success shape`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/success","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        run(agent(transport))
+
+        val system = ObjectMapper().readTree(transport.bodies.first())
+            .path("messages")
+            .filter { it.path("role").asText() == "system" }
+            .joinToString("\n") { it.path("content").asText() }
+        assertThat(system).contains("applyButton")
+        assertThat(system).contains("disabled")
+        assertThat(system).contains("location.reload()")
+        assertThat(system).contains("/success")
+        assertThat(system).contains("Zaznacz")
+    }
+
     /** A different successful tool between repeats resets the wander count. */
     @Test
     fun `an interleaved different tool resets the wander count`() {
