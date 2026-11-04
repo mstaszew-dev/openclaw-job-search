@@ -42,8 +42,10 @@ class EligibilityPolicy(private val props: EligibilityProperties) {
         props.excludedAnyKeywords.firstOrNull { combined.contains(it.lowercase()) }?.let {
             return EligibilityVerdict(false, IneligibilityReason.EXCLUDED_KEYWORD, it)
         }
-        if (props.stackAllowlist.none { combined.contains(it.lowercase()) }) {
-            return EligibilityVerdict(false, IneligibilityReason.STACK, combined.take(120))
+        // Stack filter only applies when stack data is actually present; missing stack
+        // data is not a rejection criterion (LLM scoring handles it instead).
+        if (stackText.isNotBlank() && props.stackAllowlist.none { stackText.contains(it.lowercase()) }) {
+            return EligibilityVerdict(false, IneligibilityReason.STACK, stackText.take(120))
         }
         // Salary floor applies ONLY when a salary is listed (min or max present).
         val floor = java.math.BigDecimal(props.plnB2bFloor)
