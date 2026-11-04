@@ -165,6 +165,63 @@ class WorkerLoopTest {
     }
 
     /**
+     * 2026-11-05: the free-tier model grinds garbage navigate URLs and
+     * relapses into the navigate guard; the loop breaker kills those runs in
+     * ~10 steps. Walling that outcome permanently burned real listings while
+     * a degraded model was in the gateway pool - a model defect is not a
+     * listing defect. Model-flake signatures must requeue (Transient,
+     * bounded by maxAttempts, then DLQ) instead of walling.
+     */
+    @Test
+    fun `a navigate-guard relapse failure requeues instead of walling`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Failed(
+                "loop breaker: browser_navigate failed 10 consecutive times; last error: " +
+                    "BLOCKED: this is navigate #11 in a row to the exact same URL (https://x)",
+            )
+
+        // onMessage consumes ApplyRetryException as redelivery scheduling
+        // (no commit); the contract is no wall, no FAILED mark, no commit.
+        loop("live").onMessage(job, ack)
+
+        assertThat(ack.count).isZero()
+        verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
+        verify(exactly = 0) { jobState.save(match { it.status == JobStatus.FAILED }) }
+    }
+
+    @Test
+    fun `a garbage-url navigate failure requeues instead of walling`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Failed(
+                "loop breaker: browser_navigate failed 10 consecutive times; last error: " +
+                    "tool browser_navigate failed: Error: Cannot navigate to invalid URL",
+            )
+
+        loop("live").onMessage(job, ack)
+
+        assertThat(ack.count).isZero()
+        verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
+        verify(exactly = 0) { jobState.save(match { it.status == JobStatus.FAILED }) }
+    }
+
+    @Test
+    fun `a genuine portal failure still walls`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Failed(
+                "loop breaker: browser_click failed 10 consecutive times; last error: Timeout 30000ms exceeded",
+            )
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 1) { recorder.recordFailedWall(any(), any(), any()) }
+        verify { jobState.save(match { it.status == JobStatus.FAILED }) }
+        assertThat(ack.count).isEqualTo(1)
+    }
+
+    /**
      * The pre-action guard. insertIfAbsent protects the applications row, but
      * that row is written after the form has already reached the employer, so
      * the dedupe re-check is the only thing standing between a redelivery and

@@ -401,6 +401,20 @@ class WorkerLoop(
                 notifier.blocked(job.id, result.reason)
             }
             is ApplyResult.Failed -> {
+                // Model-flake escape (2026-11-05): a degraded model in the
+                // gateway pool grinds garbage navigate URLs and relapses into
+                // the navigate guard; the loop breaker kills those runs in
+                // ~10 steps. Walling that outcome permanently burned real
+                // listings - a model defect is not a listing defect. Requeue
+                // instead (bounded by maxAttempts, then DLQ), like Transient.
+                if (MODEL_FLAKE_SIGNATURES.any { result.detail.contains(it) }) {
+                    log.warn(
+                        "job {} failed with a model-flake signature; requeueing instead of walling: {}",
+                        job.id,
+                        result.detail.take(160),
+                    )
+                    throw ApplyRetryException("model-flake failure, requeueing: ${result.detail.take(250)}")
+                }
                 log.warn("job {} failed: {}", job.id, result.detail)
                 markTerminal(job, JobStatus.FAILED, result.detail)
                 wallFailedReenqueue(listing, job, result.detail)
@@ -531,6 +545,22 @@ class WorkerLoop(
             "llm loop failed",
             "gateway returned HTTP",
             "server closed stdout",
+        )
+
+        /**
+         * Failure signatures that are MODEL defects, not listing defects
+         * (2026-11-05): garbage navigate URLs, navigate-guard relapses, and
+         * read-grind wander kills all trace to the free-tier model, whose
+         * quality varies with the gateway's provider pool. They requeue as
+         * Transient (bounded by maxAttempts, then DLQ) instead of walling
+         * the listing, so listings survive a degraded-model window and are
+         * retried when a better model rotates back in. Mirrors
+         * INFRA_SIGNATURES - evolve together.
+         */
+        val MODEL_FLAKE_SIGNATURES = listOf(
+            "BLOCKED: this is navigate",
+            "Cannot navigate to invalid URL",
+            "wander breaker:",
         )
     }
 
