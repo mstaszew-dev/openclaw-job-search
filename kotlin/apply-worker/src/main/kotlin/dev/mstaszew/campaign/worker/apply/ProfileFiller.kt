@@ -151,10 +151,10 @@ class ProfileFiller(
     if (!el) { out.missing.push(kind); return; }
     taken.add(el); setNative(el, kind, value);
   };
-  fillText('name', [e => idSuffix(e, 'tbname'), e => auto(e, 'given-name'), e => idSuffix(e, 'tbfirstname')], ID.name);
-  fillText('surname', [e => idSuffix(e, 'tbsurname'), e => auto(e, 'family-name'), e => idSuffix(e, 'tblastname')], ID.surname);
+  fillText('name', [e => idSuffix(e, 'tbname'), e => auto(e, 'given-name'), e => idSuffix(e, 'tbfirstname'), e => idSuffix(e, 'firstname')], ID.name);
+  fillText('surname', [e => idSuffix(e, 'tbsurname'), e => auto(e, 'family-name'), e => idSuffix(e, 'tblastname'), e => idSuffix(e, 'lastname')], ID.surname);
   fillText('email', [e => idSuffix(e, 'tbmail'), e => auto(e, 'email'), e => (e.type || '') === 'email'], ID.email);
-  fillText('phone', [e => idSuffix(e, 'tbcellphone'), e => auto(e, 'tel')], ID.phone);
+  fillText('phone', [e => idSuffix(e, 'tbcellphone'), e => auto(e, 'tel'), e => idSuffix(e, 'phonenumber')], ID.phone);
   fillText('city', [e => idSuffix(e, 'tbcity'), e => auto(e, 'address-level2'), e => idOrName(e, 'city')], ID.city);
   const country = all.find(e => e.tagName === 'SELECT' && (idSuffix(e, 'lstcountries') || idOrName(e, 'country')));
   const region = all.find(e => e.tagName === 'SELECT' && (idSuffix(e, 'lstregions') || idOrName(e, 'region') || idOrName(e, 'state')));

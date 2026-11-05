@@ -157,6 +157,12 @@ class ProfileFillerTest {
         assertThat(js).contains("tbcellphone")
         assertThat(js).contains("lstcountries")
         assertThat(js).contains("lstregions")
+        // theprotocol quick-apply drawer anchors (2026-11-05: camelCase ids
+        // firstName/lastName/email/phoneNumber - only email matched via
+        // type=email, the tool filled 1 of 5 fields and the model looped)
+        assertThat(js).contains("firstname")
+        assertThat(js).contains("lastname")
+        assertThat(js).contains("phonenumber")
         // generic ATS anchors
         assertThat(js).contains("autocomplete")
         // the identity values travel as JSON, not as interpolated selector names
