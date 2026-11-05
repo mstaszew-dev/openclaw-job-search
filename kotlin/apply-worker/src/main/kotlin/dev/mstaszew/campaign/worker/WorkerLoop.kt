@@ -245,6 +245,19 @@ class WorkerLoop(
                         status = JobStatus.DEAD
                         lastError = message
                         maxAttempts = props.maxAttempts
+                        // 2026-11-05 specjalista: a model-flake dead letter
+                        // makes no employer contact, so the attempt counter
+                        // resets and the finder's regrind pass (12h cooldown)
+                        // can recover the listing when a better model rotates
+                        // in. Genuine dead portals keep their earned count.
+                        // Accepted window (review S4): a stale redelivery in
+                        // the crash-after-dead-letter gap now re-grinds once
+                        // instead of hitting the cheap overBound read; dedup
+                        // still prevents any double apply.
+                        if (message.startsWith("model-flake failure")) {
+                            attempts = 0
+                            regrindCycles += 1
+                        }
                         touch()
                     },
             )
@@ -427,10 +440,12 @@ class WorkerLoop(
                 // maxAttempts=3) and the retry arrives with this attempt in
                 // its attempt-history prompt. Walling here - as Failed does -
                 // burned the 2026-10-29 Angular listing on one formatting
-                // fluke after a single attempt.
+                // fluke after a single attempt. The requeue prefix keeps the
+                // dead-letter recoverable when attempts exhaust (review S2,
+                // 2026-11-05): Transient runs make no employer contact either.
                 log.warn("job {} transient failure, requeueing: {}", job.id, result.detail)
                 notifier.failed(job.id, "${result.detail} (requeued for retry)")
-                throw ApplyRetryException(result.detail)
+                throw ApplyRetryException("model-flake failure, requeueing: ${result.detail.take(250)}")
             }
         }
     }
@@ -559,6 +574,10 @@ class WorkerLoop(
          */
         val MODEL_FLAKE_SIGNATURES = listOf(
             "BLOCKED: this is navigate",
+            // The navigate guard's ESCALATED text (2nd+ consecutive block)
+            // phrases it differently - keep both covered or escalate-stage
+            // relapses wall the listing again (review B1, 2026-11-05).
+            "BLOCKED: navigate #",
             "BLOCKED: open_listing",
             "Cannot navigate to invalid URL",
             "wander breaker:",

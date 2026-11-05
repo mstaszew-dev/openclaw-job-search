@@ -887,15 +887,29 @@ class BrowserAgent(
                 state.identicalNavigateStreak = 1
             }
             if (state.identicalNavigateStreak >= NAVIGATE_REPEAT_LIMIT && state.lastNavigateSucceeded) {
-                return ToolOutcome(
-                    "browser_navigate",
+                // 2026-11-05 specjalista DLQ: the model ignored the flat BLOCKED
+                // text 10 times and the listing dead-lettered. The first block
+                // keeps the gentle text; from the SECOND block onward (streak
+                // 3: first navigate + 2 blocks) the message escalates to a
+                // decisive recipe instead of repeating the same words the
+                // model already ignored. Evolve MODEL_FLAKE_SIGNATURES
+                // together with this text (WorkerLoop).
+                val blocked = if (state.identicalNavigateStreak >= NAVIGATE_ESCALATE_AT) {
+                    "BLOCKED: navigate #${state.identicalNavigateStreak} to the same URL. The listing IS loaded - " +
+                        "re-navigating will never help. Do exactly this: 1) browser_snapshot; 2) find the apply " +
+                        "control (Aplikuj / aplikuj szybko / Apply) in it; 3) apply_click it; 4) profile_fill on " +
+                        "the form; 5) browser_fill_form for the remaining fields; 6) click submit and " +
+                        "record_submission with the confirmation URL. If the page is genuinely blank or broken: " +
+                        "browser_wait_for(time=5), ONE browser_snapshot; if it is STILL broken, call skip_task " +
+                        "with reason portal-block."
+                } else {
                     "BLOCKED: this is navigate #${state.identicalNavigateStreak} in a row to the exact same URL " +
                         "($url) - re-navigating reloads the page and destroys progress. Stay on the current page: " +
                         "browser_snapshot to re-orient, then ACT on what you see (click the apply control, fill the " +
                         "form) or call skip_task. If the apply control is marked [disabled] in the snapshot, " +
-                        "browser_wait_for(time=3) and take a fresh snapshot instead of navigating again.",
-                    failed = true,
-                )
+                        "browser_wait_for(time=3) and take a fresh snapshot instead of navigating again."
+                }
+                return ToolOutcome("browser_navigate", blocked, failed = true)
             }
         }
         return try {
@@ -994,6 +1008,9 @@ class BrowserAgent(
         private const val NO_OP_OPEN_LISTING_LIMIT = 2
 
         private const val NAVIGATE_REPEAT_LIMIT = 2
+
+        /** Consecutive-block count from which the guard's text escalates to the decisive recipe. */
+        private const val NAVIGATE_ESCALATE_AT = 3
 
         /** Post-attempt blank navigate bound well below the tool timeout.
          *  Alias of TabCleanup.CALL_TIMEOUT, which now owns the bound. */

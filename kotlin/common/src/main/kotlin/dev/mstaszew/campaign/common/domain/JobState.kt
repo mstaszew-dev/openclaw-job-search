@@ -29,6 +29,14 @@ class JobStateDocument(
     var updatedAt: Instant = Instant.now(),
     /** History of previous attempts (max 3). Only contains serious failures. */
     var attemptHistory: List<AttemptHistoryEntry> = emptyList(),
+    /**
+     * How many times this listing has been recovered from a model-flake dead
+     * letter (2026-11-05). Bounds the recover-regrind-recover loop: after
+     * MAX_REGRIND_CYCLES the DEAD row stays terminal instead of cycling
+     * forever on a listing the model deterministically cannot apply to.
+     * Missing on pre-2026-11-05 rows -> maps to 0.
+     */
+    var regrindCycles: Int = 0,
 ) {
     fun touch() {
         updatedAt = Instant.now()

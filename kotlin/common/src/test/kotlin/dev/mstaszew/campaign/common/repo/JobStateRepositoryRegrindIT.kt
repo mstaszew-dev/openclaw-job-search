@@ -165,4 +165,42 @@ class JobStateRepositoryRegrindIT {
     private fun mqttAssertStatus(id: String, expected: JobStatus) {
         assertThat(mongo.findById(id, JobStateDocument::class.java)!!.status).isEqualTo(expected)
     }
+
+    /**
+     * 2026-11-05 specjalista: a model-flake failure exhausted maxAttempts and
+     * dead-lettered; the worker resets the attempt counter on such DEAD rows
+     * (no employer contact was made - safe to retry), and the regrind pass
+     * must recover them once they cool down. DEAD rows that are NOT
+     * model-flake (dead gateways, dead portals) stay unrecoverable.
+     */
+    @Test
+    fun `dead model-flake rows are regrind candidates and claimable`() {
+        fun deadRow(id: String, lastError: String) {
+            failedRow(id, attempts = 0, lastError = lastError)
+            mongo.updateFirst(
+                org.springframework.data.mongodb.core.query.Query.query(
+                    org.springframework.data.mongodb.core.query.Criteria.where("_id").`is`(id),
+                ),
+                org.springframework.data.mongodb.core.query.Update().set("status", JobStatus.DEAD.name),
+                JobStateDocument::class.java,
+            )
+        }
+        deadRow("theprotocol:deadflake", "model-flake failure, requeueing: loop breaker: browser_navigate failed 10 consecutive times")
+        deadRow("theprotocol:deadinfra", "llm loop failed: chat failed after 3 attempts")
+        deadRow("theprotocol:deadblocked", "blocked: portal-block")
+
+        val candidates = rgrind.findRegrindCandidates(
+            maxAttemptsParam = 3,
+            olderThan = Instant.now().minus(java.time.Duration.ofHours(1)),
+            limit = 10,
+        )
+
+        // Only the dead model-flake row qualifies (no FAILED rows are seeded
+        // in this test): containsExactly also catches accidental widening of
+        // the FAILED branch (review N3).
+        assertThat(candidates.map { it.id }).containsExactly("theprotocol:deadflake")
+
+        assertThat(rgrind.regrindClaim("theprotocol:deadflake", maxAttempts = 3)).isTrue()
+        mqttAssertStatus("theprotocol:deadflake", JobStatus.PENDING)
+    }
 }

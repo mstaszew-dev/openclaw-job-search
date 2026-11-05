@@ -178,7 +178,8 @@ class WorkerLoopTest {
         every { browserAgent.run(any(), any(), any(), any(), any()) } returns
             ApplyResult.Failed(
                 "loop breaker: browser_navigate failed 10 consecutive times; last error: " +
-                    "BLOCKED: this is navigate #11 in a row to the exact same URL (https://x)",
+                    "BLOCKED: navigate #11 in a row to the exact same URL (https://x). " +
+                    "Do exactly this: 1) browser_snapshot",
             )
 
         // onMessage consumes ApplyRetryException as redelivery scheduling
@@ -188,6 +189,58 @@ class WorkerLoopTest {
         assertThat(ack.count).isZero()
         verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
         verify(exactly = 0) { jobState.save(match { it.status == JobStatus.FAILED }) }
+    }
+
+    /**
+     * 2026-11-05 specjalista: a model-flake failure exhausted maxAttempts and
+     * dead-lettered with attempts=3, which locked the listing out of the
+     * regrind pass forever (the claim requires attempts < max). A model-flake
+     * dead letter makes no employer contact, so the counter resets and the
+     * finder regrind pass can recover the listing after its cooldown.
+     */
+    @Test
+    fun `a model-flake dead letter resets the attempt counter`() {
+        val stored = mutableListOf<JobStateDocument>()
+        every { jobState.findById("justjoin:jj-1") } answers { Optional.ofNullable(stored.lastOrNull()) }
+        every { jobState.save(any<JobStateDocument>()) } answers {
+            val doc = firstArg<JobStateDocument>()
+            stored.add(doc)
+            doc
+        }
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        // The REAL path: the agent's loop-breaker detail matches
+        // MODEL_FLAKE_SIGNATURES, the Failed branch throws
+        // ApplyRetryException("model-flake failure, requeueing: ..."), and on
+        // exhaustion deadLetter -> failJob resets the counter.
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Failed(
+                "loop breaker: browser_navigate failed 10 consecutive times; " +
+                    "last error: BLOCKED: navigate #11 in a row to the exact same URL (https://x). " +
+                    "Do exactly this: 1) browser_snapshot",
+            )
+        every {
+            kafka.send(dev.mstaszew.campaign.common.messaging.Topics.JOBS_DLQ, any<String>(), any<Any>())
+        } returns CompletableFuture.completedFuture(mockk(relaxed = true))
+
+        val loop = WorkerLoop(
+            listings = listings,
+            events = events,
+            jobState = jobState,
+            dedup = dedup,
+            recorder = recorder,
+            browserAgent = browserAgent,
+            chromeLease = chromeLease,
+            props = WorkerProperties(applyMode = "live", workerId = "w1", maxAttempts = 1),
+            tx = tx,
+            kafka = kafka,
+            notifier = notifier,
+            mapper = com.fasterxml.jackson.databind.ObjectMapper(),
+        )
+        loop.onMessage(job, ack)
+
+        val saved = stored.last()
+        assertThat(saved.status).isEqualTo(JobStatus.DEAD)
+        assertThat(saved.attempts).isEqualTo(0)
     }
 
     @Test

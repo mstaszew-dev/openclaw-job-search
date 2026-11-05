@@ -946,6 +946,34 @@ class BrowserAgentTest {
         assertThat(transport.bodies[3]).contains("BLOCKED")
     }
 
+    /**
+     * 2026-11-05 specjalista DLQ: the model relapsed into 10 same-URL
+     * navigates, the flat BLOCKED text repeated 10 times did not move it, and
+     * the listing dead-lettered after exhausting maxAttempts. From the 3rd
+     * block the guard escalates to a decisive recipe instead of the flat text.
+     */
+    @Test
+    fun `navigate guard escalates to a decisive recipe after repeated blocks`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("browser_navigate", """{"url":"https://nofluffjobs.com/pl/job/x"}"""),
+                toolCallResponse("skip_task", """{"reason":"duplicate","detail":"t"}"""),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.DuplicateNow::class.java)
+        // 2nd block (body index 2): the flat text. 3rd block (body 3): escalated.
+        assertThat(transport.bodies[2]).contains("re-navigating reloads the page")
+        assertThat(transport.bodies[2]).doesNotContain("Do exactly this")
+        assertThat(transport.bodies[3]).contains("Do exactly this")
+        assertThat(transport.bodies[3]).contains("profile_fill")
+    }
+
     /** A different URL between repeats is a legitimate navigation, not a loop. */
     @Test
     fun `a different navigate URL resets the repeat guard`() {

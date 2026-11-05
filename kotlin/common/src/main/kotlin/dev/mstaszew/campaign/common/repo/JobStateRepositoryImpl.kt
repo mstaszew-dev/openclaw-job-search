@@ -106,35 +106,68 @@ class JobStateRepositoryImpl(
         maxAttemptsParam: Int,
         olderThan: Instant,
         limit: Int,
-    ): List<RegrindCandidate> = mongo.find(
-        Query.query(
-            Criteria.where("status").`is`(JobStatus.FAILED.name)
-                .and("attempts").lt(maxAttemptsParam)
-                .and("updatedAt").lt(olderThan)
-                // "blocked:"-prefixed lastErrors are permanent portal blocks;
-                // grinding those again burns an attempt for a known dead end.
-                // Negative lookahead (PCRE) so this stays one criteria.
-                .and("lastError").regex("""^(?!blocked:)"""),
-        ).with(Sort.by(Sort.Direction.ASC, "updatedAt")).limit(limit),
-        JobStateDocument::class.java,
-    ).map { row ->
-        RegrindCandidate(
-            id = row.id,
-            source = row.source,
-            sourceJobId = row.sourceJobId,
-            companyKey = row.companyKey,
-            score = row.score,
-            attempts = row.attempts,
-            maxAttempts = row.maxAttempts,
+    ): List<RegrindCandidate> {
+        // FAILED rows: the classic regrind, minus permanent "blocked:" walls.
+        val failedBranch = Criteria().andOperator(
+            Criteria.where("status").`is`(JobStatus.FAILED.name),
+            Criteria.where("attempts").lt(maxAttemptsParam),
+            // "blocked:"-prefixed lastErrors are permanent portal blocks;
+            // grinding those again burns an attempt for a known dead end.
+            // Negative lookahead (PCRE) so this stays one criteria.
+            Criteria.where("lastError").regex("""^(?!blocked:)"""),
         )
+        // DEAD rows whose death was a MODEL flake (2026-11-05 specjalista:
+        // navigate-grind exhausted maxAttempts and dead-lettered). The worker
+        // resets their attempt counter on dead-letter, so once the cooldown
+        // passes the regrind pass gives the listing another roll; DEAD rows
+        // from real infrastructure/portal death stay unrecoverable, and the
+        // recovery itself is bounded to MAX_REGRIND_CYCLES per listing
+        // (review S3: otherwise a deterministically-failed listing cycles
+        // forever).
+        val deadModelFlakeBranch = Criteria().andOperator(
+            Criteria.where("status").`is`(JobStatus.DEAD.name),
+            Criteria.where("attempts").lt(maxAttemptsParam),
+            Criteria.where("lastError").regex("""^model-flake failure"""),
+            Criteria.where("regrindCycles").lt(MAX_REGRIND_CYCLES),
+        )
+        return mongo.find(
+            Query.query(
+                Criteria().orOperator(failedBranch, deadModelFlakeBranch)
+                    .and("updatedAt").lt(olderThan),
+            ).with(Sort.by(Sort.Direction.ASC, "updatedAt")).limit(limit),
+            JobStateDocument::class.java,
+        ).map { row ->
+            RegrindCandidate(
+                id = row.id,
+                source = row.source,
+                sourceJobId = row.sourceJobId,
+                companyKey = row.companyKey,
+                score = row.score,
+                attempts = row.attempts,
+                maxAttempts = row.maxAttempts,
+            )
+        }
     }
 
     override fun regrindClaim(id: String, maxAttempts: Int): Boolean {
+        // Defense in depth (review S1, 2026-11-05): the claim mirrors the
+        // candidate query's branch conditions, so a future caller (or an ops
+        // script) cannot resurrect a permanently dead portal or a
+        // non-recoverable DEAD row through this gate.
+        val failedBranch = Criteria().andOperator(
+            Criteria.where("status").`is`(JobStatus.FAILED.name),
+            Criteria.where("lastError").regex("""^(?!blocked:)"""),
+        )
+        val deadBranch = Criteria().andOperator(
+            Criteria.where("status").`is`(JobStatus.DEAD.name),
+            Criteria.where("lastError").regex("""^model-flake failure"""),
+            Criteria.where("regrindCycles").lt(MAX_REGRIND_CYCLES),
+        )
         val result = mongo.updateFirst(
             Query.query(
                 Criteria.where("_id").`is`(id)
-                    .and("status").`is`(JobStatus.FAILED.name)
-                    .and("attempts").lt(maxAttempts),
+                    .and("attempts").lt(maxAttempts)
+                    .orOperator(failedBranch, deadBranch),
             ),
             Update()
                 .set("status", JobStatus.PENDING.name)
@@ -161,6 +194,13 @@ class JobStateRepositoryImpl(
     }
 
     private companion object {
+        /**
+         * Recovery bound (review S3, 2026-11-05): a listing the model
+         * deterministically fails gets at most this many dead-letter ->
+         * regrind cycles; after that its DEAD row stays terminal.
+         */
+        const val MAX_REGRIND_CYCLES = 2
+
         val TERMINAL_STATUSES = arrayOf(
             JobStatus.SHADOW_RELEASED.name,
             JobStatus.SUBMITTED.name,
