@@ -259,7 +259,7 @@ class BrowserAgent(
                                 return result
                             }
                         }
-                        state.appendUserMessage(dispatched.text.take(4000))
+                        state.appendResult(toolCall.name, dispatched.text)
                         // Stale-ref auto-correction (pekao-conext 2026-10-27):
                         // "Ref e29 not found in the current page snapshot"
                         // repeated five times burned the unit - the model
@@ -402,6 +402,25 @@ class BrowserAgent(
             while (messages.size > MAX_CONTEXT_MESSAGES) {
                 messages.removeAt(1)
             }
+        }
+
+        /**
+         * Tool-result append with an identical-snapshot rule (2026-11-05
+         * theprotocol quick-apply): re-reading an UNCHANGED page returns the
+         * same 16k-char snapshot; appending it again doubled the context cost
+         * of every read-grind step. When the last message IS this same
+         * snapshot, replace it in place - the model still sees the page, the
+         * window does not grow, and the wander breaker still counts the read.
+         */
+        fun appendResult(toolName: String, text: String) {
+            if (toolName == "browser_snapshot" &&
+                messages.isNotEmpty() &&
+                messages.last().content == text
+            ) {
+                messages[messages.size - 1] = ChatMessage("user", text)
+                return
+            }
+            appendUserMessage(text)
         }
 
         /** Create an AttemptHistoryEntry if this attempt failed with serious issues. */
@@ -874,16 +893,23 @@ class BrowserAgent(
         }
         return try {
             val text = if (call.name == "browser_snapshot") {
+                // 2026-11-05 theprotocol quick-apply: the drawer form's fields
+                // sit at chars 5.5k-14k of a 17k-char aria snapshot; the old
+                // 8k cut made the form INVISIBLE to the model (it re-clicked
+                // apply and gave up). Snapshots are the model's eyes - give
+                // them double budget; the identical-snapshot replace rule
+                // keeps read-grinds from growing the context (see
+                // appendResult).
                 browser.client.callToolText("browser_snapshot", mapper.createObjectNode(), TOOL_TIMEOUT)
                     .also { state.lastSnapshot = it }
-                    .take(8000)
+                    .take(SNAPSHOT_TEXT_LIMIT)
             } else {
                 // Free-tier backends routinely emit schema-shaped-wrong
                 // arguments (fields as a map, evaluate script aliases); the
                 // coercer normalizes the known shapes before they burn a step
                 // on a zod error (and three of them trip the loop breaker).
                 val wire = ArgCoerce.normalize(call.name, call.arguments, state.lastSnapshot)
-                browser.client.callToolText(call.name, wire, TOOL_TIMEOUT).take(4000)
+                browser.client.callToolText(call.name, wire, TOOL_TIMEOUT).take(TOOL_TEXT_LIMIT)
                     // The navigate guard blocks only repeats of a SUCCEEDED
                     // navigate; record the outcome for the next same-URL call.
                     .also { if (call.name == "browser_navigate") state.lastNavigateSucceeded = true }
@@ -933,6 +959,16 @@ class BrowserAgent(
          * INFRA_SIGNATURE: re-enqueued, never walled.)
          */
         const val MAX_CONTEXT_MESSAGES = 9
+
+        /**
+         * Snapshot text budget (2026-11-05): the theprotocol quick-apply
+         * drawer renders its form fields between chars 5.5k and 14k of a
+         * 17k-char aria snapshot; the old 8k cut made the form invisible to
+         * the model. Non-snapshot results stay small - error tails run
+         * ~1.1k chars (upload_cv CDP path), 2k covers them.
+         */
+        const val SNAPSHOT_TEXT_LIMIT = 16_000
+        const val TOOL_TEXT_LIMIT = 2_000
 
         /** First empty skip_task is refused with a nudge; the second is Transient. */
         private const val EMPTY_SKIP_LIMIT = 2

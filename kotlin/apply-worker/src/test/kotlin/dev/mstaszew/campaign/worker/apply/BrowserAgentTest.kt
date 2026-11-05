@@ -1648,6 +1648,7 @@ class BrowserAgentTest {
      */
     @Test
     fun `conversation window stays bounded and keeps the task message`() {
+        every { browser.callToolText(eq("browser_fill_form"), any(), any()) } returns "filled ok"
         val script = buildList {
             repeat(6) {
                 repeat(5) { add(toolCallResponse("browser_snapshot", "{}")) }
@@ -1677,5 +1678,94 @@ class BrowserAgentTest {
         val last = mapper.readTree(transport.bodies.last()).path("messages")
         assertThat(last.size()).isEqualTo(BrowserAgent.MAX_CONTEXT_MESSAGES + 1)
         assertThat(last.last().path("role").asText()).isEqualTo("system")
+    }
+
+    /**
+     * 2026-11-05 theprotocol quick-apply: the drawer form's fields sit at
+     * chars 5.5k-14k of a 17k-char aria snapshot; the old 8k snapshot cap (and
+     * the 4k append cap) made the form INVISIBLE to the model, which re-clicked
+     * apply and gave up. A snapshot must reach the model past 8k chars.
+     */
+    @Test
+    fun `a long snapshot reaches the model past the old 8k cut`() {
+        val big = buildString {
+            repeat(700) { append("listing padding line\n") } // ~14k chars of listing
+            append("APPLY_FORM_EMAIL_FIELD \"E-mail*\" textbox\n")
+            repeat(100) { append("form padding line\n") }
+        }
+        every { browser.callToolText(eq("browser_snapshot"), any(), any()) } returns big
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        assertThat(transport.bodies[1]).contains("APPLY_FORM_EMAIL_FIELD")
+    }
+
+    /** Non-snapshot results stay lean; the head survives, the tail is cut. */
+    @Test
+    fun `non-snapshot tool results are capped at the lean limit`() {
+        val long = buildString {
+            append("HEAD_MARKER_clicked ")
+            repeat(400) { append("filler ") }
+            append("TAIL_MARKER_AT_3K")
+        }
+        every { browser.callToolText(eq("browser_click"), any(), any()) } returns long
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_click", """{"target":"f12"}"""),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        assertThat(transport.bodies[1]).contains("HEAD_MARKER_clicked")
+        assertThat(transport.bodies[1]).doesNotContain("TAIL_MARKER_AT_3K")
+    }
+
+    /**
+     * Re-reading an UNCHANGED page returns the same snapshot; appending it
+     * again doubled the context cost of every read-grind step. An identical
+     * consecutive snapshot must REPLACE the previous one in the window.
+     */
+    @Test
+    fun `an identical consecutive snapshot replaces instead of growing`() {
+        val snapA = "SNAP-A-${"x".repeat(3000)}"
+        val snapB = "SNAP-B-${"y".repeat(3000)}"
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+        every { browser.callToolText(eq("browser_snapshot"), any(), any()) } returnsMany
+            listOf(snapA, snapA, snapB)
+
+        run(agent(transport, maxSteps = 10))
+
+        val sizes = transport.bodies.map { mapper.readTree(it).path("messages").size() }
+        // body0: task+system = 2; after snapA: 3; identical snapA: still 3
+        // (replaced); snapB appends: 4.
+        assertThat(sizes).containsSubsequence(2, 3, 3, 4)
+        assertThat(mapper.readTree(transport.bodies[2]).path("messages").last().path("content").asText())
+            .doesNotContain("SNAP-B")
     }
 }
