@@ -87,7 +87,7 @@ class ApplyClicker(
         return buildString {
             append("apply_click: clicked \"$text\"$waitedNote; URL after click: $url.\n")
             // 2026-11-05 inzynier: the model never switched to the ATS tab the
-            // click opened - it ground listing snapshots until the breaker
+            // click opened - it ground listing-snapshot reads until the breaker
             // killed the run. The switch is worker-owned mechanics now: diff
             // the tab lists across the click and select the NEW tab.
             val newTab = newTabIndexOf(tabsBefore, tabsAfter)
@@ -116,6 +116,18 @@ class ApplyClicker(
                     return@buildString
                 }
             }
+            // 2026-11-05 expert-poznan: some portals (theprotocol quick-apply)
+            // open the form in a SAME-TAB drawer - no tab switch is possible,
+            // and the model responded by re-clicking apply 5 times. Detect the
+            // opened form and hand over the fill recipe.
+            val inputs = formInputCount(browser)
+            if (inputs >= FORM_OPEN_INPUTS) {
+                append("QUICK-APPLY FORM IS OPEN on this page ($inputs inputs) - do NOT click apply again: ")
+                append("profile_fill first, then browser_fill_form for the fields it reports missing, ")
+                append("upload_cv when an upload control appears, click submit, then ")
+                append("record_submission with the confirmation URL.")
+                return@buildString
+            }
             append("Tabs now:\n").append(tabsAfter.take(800)).append("\n")
             append("If a NEW tab holds the ATS form (traffit/lever/greenhouse/recruitee or an /apply URL), " +
                 "browser_tabs(action=\"select\", index=N) to it and fill the form there. If this tab shows a " +
@@ -123,6 +135,20 @@ class ApplyClicker(
                 "and continue from what it shows.")
         }
     }
+
+    /**
+     * Visible form inputs on the current page (2026-11-05): >= 2 after an
+     * apply click means the portal opened an inline/drawer application form.
+     * The listing page itself carries 0-1 (theprotocol's only visible input
+     * is a link-shortener box), so 2 is a safe discriminator.
+     */
+    private fun formInputCount(browser: McpStdioClient): Int =
+        evaluate(browser, formCheckFunction(), FORM_CHECK_MARKER)?.path("inputs")?.asInt(0) ?: 0
+
+    private fun formCheckFunction(): String =
+        "(function(){ const els=[...document.querySelectorAll('input:not([type=hidden]):not([type=checkbox]), textarea, select')]" +
+            ".filter(e=>e.offsetParent!==null); " +
+            "return '${FORM_CHECK_MARKER}' + JSON.stringify({inputs:els.length, url:location.href}); })()"
 
     private fun listTabs(browser: McpStdioClient): String = try {
         browser.callToolText("browser_tabs", mapper.createObjectNode().apply { put("action", "list") }, TOOL_TIMEOUT)
@@ -148,14 +174,14 @@ class ApplyClicker(
     private fun probe(browser: McpStdioClient, selector: String?): com.fasterxml.jackson.databind.JsonNode? =
         evaluate(browser, probeFunction(selector))
 
-    /** Runs an evaluate and extracts the JSON after the marker; null on failure. */
-    private fun evaluate(browser: McpStdioClient, function: String): com.fasterxml.jackson.databind.JsonNode? = try {
+    /** Runs an evaluate and extracts the JSON after the given marker; null on failure. */
+    private fun evaluate(browser: McpStdioClient, function: String, marker: String = MARKER): com.fasterxml.jackson.databind.JsonNode? = try {
         val text = browser.callToolText(
             "browser_evaluate",
             mapper.createObjectNode().apply { put("function", function) },
             TOOL_TIMEOUT,
         )
-        extractProbeJson(text) ?: run {
+        McpEvaluateJson.extract(mapper, text, marker) ?: run {
             log.warn("apply_click: marker/JSON extraction failed; raw: {}", text.take(300))
             null
         }
@@ -201,6 +227,12 @@ class ApplyClicker(
     companion object {
         /** Marker prefix anchoring the JSON in the MCP evaluate text. */
         const val MARKER = "APPLY_PROBE_MARKER_7f3a"
+
+        /** Marker prefixing the post-click form-check report (see MARKER). */
+        const val FORM_CHECK_MARKER = "APPLY_FORM_CHECK_9b12"
+
+        /** Visible inputs that mean "an application form is open" (2026-11-05). */
+        const val FORM_OPEN_INPUTS = 2
 
         /** One hydration wait; the NFJ button enables ~2s after domcontentloaded. */
         const val DISABLED_WAIT_MS: Long = 3000L

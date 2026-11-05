@@ -94,11 +94,38 @@ class ApplyClickerTest {
         every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("APPLY_PROBE_MARKER") }, any()) } returns probe(found = true)
         every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("el.click()") }, any()) } returns clickResult("https://x/success")
         every { browser.callToolText(eq("browser_tabs"), any(), any()) } returns "- 0: [](https://x/success)"
+        every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains(ApplyClicker.FORM_CHECK_MARKER) }, any()) } returns
+            ApplyClicker.FORM_CHECK_MARKER + mapper.writeValueAsString(mapOf("inputs" to 1))
 
         val result = clicker().click(browser, selector = null)
 
         assertThat(result).doesNotContain("SWITCHED")
+        assertThat(result).doesNotContain("QUICK-APPLY FORM IS OPEN")
         verify(exactly = 0) { browser.callToolText(eq("browser_tabs"), match { it.path("action").asText() == "select" }, any()) }
+    }
+
+    /**
+     * 2026-11-05 expert-poznan live run: theprotocol's quick-apply opens a
+     * SAME-TAB drawer (no tab switch possible), the model re-clicked apply 5x
+     * instead of filling it. After the click, apply_click must detect the
+     * opened form and hand the model the fill recipe.
+     */
+    @Test
+    fun `a same-tab drawer form is detected and the model is told to fill it`() {
+        // A FRESH mock: this test needs exactly four evaluate shapes, and
+        // stubs inherited from sibling tests polluted the form-check call
+        // (the shared mock re-stubs additively across tests in one class).
+        val local = mockk<McpStdioClient>(relaxUnitFun = true)
+        every { local.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("APPLY_PROBE_MARKER") }, any()) } returns probe(found = true)
+        every { local.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("el.click()") }, any()) } returns clickResult("https://x/listing")
+        every { local.callToolText(eq("browser_tabs"), any(), any()) } returns "- 0: [](https://x/listing)"
+        every { local.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains(ApplyClicker.FORM_CHECK_MARKER) }, any()) } returns
+            ApplyClicker.FORM_CHECK_MARKER + mapper.writeValueAsString(mapOf("inputs" to 5))
+
+        val result = clicker().click(local, selector = null)
+
+        assertThat(result).contains("QUICK-APPLY FORM IS OPEN")
+        assertThat(result).contains("profile_fill")
     }
 
     @Test
