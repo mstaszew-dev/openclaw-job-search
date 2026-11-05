@@ -63,8 +63,13 @@ class ProfileFiller(
             return "Error: profile_fill failed: ${e.message?.take(250)}"
         }
 
-        val report = parseReport(raw)
-            ?: return "Error: profile_fill: could not parse the page report (${raw.take(250)})"
+        val report = McpEvaluateJson.extract(mapper, raw, MARKER)
+            ?: run {
+                // Silent parse failures were undebuggable live (2026-11-05:
+                // every profile_fill "could not parse" with no trace of why).
+                log.warn("profile_fill: marker/JSON extraction failed; raw: {}", raw.take(300))
+                return "Error: profile_fill: could not parse the page report (${raw.take(250)})"
+            }
 
         val filled = report.path("filled").asTextList()
         val missing = report.path("missing").asTextList()
@@ -86,20 +91,18 @@ class ProfileFiller(
         return verdict.toString()
     }
 
-    /** eRecruiter fences evaluate output; the JSON is somewhere inside the text. */
-    private fun parseReport(raw: String): com.fasterxml.jackson.databind.JsonNode? = try {
-        val open = raw.indexOf('{')
-        val close = raw.lastIndexOf('}')
-        if (open < 0 || close <= open) null else mapper.readTree(raw.substring(open, close + 1))
-    } catch (e: Exception) {
-        null
-    }
-
     private fun com.fasterxml.jackson.databind.JsonNode.asTextList(): List<String> =
         if (isArray) elements().asSequence().map { it.asText() }.toList() else emptyList()
 
     companion object {
         val TOOL_TIMEOUT: Duration = Duration.ofSeconds(120)
+
+        /**
+         * Marker prefixing the page report VALUE (see McpEvaluateJson): the
+         * JSON-encoded MCP result and the brace-laden source echo make naive
+         * slicing unreliable; the marker anchors every occurrence.
+         */
+        const val MARKER = "PF_REPORT_5a91"
 
         private const val IDENTITY_PLACEHOLDER = "%%IDENTITY%%"
 
@@ -161,7 +164,7 @@ class ProfileFiller(
   requiredBoxes.filter(e => !e.checked)
     .forEach(e => { e.checked = true; e.dispatchEvent(new Event('change', { bubbles: true })); out.consents.ticked++; });
   out.consents.required = requiredBoxes.length;
-  return JSON.stringify(out);
+  return '${MARKER}' + JSON.stringify(out);
 }
 """.trimIndent()
     }

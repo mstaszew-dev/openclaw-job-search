@@ -54,17 +54,31 @@ class ProfileFillerTest {
         }
     }
 
+    /**
+     * The REAL playwright-mcp evaluate shape (2026-11-05): the string value
+     * comes back JSON-ENCODED in the Result section, and the function SOURCE
+     * (full of braces) is echoed after it. The naive first-{..last-} slice
+     * captured echo braces and died on the escapes - the live bug that made
+     * every profile_fill report "could not parse" while the fields were
+     * actually being filled.
+     */
     private fun fencedReport(
         filled: List<String>,
         missing: List<String>,
         required: Int = 2,
         ticked: Int = 2,
     ): String {
-        val filledJson = mapper.writeValueAsString(filled)
-        val missingJson = mapper.writeValueAsString(missing)
-        return "Some prose before the fence.\n```json" +
-            "{\"filled\":$filledJson,\"missing\":$missingJson,\"consents\":{\"required\":$required,\"ticked\":$ticked}}" +
-            "\n```\n"
+        val report = mapper.writeValueAsString(
+            mapOf(
+                "filled" to filled,
+                "missing" to missing,
+                "consents" to mapOf("required" to required, "ticked" to ticked),
+            ),
+        )
+        val encoded = report.replace("\\", "\\\\").replace("\"", "\\\"")
+        return "### Result\n\"${ProfileFiller.MARKER}$encoded\"\n" +
+            "### Ran Playwright code\n```js\nawait page.evaluate('() => { const out = { a: 1 }; if (x) { y } }');\n```\n" +
+            "### Page\n- Page URL: https://theprotocol.it/apply\n"
     }
 
     private val mapper = ObjectMapper()
@@ -119,11 +133,12 @@ class ProfileFillerTest {
 
     @Test
     fun `unparseable page report is an Error verdict`() {
-        val browser = browser(evaluate = { "```json\nnot-json-at-all\n```" })
+        val browser = browser(evaluate = { "### Error\nSyntaxError: something broke" })
 
         val result = ProfileFiller(props()).fill(browser)
 
         assertThat(result).startsWith("Error: profile_fill: could not parse the page report")
+        assertThat(result).contains("SyntaxError")
     }
 
     @Test
