@@ -1,0 +1,167 @@
+package dev.mstaszew.campaign.worker.apply
+
+import com.fasterxml.jackson.databind.ObjectMapper
+import dev.mstaszew.campaign.common.mcp.McpClientException
+import dev.mstaszew.campaign.common.mcp.McpStdioClient
+import dev.mstaszew.campaign.worker.WorkerProperties
+import io.mockk.Called
+import io.mockk.clearAllMocks
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.verify
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Test
+import java.time.Duration
+
+/**
+ * Contract for the zero-argument profile_fill worker tool (2026-11-05). the
+ * free-tier model burns its entire step budget re-typing the same identity
+ * values into ASP.NET-style ATS forms (eRecruiter, 44 snapshot/evaluate
+ * steps per theprotocol attempt); worker code owns the identity fill
+ * exactly like apply_click owns the Apply click, and the model only keeps
+ * form-specific fields (salary, links, experience), CV upload, and the
+ * submit click.
+ */
+class ProfileFillerTest {
+
+    private fun props(
+        name: String = "Michal",
+        surname: String = "Staszewski",
+        email: String = "mst.rocking@gmail.com",
+        phone: String = "+48790775407",
+        city: String = "Biala Parcela",
+        country: String = "Polska",
+        region: String = "lodzkie",
+    ) = WorkerProperties().apply {
+        identity = WorkerProperties.Identity().apply {
+            this.name = name
+            this.surname = surname
+            this.email = email
+            this.phone = phone
+            this.city = city
+            this.country = country
+            this.region = region
+        }
+    }
+
+    private fun browser(
+        evaluate: (() -> String)? = null,
+    ): McpStdioClient = mockk {
+        if (evaluate != null) {
+            every { callToolText(eq("browser_evaluate"), any(), any()) } answers { evaluate() }
+        }
+    }
+
+    private fun fencedReport(
+        filled: List<String>,
+        missing: List<String>,
+        required: Int = 2,
+        ticked: Int = 2,
+    ): String {
+        val filledJson = mapper.writeValueAsString(filled)
+        val missingJson = mapper.writeValueAsString(missing)
+        return "Some prose before the fence.\n```json" +
+            "{\"filled\":$filledJson,\"missing\":$missingJson,\"consents\":{\"required\":$required,\"ticked\":$ticked}}" +
+            "\n```\n"
+    }
+
+    private val mapper = ObjectMapper()
+
+    @AfterEach
+    fun cleanup() = clearAllMocks()
+
+    @Test
+    fun `refuses before touching the browser when identity is not configured`() {
+        val browser = browser(evaluate = { fencedReport(listOf("name"), emptyList()) })
+
+        val result = ProfileFiller(props(name = "",surname = "", email = "", phone = "", city = "", country = "", region = ""))
+            .fill(browser)
+
+        assertThat(result).startsWith("Error: identity not configured")
+        assertThat(result).contains("APPLICANT_")
+        verify { browser wasNot Called }
+    }
+
+    @Test
+    fun `reports the page verdict with filled, missing and consents`() {
+        val browser = browser(evaluate = { fencedReport(listOf("name", "surname", "email", "phone", "city", "country", "region"), emptyList(), required = 1, ticked = 1) })
+
+        val result = ProfileFiller(props()).fill(browser)
+
+        assertThat(result).startsWith("profile_fill: ")
+        assertThat(result).contains("name, surname, email, phone, city, country, region")
+        assertThat(result).contains("consents 1/1")
+        assertThat(result).doesNotContain("missing")
+    }
+
+    @Test
+    fun `names the missing fields so the model fills them via browser_fill_form`() {
+        val browser = browser(evaluate = { fencedReport(listOf("name", "email", "phone", "country", "region"), listOf("surname", "city")) })
+
+        val result = ProfileFiller(props()).fill(browser)
+
+        assertThat(result).startsWith("profile_fill:")
+        assertThat(result).contains("missing: surname, city")
+        assertThat(result).contains("browser_fill_form")
+    }
+
+    @Test
+    fun `evaluate failure is an Error verdict, never a throw`() {
+        val browser = browser(evaluate = { throw McpClientException("process died") })
+
+        val result = ProfileFiller(props()).fill(browser)
+
+        assertThat(result).startsWith("Error: profile_fill failed: ")
+        assertThat(result).contains("process died")
+    }
+
+    @Test
+    fun `unparseable page report is an Error verdict`() {
+        val browser = browser(evaluate = { "```json\nnot-json-at-all\n```" })
+
+        val result = ProfileFiller(props()).fill(browser)
+
+        assertThat(result).startsWith("Error: profile_fill: could not parse the page report")
+    }
+
+    @Test
+    fun `the emitted JS targets eRecruiter ids, autocomplete attrs and required-only consents`() {
+        val browser = browser(evaluate = { fencedReport(listOf("name", "email", "phone"), emptyList()) })
+        val payloadSlot = slot<com.fasterxml.jackson.databind.JsonNode>()
+        every { browser.callToolText(eq("browser_evaluate"), capture(payloadSlot), any<Duration>()) } answers { fencedReport(listOf("name", "email", "phone"), emptyList()) }
+
+        ProfileFiller(props()).fill(browser)
+
+        val js = payloadSlot.captured.path("function").asText()
+        // eRecruiter field anchors (lowercase: compared against el.id.toLowerCase())
+        assertThat(js).contains("tbname")
+        assertThat(js).contains("tbsurname")
+        assertThat(js).contains("tbmail")
+        assertThat(js).contains("tbcellphone")
+        assertThat(js).contains("lstcountries")
+        assertThat(js).contains("lstregions")
+        // generic ATS anchors
+        assertThat(js).contains("autocomplete")
+        // the identity values travel as JSON, not as interpolated selector names
+        assertThat(js).contains("Michal")
+        assertThat(js).contains("mst.rocking@gmail.com")
+        assertThat(js).contains("Biala Parcela")
+        // consents must be REQUIRED-only: a marketing box must never be ticked
+        assertThat(js).contains("required")
+        // model-written JS must not be needed: bubble input+change events for SPA forms
+        assertThat(js).contains("change")
+    }
+
+    @Test
+    fun `objectMapper is optional dependency injection`() {
+        val filler = ProfileFiller(props(), mapper = ObjectMapper())
+        val browser = browser(evaluate = { fencedReport(listOf("name", "email", "phone"), emptyList()) })
+
+        val result = filler.fill(browser)
+
+        assertThat(result).startsWith("profile_fill:")
+        verify { browser.callToolText(eq("browser_evaluate"), any(), any()) }
+    }
+}

@@ -8,6 +8,7 @@ import dev.mstaszew.campaign.common.net.ChatTransport
 import dev.mstaszew.campaign.common.net.LlmClient
 import dev.mstaszew.campaign.common.repo.JobListingRepository
 import dev.mstaszew.campaign.common.repo.JobStateRepository
+import dev.mstaszew.campaign.worker.WorkerProperties
 import io.mockk.MockKMatcherScope
 import io.mockk.every
 import io.mockk.mockk
@@ -87,6 +88,12 @@ class BrowserAgentTest {
         jobStateRepository = jobStateRepo,
         cvUploader = cvUploader,
         applyClicker = applyClicker,
+        profileFiller = ProfileFiller(WorkerProperties().apply {
+            identity = WorkerProperties.Identity().apply {
+                name = "Michal"; surname = "Staszewski"; email = "mst.rocking@gmail.com"
+                phone = "+48790775407"; city = "Biala Parcela"; country = "Polska"; region = "lodzkie"
+            }
+        }),
         mapper = mapper,
         maxSteps = maxSteps,
     )
@@ -140,7 +147,7 @@ class BrowserAgentTest {
         }
         assertThat(byName.keys).containsExactlyInAnyOrder(
             "browser_navigate", "browser_snapshot", "browser_click", "browser_tabs", "browser_fill_form",
-            "upload_cv", "apply_click", "open_listing", "browser_evaluate", "browser_wait_for",
+            "upload_cv", "apply_click", "open_listing", "profile_fill", "browser_evaluate", "browser_wait_for",
             "record_submission", "skip_task",
         )
         val fields = byName.getValue("browser_fill_form").path("parameters").path("properties").path("fields")
@@ -1291,6 +1298,7 @@ class BrowserAgentTest {
             listings = listings,
             jobStateRepository = jobStateRepo,
             cvUploader = cvUploader,
+            profileFiller = ProfileFiller(WorkerProperties()),
             mapper = mapper,
             maxSteps = 50,
         )
@@ -1348,6 +1356,7 @@ class BrowserAgentTest {
             listings = listings,
             jobStateRepository = jobStateRepo,
             cvUploader = cvUploader,
+            profileFiller = ProfileFiller(WorkerProperties()),
             mapper = mapper,
             maxSteps = 150,
         )

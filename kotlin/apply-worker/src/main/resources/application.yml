@@ -39,6 +39,17 @@ worker:
   lease-ttl-minutes: ${WORKER_LEASE_TTL_MINUTES:25}
   lease-wait-seconds: ${WORKER_LEASE_WAIT_SECONDS:600}
   lease-renew-seconds: ${WORKER_LEASE_RENEW_SECONDS:300}
+  # Canonical identity for the zero-argument profile_fill worker tool (the
+  # deterministic counterpart of the APPLICANT_PROFILE_TEXT prose the prompt
+  # carries). Blank fields are simply not attempted on the page.
+  identity:
+    name: ${APPLICANT_NAME:}
+    surname: ${APPLICANT_SURNAME:}
+    email: ${APPLICANT_EMAIL:}
+    phone: ${APPLICANT_PHONE:}
+    city: ${APPLICANT_CITY:}
+    country: ${APPLICANT_COUNTRY:Polska}
+    region: ${APPLICANT_REGION:łódzkie}
   # Hourly campaign digest to #jobcampaign (SlackStatsReporter). The first
   # post lands 45s after startup, so every deploy proves the Slack wiring
   # with a fresh count right away.

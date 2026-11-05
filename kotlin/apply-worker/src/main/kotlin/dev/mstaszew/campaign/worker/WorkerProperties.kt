@@ -35,4 +35,23 @@ data class WorkerProperties(
     var leaseTtlMinutes: Long = 25,
     var leaseWaitSeconds: Long = 600,
     var leaseRenewSeconds: Long = 300,
-)
+    /**
+     * The applicant's canonical identity values, for the zero-argument
+     * profile_fill worker tool. The prompt carries the same values as free
+     * prose (APPLICANT_PROFILE_TEXT), but the fill is deterministic, so it
+     * must not re-parse prose: structured values travel via env.
+     */
+    var identity: Identity = Identity(),
+) {
+
+    /** Canonical PL identity for form fills; every field is injected from env. */
+    data class Identity(
+        var name: String = "",
+        var surname: String = "",
+        var email: String = "",
+        var phone: String = "",
+        var city: String = "",
+        var country: String = "",
+        var region: String = "",
+    )
+}

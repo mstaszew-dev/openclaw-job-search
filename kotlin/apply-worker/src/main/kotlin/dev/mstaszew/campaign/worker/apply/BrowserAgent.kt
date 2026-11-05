@@ -72,6 +72,7 @@ class BrowserAgent(
     private val jobStateRepository: JobStateRepository,
     private val cvUploader: CvUploader,
     private val applyClicker: ApplyClicker = ApplyClicker(),
+    private val profileFiller: ProfileFiller,
     private val mapper: ObjectMapper = ObjectMapper(),
     /** Injected for tests; production resolves WORKER_MAX_STEPS via AgentLoopBounds. */
     private val maxSteps: Int = AgentLoopBounds.effectiveMaxSteps,
@@ -434,7 +435,7 @@ class BrowserAgent(
             }.joinToString("\n") +
             "\n  **What to learn from this history:**\n" +
             "  - If readStreak is high (>10), avoid reading the same DOM repeatedly - take an action instead. " +
-            "ONLY browser_click, browser_fill_form, upload_cv, apply_click and record_submission count as actions: " +
+            "ONLY browser_click, browser_fill_form, profile_fill, upload_cv, apply_click and record_submission count as actions: " +
             "browser_evaluate and browser_tabs are NOT actions.\n" +
             "  - If wanderTrips=1, the first correction was injected; take it seriously and try differently.\n" +
             "  - If a previous attempt died writing tool calls as prose text (\"no tool call\"), " +
@@ -562,7 +563,13 @@ class BrowserAgent(
             a [disabled] button, clicks it, and reports the tab list (the ATS form usually
             opens in a NEW tab). PREFER apply_click over browser_click for the main Apply
             button on every portal; fall back to browser_click with a real snapshot ref only
-            when apply_click answers Error. browser_evaluate(function),
+            when apply_click answers Error. profile_fill() - DETERMINISTIC identity fill with
+            no arguments and no JS from you: name, surname, email, phone, city, the country +
+            voivodeship selects and the REQUIRED consents. Call it FIRST on every application
+            form (theprotocol/eRecruiter, pracuj, any long ASP.NET-style form), then fill only
+            what its answer reports as missing via browser_fill_form. Never type the identity
+            values yourself - profile_fill owns them.
+            browser_evaluate(function),
             browser_wait_for(time|text), record_submission(confirmationUrl, confirmationText, ats),
             skip_task(reason, detail).
             Call exactly one tool per turn.
@@ -687,6 +694,21 @@ class BrowserAgent(
                     ToolCall("browser_navigate", mapper.createObjectNode().apply { put("url", state.listing.url) }),
                     state,
                 )
+            "profile_fill" ->
+                // Worker-side, zero model arguments (theprotocol/eRecruiter
+                // 2026-11-05: the free model burned 200 steps re-typing the
+                // same identity block). The worker fills name/surname/email/
+                // phone/city, the country + voivodeship selects and the
+                // REQUIRED consents, and reports what is missing so the model
+                // only fills page-specific fields left over.
+                try {
+                    profileFiller.fill(browser.client)
+                } catch (e: Exception) {
+                    if (e is InterruptedException) Thread.currentThread().interrupt()
+                    "Error: profile_fill failed: ${e.message?.take(200)}"
+                }.let { text ->
+                    ToolOutcome("profile_fill", text, failed = text.startsWith("Error"))
+                }
             else -> browserTool(browser, call, state)
         }
 
@@ -802,6 +824,7 @@ class BrowserAgent(
             "skip_task",
             "apply_click",
             "open_listing",
+            "profile_fill",
         )
 
         /**
@@ -956,8 +979,8 @@ class BrowserAgent(
                 "or browser_tabs(action=\"select\", index=N - a bare index " +
                 "defaults to LIST, always pass action=\"select\" when switching tabs). If there is " +
                 "truly nothing to act on, call skip_task. WARNING: browser_evaluate and repeated " +
-                "tab switching DO NOT count as actions - only click, fill_form, upload_cv, " +
-                "record_submission do. Another read-only streak will end this task."
+                "tab switching DO NOT count as actions - only click, fill_form, profile_fill, " +
+                "upload_cv, record_submission do. Another read-only streak will end this task."
 
         /** Consecutive tool-less (prose) replies before the unit fails. */
         const val NARRATION_LIMIT = 3
@@ -1100,6 +1123,14 @@ class BrowserAgent(
             ToolSpec(
                 "open_listing",
                 "Open THIS job's listing URL with NO arguments - never type a URL yourself.",
+                obj(),
+            ),
+            ToolSpec(
+                "profile_fill",
+                "Deterministically fill the applicant's identity block (name, surname, email, phone, city, " +
+                    "country + voivodeship selects, REQUIRED consent checkboxes) with NO arguments and NO " +
+                    "JavaScript from you. Call it on every new application form BEFORE filling anything else; " +
+                    "its answer names any fields still missing, which you then fill via browser_fill_form.",
                 obj(),
             ),
             ToolSpec(
