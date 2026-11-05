@@ -1640,6 +1640,26 @@ class BrowserAgentTest {
     }
 
     /**
+     * 2026-11-05 copilot-studio: the model emitted single-quoted JSON in the
+     * skip_task arguments; the parsed reason arrived as the literal garbage
+     * "duplicate','detail", missed the duplicate branch and WALL-skipped the
+     * listing. The intent must be mined from the garbage reason.
+     */
+    @Test
+    fun `a garbage skip_task reason carrying a valid reason is mined`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("skip_task", """{"reason":"duplicate','detail"}"""),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.DuplicateNow::class.java)
+        verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
+    }
+
+    /**
      * The architectural root cause of the 2026-11-05 step-40+ degeneration:
      * every tool result (up to 4000 chars) accumulated in the conversation
      * with no pruning, so by step ~40 the request exceeded the free model's

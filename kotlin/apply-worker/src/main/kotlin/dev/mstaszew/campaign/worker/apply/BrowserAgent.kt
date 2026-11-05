@@ -684,8 +684,15 @@ class BrowserAgent(
                 result
             }
             "skip_task" -> {
-                val reason = call.arguments.path("reason").asText("unknown").trim()
+                val rawReason = call.arguments.path("reason").asText("unknown").trim()
                 val detail = call.arguments.path("detail").asText("").trim()
+                // 2026-11-05 copilot-studio: the model emitted single-quoted
+                // JSON in the arguments; the parsed reason came through as the
+                // literal garbage "duplicate','detail", missed the duplicate
+                // branch and WALL-skipped the listing. Mine the intent: any
+                // occurrence of a valid reason string wins over the garbage.
+                val reason = VALID_SKIP_REASONS.firstOrNull { rawReason.contains(it, ignoreCase = true) }
+                    ?: rawReason
                 if (reason.isBlank() || reason == "unknown") {
                     // 2026-11-05 wordpress: the model reached the ATS form and
                     // gave up with EMPTY skip arguments; accepting that walled
@@ -972,6 +979,11 @@ class BrowserAgent(
 
         /** First empty skip_task is refused with a nudge; the second is Transient. */
         private const val EMPTY_SKIP_LIMIT = 2
+
+        /** The three skip reasons the prompt teaches; skip_task args are mined
+         * for these before the blank/unknown check (see the copilot-studio
+         * single-quoted-JSON flake). */
+        private val VALID_SKIP_REASONS = listOf("duplicate", "captcha", "portal-block")
 
         /**
          * Navigate-loop guard threshold (NFJ 2026-11-04): the 2nd consecutive
