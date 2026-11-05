@@ -422,10 +422,17 @@ class ArgCoerceTest {
         assertThat(frobnicate.path("index").asInt()).isEqualTo(1)
     }
 
+    /**
+     * 2026-11-05 mobile-developer live run: the model sent garbage actions
+     * WITHOUT an index 4 times and got 4 identical zod rejections it then
+     * ignored - each a burned step. The safe read-only default ("list")
+     * answers what such a call almost always means and lets the model
+     * self-correct from the tab list.
+     */
     @Test
-    fun `browser_tabs unknown action without index passes through for a loud schema error`() {
-        val args = mapper.readTree("""{"action": "frobnicate"}""")
+    fun `browser_tabs unknown action without index coerces to list`() {
+        val coerced = ArgCoerce.normalize("browser_tabs", mapper.readTree("""{"action": "frobnicate"}"""), "")
 
-        assertThat(ArgCoerce.normalize("browser_tabs", args, "")).isEqualTo(args)
+        assertThat(coerced.path("action").asText()).isEqualTo("list")
     }
 }

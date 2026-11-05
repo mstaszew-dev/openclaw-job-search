@@ -192,10 +192,13 @@ internal object ArgCoerce {
             // Unknown action carrying an index can only mean select: close
             // is destructive, and the index-consuming intent is a switch.
             idx != null && !idx.isNull -> "select"
-            // Unknown action, no index: pass through so the zod error at
-            // the MCP stays loud (a fabricated action would hide the model's
-            // real mistake).
-            else -> return args
+            // Unknown action, no index: coerce to "list" (2026-11-05 mobile-
+            // developer live run: the model sent garbage actions 4x and got
+            // 4 identical zod rejections it then ignored - each one a burned
+            // step). The safe read-only default answers what such a call
+            // almost always means ("show me the tabs") and the tab list
+            // lets the model self-correct with a real select.
+            else -> "list"
         }
 
         val out = mapper.createObjectNode()
