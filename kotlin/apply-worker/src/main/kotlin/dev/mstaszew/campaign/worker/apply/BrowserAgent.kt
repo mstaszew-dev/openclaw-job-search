@@ -688,22 +688,20 @@ class BrowserAgent(
                 val detail = call.arguments.path("detail").asText("").trim()
                 // 2026-11-05 copilot-studio: the model emitted single-quoted
                 // JSON in the arguments; the parsed reason came through as the
-                // literal garbage "duplicate','detail", missed the duplicate
-                // branch and WALL-skipped the listing. Mine the intent: any
+                // literal garbage "duplicate','detail". Mine the intent: any
                 // occurrence of a valid reason string wins over the garbage.
+                // 2026-11-05 specjalista-it: a garbage reason with NO valid
+                // one inside (",") slipped past the blank check and
+                // WALL-skipped the listing - so an unrecognized reason takes
+                // the same refuse/requeue path as an empty one. A skip flake
+                // is never a wall.
                 val reason = VALID_SKIP_REASONS.firstOrNull { rawReason.contains(it, ignoreCase = true) }
-                    ?: rawReason
-                if (reason.isBlank() || reason == "unknown") {
-                    // 2026-11-05 wordpress: the model reached the ATS form and
-                    // gave up with EMPTY skip arguments; accepting that walled
-                    // a live listing ("browser-failed: skipped:"). An unstated
-                    // reason is an argument-fidelity flake, not a decision:
-                    // refuse once with a nudge; a model that insists requeues
-                    // as Transient. Never a wall.
+                if (reason == null) {
                     state.emptySkipTrips += 1
                     if (state.emptySkipTrips >= EMPTY_SKIP_LIMIT) {
                         return ApplyResult.Transient(
-                            "model gave up without a stated reason after ${state.emptySkipTrips} skip_task tries",
+                            "model gave up without a valid reason after ${state.emptySkipTrips} skip_task tries " +
+                                "(last reason: ${rawReason.take(80)})",
                         )
                     }
                     ToolOutcome(

@@ -1664,7 +1664,7 @@ class BrowserAgentTest {
         val result = run(agent(transport))
 
         assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
-        assertThat((result as ApplyResult.Transient).detail).contains("without a stated reason")
+        assertThat((result as ApplyResult.Transient).detail).contains("without a valid reason")
     }
 
     /**
@@ -1684,6 +1684,28 @@ class BrowserAgentTest {
         val result = run(agent(transport))
 
         assertThat(result).isInstanceOf(ApplyResult.DuplicateNow::class.java)
+        verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
+    }
+
+    /**
+     * 2026-11-05 specjalista-it: a garbage reason with NO valid one inside
+     * (",") slipped past the blank check and WALL-skipped the listing via
+     * Failed("skipped: ,"). An unrecognized reason takes the same
+     * refuse/requeue path as an empty one - a skip flake is never a wall.
+     */
+    @Test
+    fun `a garbage skip reason with no valid one inside requeues instead of walling`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("skip_task", """{"reason":",","detail":""}"""),
+                toolCallResponse("skip_task", """{"reason":".,.","detail":""}"""),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
+        assertThat((result as ApplyResult.Transient).detail).contains("without a valid reason")
         verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
     }
 
