@@ -1092,6 +1092,127 @@ class BrowserAgentTest {
     }
 
     /**
+     * 2026-11-05 wordpress regrind death: the browser was already ON the
+     * listing URL, but open_listing navigated anyway, tripped the identical
+     * navigate guard ("BLOCKED: this is navigate #N in a row to the exact
+     * same URL"), and the model's retries rode the loop breaker to an
+     * attempt kill (170 steps, 20 open_listing failures). Already being on
+     * the listing is the goal state: open_listing must answer success with
+     * zero navigation.
+     */
+    @Test
+    fun `open_listing answers success when already on the listing page`() {
+        every {
+            browser.callToolText(eq("browser_evaluate"), any(), any())
+        } returns "https://nofluffjobs.com/pl/job/x"
+
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        // Cleanup (TabCleanup) navigates to about:blank after every run, so
+        // the assertion is scoped to the listing URL: open_listing itself
+        // must not navigate there.
+        verify(exactly = 0) {
+            browser.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "https://nofluffjobs.com/pl/job/x" },
+                any(),
+            )
+        }
+        // The idempotence check reads the live location worker-side.
+        verify {
+            browser.callToolText(
+                eq("browser_evaluate"),
+                match { it.path("function").asText() == "location.href" },
+                any(),
+            )
+        }
+    }
+
+    /**
+     * The wordpress death shape, take two (review 2026-11-05): a model that
+     * keeps calling open_listing while ALREADY on the listing would get a
+     * success every time, which resets the wander streak on every call and
+     * can only end at the 200-step cap with no attempt history. The first
+     * no-op is the fix (redirect to action); the second is a corrective
+     * failure so the loop breaker can end the attempt WITH history, and the
+     * "BLOCKED: open_listing" prefix is what WorkerLoop's
+     * MODEL_FLAKE_SIGNATURES requeue check contains-matches (evolve
+     * together).
+     */
+    @Test
+    fun `second open_listing on the same page answers a corrective failure`() {
+        every {
+            browser.callToolText(eq("browser_evaluate"), any(), any())
+        } returns "https://nofluffjobs.com/pl/job/x"
+
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        // The 2nd open_listing's tool result rides into the next request
+        // body; a single corrective failure must not end the attempt.
+        assertThat(transport.bodies.last()).contains("BLOCKED: open_listing")
+    }
+
+    /**
+     * The location probe sits IN FRONT of the infra escape (review
+     * 2026-11-05): swallowing a dead-MCP exception would fall through to a
+     * doomed navigate and lose the first-detection Transient path
+     * (german-pracuj). Death must propagate out of the probe: Transient,
+     * attempt history, and zero navigation.
+     */
+    @Test
+    fun `open_listing probe death returns Transient without navigating`() {
+        every {
+            browser.callToolText(eq("browser_evaluate"), any(), any())
+        } throws McpClientException("call failed: MCP server process died (exit=134)")
+
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
+        assertThat((result as ApplyResult.Transient).detail).startsWith("MCP server process died")
+        verify(exactly = 0) {
+            browser.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "https://nofluffjobs.com/pl/job/x" },
+                any(),
+            )
+        }
+        verify { recorder.recordAttemptHistory(any(), match { it.finalStatus.contains("process died") }) }
+    }
+
+    /**
      * NFJ recipe + success shape (2026-11-04): the Aplikuj button is marked
      * [disabled] in the snapshot until the SPA hydrates, and a working click
      * opens the ATS in a NEW TAB while the NFJ tab lands on /success - the

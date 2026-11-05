@@ -559,6 +559,7 @@ class WorkerLoop(
          */
         val MODEL_FLAKE_SIGNATURES = listOf(
             "BLOCKED: this is navigate",
+            "BLOCKED: open_listing",
             "Cannot navigate to invalid URL",
             "wander breaker:",
             "step cap",

@@ -338,6 +338,14 @@ class BrowserAgent(
         var failingTool: String? = null
         var failureStreak: Int = 0
 
+        /**
+         * Consecutive no-op open_listing answers (already on the listing).
+         * The first succeeds and redirects to action; a relapse is
+         * corrective-failed so the loop breaker, not the step cap, ends the
+         * attempt with history. A navigating open_listing resets it.
+         */
+        var noOpOpenListingStreak: Int = 0
+
         /** Wander-breaker state: consecutive READ-ONLY steps, whatever their tool mix. */
         var readStreak: Int = 0
 
@@ -689,11 +697,45 @@ class BrowserAgent(
                 // and "https://}}" live - mangling even the URL the prompt
                 // states verbatim). Routed through the browser_navigate path
                 // so the navigate-repeat guard and loop breakers stay in force.
-                browserTool(
-                    browser,
-                    ToolCall("browser_navigate", mapper.createObjectNode().apply { put("url", state.listing.url) }),
-                    state,
-                )
+                // Idempotence (2026-11-05 wordpress regrind death): already
+                // being ON the listing is the goal state - navigating from
+                // there trips the identical-navigate guard and the model's
+                // retries ride the loop breaker to an attempt kill (20
+                // open_listing failures, dead at 170 steps). So check first
+                // and answer with zero navigation when the page is already
+                // the listing. The FIRST no-op succeeds (redirects to
+                // action); a relapse is a corrective failure, because an
+                // unbounded no-op success resets the wander streak on every
+                // call and could only end at the step cap with no attempt
+                // history (review 2026-11-05).
+                if (alreadyOnListing(browser, state.listing.url)) {
+                    state.noOpOpenListingStreak += 1
+                    if (state.noOpOpenListingStreak >= NO_OP_OPEN_LISTING_LIMIT) {
+                        ToolOutcome(
+                            "open_listing",
+                            "BLOCKED: open_listing #${state.noOpOpenListingStreak} while already on the " +
+                                "listing page - you were told to ACT, not to re-open. Take " +
+                                "browser_snapshot and click the apply control or fill the form; more " +
+                                "open_listing calls will end this attempt.",
+                            failed = true,
+                        )
+                    } else {
+                        ToolOutcome(
+                            "open_listing",
+                            "Already on the listing page (${state.listing.url}) - no navigation needed. " +
+                                "Do NOT call open_listing again: take browser_snapshot and ACT on what you " +
+                                "see (click the apply control, fill the form).",
+                            failed = false,
+                        )
+                    }
+                } else {
+                    state.noOpOpenListingStreak = 0
+                    browserTool(
+                        browser,
+                        ToolCall("browser_navigate", mapper.createObjectNode().apply { put("url", state.listing.url) }),
+                        state,
+                    )
+                }
             "profile_fill" ->
                 // Worker-side, zero model arguments (theprotocol/eRecruiter
                 // 2026-11-05: the free model burned 200 steps re-typing the
@@ -711,6 +753,50 @@ class BrowserAgent(
                 }
             else -> browserTool(browser, call, state)
         }
+
+    /**
+     * open_listing idempotence probe (2026-11-05 wordpress regrind death:
+     * browser already on the listing, open_listing re-navigated into the
+     * identical-navigate guard, 10 retries -> loop-breaker kill). Reads the
+     * live location.href worker-side (zero model JavaScript - the free model
+     * cannot compose a valid evaluate call, 2026-10-21). Costs one extra
+     * in-step tool call, within the poll budget's slack. Best effort: any
+     * non-infra failure returns false and the caller falls through to the
+     * ordinary navigate path, i.e. status quo.
+     */
+    private fun alreadyOnListing(browser: McpStdioClientClient, listingUrl: String?): Boolean {
+        if (listingUrl.isNullOrBlank()) return false
+        val raw = try {
+            val args = mapper.createObjectNode().apply { put("function", "location.href") }
+            browser.client.callToolText("browser_evaluate", args, TOOL_TIMEOUT)
+        } catch (e: Exception) {
+            if (e is InterruptedException) Thread.currentThread().interrupt()
+            // A dead MCP process must reach run()'s Transient branch at
+            // first detection (german-pracuj) instead of paying a doomed
+            // navigate first - swallow would hide the death behind the loop
+            // breaker. Mirrors browserTool's rethrow.
+            val msg = e.message ?: ""
+            if (msg.contains("process died") || msg.contains("server closed stdout")) throw e
+            log.warn("open_listing: location probe failed: {}", msg.take(200))
+            return false
+        }
+        // Last URL-looking run, mirroring CvUploader's production-proven
+        // parse (the result may carry surrounding text or fences).
+        val href = HREF_PATTERN.findAll(raw).lastOrNull()?.value
+        if (href == null) {
+            // about:blank is a normal fresh tab; anything else is format
+            // drift - log it so a changed evaluate shape stays diagnosable.
+            log.info("open_listing: location probe returned no url; raw: {}", raw.take(200))
+            return false
+        }
+        // Same page modulo fragment and trailing slash (servers redirect
+        // "/x" to "/x/" and back; a fragment never changes the document).
+        fun norm(u: String) = u.trim().substringBefore('#').trimEnd('/')
+        return norm(href) == norm(listingUrl)
+    }
+
+    /** First URL-looking run in an evaluate result (quotes/fences/prose tolerated). */
+    private val HREF_PATTERN = Regex("""https?://[^\s"'`)]+""")
 
     private fun browserTool(browser: McpStdioClientClient, call: ToolCall, state: LoopState): ToolOutcome {
         // Navigate-loop guard (NFJ 2026-11-04 senior-ux-ui-designer): the model
@@ -798,6 +884,9 @@ class BrowserAgent(
          * identical navigate is blocked with a corrective shove; a model that
          * relapses dies on the ordinary failure streak instead of the step cap.
          */
+        /** First no-op open_listing succeeds; a relapse is corrective-failed (feeds the loop breaker, not the step cap). */
+        private const val NO_OP_OPEN_LISTING_LIMIT = 2
+
         private const val NAVIGATE_REPEAT_LIMIT = 2
 
         /** Post-attempt blank navigate bound well below the tool timeout.

@@ -82,6 +82,26 @@ internal object ArgCoerce {
     /** Only these tool names are ever reshaped; ledger tools pass raw. */
     private val COERCIBLE_TOOLS = setOf("browser_fill_form", "browser_evaluate", "browser_navigate", "browser_tabs")
 
+    private val NON_ALNUM = Regex("""[^a-z0-9]+""")
+
+    private val ACTION_NUMBER = Regex("""\d+""")
+
+    /** The four actions playwright-mcp's browser_tabs schema accepts. */
+    private val TAB_ACTIONS = setOf("list", "new", "close", "select")
+
+    /**
+     * What free models actually emit for browser_tabs action instead of the
+     * schema enum (2026-11-05 enova death: 21 consecutive zod rejections of
+     * `expected one of "list"|"new"|"close"|"select" -> at action`, then a
+     * loop-breaker kill).
+     */
+    private val TAB_ACTION_SYNONYMS = mapOf(
+        "switch" to "select", "focus" to "select", "activate" to "select", "goto" to "select",
+        "open" to "new", "create" to "new", "add" to "new",
+        "kill" to "close", "remove" to "close",
+        "ls" to "list", "all" to "list",
+    )
+
     private val mapper = ObjectMapper()
 
     fun normalize(toolName: String, args: JsonNode, lastSnapshot: String): JsonNode {
@@ -152,19 +172,44 @@ internal object ArgCoerce {
      * became LISTs, so every intent to act was a read).
      */
     private fun normalizeTabs(args: ObjectNode): JsonNode {
-        val action = args.path("action").asText("").lowercase()
-            .ifBlank { args.path("tab_action").asText("").lowercase() }
-        val idx = args.get("index") ?: args.get("tab") ?: args.get("tabIndex")
-        if (action.isEmpty() && (idx == null || idx.isNull)) return args
-        val out = mapper.createObjectNode()
-        val effectiveAction = action.ifBlank { "select" }
-        if (effectiveAction.isNotEmpty()) out.put("action", effectiveAction)
-        when {
-            idx == null || idx.isNull -> {}
-            idx.isNumber -> out.put("index", idx.asInt())
-            idx.isTextual && idx.asText().trim().toIntOrNull() != null ->
-                out.put("index", idx.asText().trim().toInt())
+        val raw = args.path("action").asText("").ifBlank { args.path("tab_action").asText("") }
+        // Alias chain skips NullNode: {index: null, tab: "2"} must still see
+        // the tab - JsonNode ?: short-circuits on NullNode, not just absence.
+        val idx = args.get("index")?.takeIf { !it.isNull }
+            ?: args.get("tab")?.takeIf { !it.isNull }
+            ?: args.get("tabIndex")?.takeIf { !it.isNull }
+        if (raw.isBlank() && (idx == null || idx.isNull)) return args
+
+        // First alphanumeric token of the action: strips junk for free
+        // (quotes, parens, case: "\"Select\"" / "select()" -> "select") and
+        // takes the head of prose ("switch to tab 2" -> "switch").
+        val token = raw.lowercase().split(NON_ALNUM).firstOrNull { it.isNotEmpty() } ?: ""
+        val mapped = TAB_ACTION_SYNONYMS[token] ?: token.takeIf { it in TAB_ACTIONS }
+        val effective = when {
+            mapped != null -> mapped
+            // A bare number as the action means that tab: "2" -> select 2.
+            token.toIntOrNull() != null -> "select"
+            // Unknown action carrying an index can only mean select: close
+            // is destructive, and the index-consuming intent is a switch.
+            idx != null && !idx.isNull -> "select"
+            // Unknown action, no index: pass through so the zod error at
+            // the MCP stays loud (a fabricated action would hide the model's
+            // real mistake).
             else -> return args
+        }
+
+        val out = mapper.createObjectNode()
+        out.put("action", effective)
+        when {
+            idx != null && !idx.isNull -> when {
+                idx.isNumber -> out.put("index", idx.asInt())
+                idx.isTextual && idx.asText().trim().toIntOrNull() != null ->
+                    out.put("index", idx.asText().trim().toInt())
+                else -> return args
+            }
+            // The action itself may carry the tab number ("2", "close tab 2").
+            effective == "select" || effective == "close" ->
+                ACTION_NUMBER.find(raw)?.value?.toIntOrNull()?.let { out.put("index", it) }
         }
         return out
     }

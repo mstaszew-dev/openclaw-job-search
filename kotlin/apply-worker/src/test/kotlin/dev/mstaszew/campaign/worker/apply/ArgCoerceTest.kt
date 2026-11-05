@@ -382,4 +382,50 @@ class ArgCoerceTest {
         assertThat(out.path("action").asText()).isEqualTo("select")
         assertThat(out.path("index").asInt()).isEqualTo(1)
     }
+
+    /**
+     * 2026-11-05 enova regrind death: 21 browser_tabs calls in a row failed
+     * zod with `Invalid option: expected one of "list"|"new"|"close"|"select"
+     * -> at action` until the loop breaker killed the attempt. The free
+     * model emits synonyms ("switch"), junk ("select()", quoted "Select"),
+     * bare numbers ("2") and prose ("switch to tab 2") for the action. Map
+     * what is mappable; an unknown action WITH an index can only mean
+     * select; an unknown action with no index passes through so the schema
+     * error stays loud.
+     */
+    @Test
+    fun `browser_tabs action synonyms junk numbers and prose are coerced`() {
+        fun act(json: String) = ArgCoerce.normalize("browser_tabs", mapper.readTree(json), "")
+
+        assertThat(act("""{"action": "switch", "index": 1}""").path("action").asText()).isEqualTo("select")
+        assertThat(act("""{"action": "focus", "index": 2}""").path("action").asText()).isEqualTo("select")
+        assertThat(act("""{"action": "activate", "index": 1}""").path("action").asText()).isEqualTo("select")
+        assertThat(act("""{"action": "goto", "index": 1}""").path("action").asText()).isEqualTo("select")
+        assertThat(act("""{"action": "open"}""").path("action").asText()).isEqualTo("new")
+        assertThat(act("""{"action": "create"}""").path("action").asText()).isEqualTo("new")
+        assertThat(act("""{"action": "kill", "index": 0}""").path("action").asText()).isEqualTo("close")
+        assertThat(act("""{"action": "remove", "index": 0}""").path("action").asText()).isEqualTo("close")
+        assertThat(act("""{"action": "ls"}""").path("action").asText()).isEqualTo("list")
+        assertThat(act("""{"action": "select()"}""").path("action").asText()).isEqualTo("select")
+        assertThat(act("""{"action": "\"Select\""}""").path("action").asText()).isEqualTo("select")
+
+        val numeric = act("""{"action": "2"}""")
+        assertThat(numeric.path("action").asText()).isEqualTo("select")
+        assertThat(numeric.path("index").asInt()).isEqualTo(2)
+
+        val prose = act("""{"action": "switch to tab 2"}""")
+        assertThat(prose.path("action").asText()).isEqualTo("select")
+        assertThat(prose.path("index").asInt()).isEqualTo(2)
+
+        val frobnicate = act("""{"action": "frobnicate", "index": 1}""")
+        assertThat(frobnicate.path("action").asText()).isEqualTo("select")
+        assertThat(frobnicate.path("index").asInt()).isEqualTo(1)
+    }
+
+    @Test
+    fun `browser_tabs unknown action without index passes through for a loud schema error`() {
+        val args = mapper.readTree("""{"action": "frobnicate"}""")
+
+        assertThat(ArgCoerce.normalize("browser_tabs", args, "")).isEqualTo(args)
+    }
 }
