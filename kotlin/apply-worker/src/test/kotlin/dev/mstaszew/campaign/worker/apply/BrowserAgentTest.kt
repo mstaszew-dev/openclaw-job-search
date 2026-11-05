@@ -1838,4 +1838,107 @@ class BrowserAgentTest {
         assertThat(mapper.readTree(transport.bodies[2]).path("messages").last().path("content").asText())
             .doesNotContain("SNAP-B")
     }
+
+    /**
+     * 2026-11-06: a NEW page state supersedes the old one - when a second
+     * MCP-shaped snapshot (### Page prefix) arrives, it REPLACES the previous
+     * snapshot message instead of growing the window. Two full-page snapshots
+     * must never coexist in the context.
+     */
+    @Test
+    fun `a new snapshot replaces the previous page state`() {
+        val snapA = "### Page\n- Page URL: https://x/a\n```yaml\n- generic [ref=e1]: A ${"x".repeat(2000)}```"
+        val snapB = "### Page\n- Page URL: https://x/b\n```yaml\n- button \"Aplikuj\" [ref=e305]${"y".repeat(2000)}```"
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+        every { browser.callToolText(eq("browser_snapshot"), any(), any()) } returnsMany
+            listOf(snapA, snapB)
+
+        run(agent(transport, maxSteps = 10))
+
+        val last = mapper.readTree(transport.bodies.last()).path("messages")
+        // task + ONE snapshot (B replaced A) + system
+        assertThat(last.size()).isEqualTo(3)
+        assertThat(last[1].path("content").asText()).contains("ref=e305")
+        assertThat(last[1].path("content").asText()).doesNotContain("Page URL: https://x/a")
+    }
+
+    /**
+     * 2026-11-06 root cause of the theprotocol navigate-grinds: the MCP
+     * snapshot runs 31k chars with the Aplikuj button (ref e305) at char
+     * ~18k - past the 16k limit, the model never saw the apply control and
+     * ground open_listing instead. The limit must carry the whole MCP
+     * snapshot.
+     */
+    @Test
+    fun `a full mcp snapshot reaches the model past the old 16k cut`() {
+        val big = buildString {
+            // Realistic shape: 31k total, button at ~17.5k - past the old 16k
+            // cut, inside the 36k budget.
+            append("### Page\n- Page URL: https://x/listing\n### Snapshot\n```yaml\n")
+            repeat(400) { idx -> append("- generic [ref=e$idx]: listing padding line $idx\n") }
+            append("- button \"Aplikuj\" [ref=e305] [cursor=pointer]\n")
+            repeat(200) { idx -> append("- generic [ref=f$idx]: tail $idx\n") }
+            append("```\n")
+        }
+        every { browser.callToolText(eq("browser_snapshot"), any(), any()) } returns big
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        // The BUTTON line specifically (padding lines share the ref numbering);
+        // quote-free substring because the wire body JSON-escapes the quotes.
+        assertThat(transport.bodies[1]).contains("[ref=e305] [cursor=pointer]")
+    }
+
+    /**
+     * Review S1 (2026-11-06): supersession must REMOVE the old snapshot and
+     * append the new one at the TAIL. Replacing in place would let the fresh
+     * snapshot inherit the old one's age and get pruned on the very next
+     * result while stale results survived - losing the page state mid-form.
+     */
+    @Test
+    fun `a superseding snapshot lands at the tail and survives the next prune`() {
+        val snapA = "### Page\n- Page URL: https://x/a\n- generic [ref=e1]: A"
+        val snapB = "### Page\n- Page URL: https://x/b\n- button \"Aplikuj\" [ref=e305] [cursor=pointer]"
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_click", """{"target":"f1"}"""),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("browser_click", """{"target":"f2"}"""),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
+                ),
+            ),
+        )
+        every { browser.callToolText(eq("browser_snapshot"), any(), any()) } returnsMany
+            listOf(snapA, snapB)
+        every { browser.callToolText(eq("browser_click"), any(), any()) } returns "clicked"
+
+        run(agent(transport, maxSteps = 10))
+
+        // The LAST body must still carry snapB (the drawer with the apply
+        // control) after two further results were appended post-supersession.
+        assertThat(transport.bodies.last()).contains("ref=e305")
+        assertThat(transport.bodies.last()).doesNotContain("Page URL: https://x/a")
+    }
 }

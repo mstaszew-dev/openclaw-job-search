@@ -388,14 +388,16 @@ class BrowserAgent(
         )
         var lastSnapshot: String = ""
 
+        private val log = LoggerFactory.getLogger(LoopState::class.java)
+
         /**
          * Appends a user turn and prunes the conversation to the context
          * window. The unbounded accumulation of 4000-char tool results blew
          * past free-model context windows by step ~40 on long ATS forms
          * (2026-11-05 wordpress/enova deaths: snapshot-grinding, empty
          * give-ups); the window keeps the task message plus the most recent
-         * results, so the CURRENT form page is always in view while the
-         * stale middle goes.
+         * results, and the snapshot-supersession rule in appendResult keeps
+         * the CURRENT page state resident at the tail.
          */
         fun appendUserMessage(text: String) {
             messages += ChatMessage("user", text)
@@ -405,20 +407,28 @@ class BrowserAgent(
         }
 
         /**
-         * Tool-result append with an identical-snapshot rule (2026-11-05
-         * theprotocol quick-apply): re-reading an UNCHANGED page returns the
-         * same 16k-char snapshot; appending it again doubled the context cost
-         * of every read-grind step. When the last message IS this same
-         * snapshot, replace it in place - the model still sees the page, the
-         * window does not grow, and the wander breaker still counts the read.
+         * Tool-result append with snapshot supersession (2026-11-06): a NEW
+         * page state always supersedes the previous snapshot - two full-page
+         * snapshots must never coexist (the latest page is the only one that
+         * matters), and re-reading an UNCHANGED page (identical text) replaces
+         * in place instead of growing. The old snapshot is REMOVED and the new
+         * one appended at the tail (review S1): replacing in place would let
+         * the fresh snapshot inherit the old one's age and get pruned while
+         * stale results survived. The wander breaker still counts every read.
          */
         fun appendResult(toolName: String, text: String) {
-            if (toolName == "browser_snapshot" &&
-                messages.isNotEmpty() &&
-                messages.last().content == text
-            ) {
-                messages[messages.size - 1] = ChatMessage("user", text)
-                return
+            if (toolName == "browser_snapshot") {
+                if (messages.isNotEmpty() && messages.last().content == text) {
+                    messages[messages.size - 1] = ChatMessage("user", text)
+                    return
+                }
+                if (text.startsWith(SNAPSHOT_PREFIX)) {
+                    val prev = messages.indexOfLast { it.content.startsWith(SNAPSHOT_PREFIX) }
+                    if (prev >= 0) messages.removeAt(prev)
+                    appendUserMessage(text)
+                    return
+                }
+                log.warn("snapshot result without the expected '{}' prefix; appended unpruned", SNAPSHOT_PREFIX)
             }
             appendUserMessage(text)
         }
@@ -980,14 +990,25 @@ class BrowserAgent(
         const val MAX_CONTEXT_MESSAGES = 9
 
         /**
-         * Snapshot text budget (2026-11-05): the theprotocol quick-apply
-         * drawer renders its form fields between chars 5.5k and 14k of a
-         * 17k-char aria snapshot; the old 8k cut made the form invisible to
-         * the model. Non-snapshot results stay small - error tails run
-         * ~1.1k chars (upload_cv CDP path), 2k covers them.
+         * Snapshot text budget (2026-11-06): the REAL MCP snapshot for a
+         * theprotocol listing runs 31k chars (element refs + page header
+         * inflate the ~12k aria tree) with the Aplikuj button at char ~18k -
+         * the old 16k cut made the apply control INVISIBLE and the model
+         * ground open_listing on every theprotocol listing. 36k carries the
+         * whole snapshot; the supersession rule keeps at most ONE snapshot in
+         * the window, so the worst request is system ~9.7k + task + one 36k
+         * snapshot + 7x2k results = ~60k chars, about 20k tokens at ~3
+         * chars/token for Polish a11y text - requires a 32k-token-class model
+         * window (the pool's dots/cohere models qualify; a 16k model would
+         * overflow into "llm loop failed", which requeues without walling).
+         * Non-snapshot results stay small - error tails run ~1.1k chars
+         * (upload_cv CDP path), 2k covers them.
          */
-        const val SNAPSHOT_TEXT_LIMIT = 16_000
+        const val SNAPSHOT_TEXT_LIMIT = 36_000
         const val TOOL_TEXT_LIMIT = 2_000
+
+        /** MCP snapshots open with this header; the supersession rule keys on it. */
+        const val SNAPSHOT_PREFIX = "### Page"
 
         /** First empty skip_task is refused with a nudge; the second is Transient. */
         private const val EMPTY_SKIP_LIMIT = 2
