@@ -1595,4 +1595,84 @@ class BrowserAgentTest {
         // Attempt history must be recorded so the retry prompt learns from this death.
         verify { recorder.recordAttemptHistory(any(), match { it.finalStatus.contains("process died") }) }
     }
+
+    /**
+     * 2026-11-05 wordpress death: the model reached the ATS form, ground
+     * snapshots, then called skip_task with EMPTY arguments; the empty give-up
+     * was accepted and wall-skipped the listing ("browser-failed: skipped:").
+     * An unstated reason is an argument-fidelity flake, not a decision: refuse
+     * it with a corrective nudge and continue the run.
+     */
+    @Test
+    fun `an empty skip_task is refused with a nudge and the run continues`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("skip_task", "{}"),
+                toolCallResponse("skip_task", """{"reason":"portal-block","detail":"dead form"}"""),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
+        // The refusal nudge reached the wire (the model saw it before retrying).
+        assertThat(transport.bodies[1]).contains("REFUSED: skip_task needs a reason")
+        verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
+    }
+
+    /** A model that insists on empty give-ups requeues as Transient; never a wall. */
+    @Test
+    fun `a repeated empty skip_task ends the unit as Transient`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("skip_task", "{}"),
+                toolCallResponse("skip_task", """{"reason":"   "}"""),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
+        assertThat((result as ApplyResult.Transient).detail).contains("without a stated reason")
+    }
+
+    /**
+     * The architectural root cause of the 2026-11-05 step-40+ degeneration:
+     * every tool result (up to 4000 chars) accumulated in the conversation
+     * with no pruning, so by step ~40 the request exceeded the free model's
+     * context window and the model degraded into snapshot-grinding and empty
+     * give-ups. The window must stay bounded while keeping the task message.
+     */
+    @Test
+    fun `conversation window stays bounded and keeps the task message`() {
+        val script = buildList {
+            repeat(6) {
+                repeat(5) { add(toolCallResponse("browser_snapshot", "{}")) }
+                // An action between read waves keeps the wander breaker asleep.
+                add(toolCallResponse("browser_fill_form", """{"fields":[{"name":"email","type":"textbox","value":"a@b.c"}]}"""))
+            }
+            add(toolCallResponse(
+                "record_submission",
+                """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
+            ))
+        }
+        val transport = ScriptedTransport(script)
+
+        val result = run(agent(transport, maxSteps = 45))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        transport.bodies.forEach { body ->
+            val messages = mapper.readTree(body).path("messages")
+            assertThat(messages.isArray).isTrue()
+            // The wire body = conversation window + the per-request system message.
+            assertThat(messages.size()).isLessThanOrEqualTo(BrowserAgent.MAX_CONTEXT_MESSAGES + 1)
+            // The task message survives every prune (system is last; task first).
+            assertThat(messages.first().path("content").asText()).contains("Apply to this job now")
+        }
+        // The window is actually exercised: the last request carries a full
+        // window (system + MAX conversation messages), proving pruning ran.
+        val last = mapper.readTree(transport.bodies.last()).path("messages")
+        assertThat(last.size()).isEqualTo(BrowserAgent.MAX_CONTEXT_MESSAGES + 1)
+        assertThat(last.last().path("role").asText()).isEqualTo("system")
+    }
 }

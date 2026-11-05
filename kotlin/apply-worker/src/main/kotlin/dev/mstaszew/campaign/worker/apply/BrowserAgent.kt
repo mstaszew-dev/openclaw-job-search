@@ -160,7 +160,7 @@ class BrowserAgent(
                         return result
                     }
                     log.info("job {}: narration trip {}, nudging back to tools", jobId, narrationTrips)
-                    state.messages += ChatMessage("user", NARRATION_NUDGE)
+                    state.appendUserMessage(NARRATION_NUDGE)
                     continue
                 }
                 val dispatchStart = System.nanoTime()
@@ -246,7 +246,7 @@ class BrowserAgent(
                                 state.readStreak = 0
                                 state.wanderCorrectionPending = true
                                 log.warn("job {}: wander trip 1, injecting correction", jobId)
-                                state.messages += ChatMessage("user", WANDER_CORRECTION)
+                                state.appendUserMessage(WANDER_CORRECTION)
                             } else {
                                 val result = out(
                                     step,
@@ -259,7 +259,7 @@ class BrowserAgent(
                                 return result
                             }
                         }
-                        state.messages += ChatMessage("user", dispatched.text.take(4000))
+                        state.appendUserMessage(dispatched.text.take(4000))
                         // Stale-ref auto-correction (pekao-conext 2026-10-27):
                         // "Ref e29 not found in the current page snapshot"
                         // repeated five times burned the unit - the model
@@ -288,7 +288,7 @@ class BrowserAgent(
                             } catch (e: Exception) {
                                 "evaluate fallback failed: ${e.message?.take(200)}"
                             }
-                            state.messages += ChatMessage("user", "Evaluate fallback result: $fallbackText")
+                            state.appendUserMessage("Evaluate fallback result: $fallbackText")
                             // Reset the failure streak so the loop breaker doesn't fire
                             state.failureStreak = 0
                             state.failingTool = null
@@ -302,7 +302,7 @@ class BrowserAgent(
                                 jobId,
                                 state.staleRefCorrections,
                             )
-                            state.messages += ChatMessage("user", STALE_REF_CORRECTION)
+                            state.appendUserMessage(STALE_REF_CORRECTION)
                         }
                         if (state.failureStreak >= LOOP_BREAK_THRESHOLD) {
                             val result = out(
@@ -361,6 +361,10 @@ class BrowserAgent(
          * dispatch-site stale-ref block). */
         var staleRefCorrections: Int = 0
 
+        /** Empty skip_task attempts (WordPress 2026-11-05): the first is
+         * refused with a nudge, the second ends the unit as Transient. */
+        var emptySkipTrips: Int = 0
+
         /** Navigate-loop guard: the URL of the last dispatched browser_navigate
          * and how many times it was requested CONSECUTIVELY (NFJ 2026-11-04:
          * 15 back-to-back navigates to the same listing rode to the step cap,
@@ -383,6 +387,22 @@ class BrowserAgent(
             ),
         )
         var lastSnapshot: String = ""
+
+        /**
+         * Appends a user turn and prunes the conversation to the context
+         * window. The unbounded accumulation of 4000-char tool results blew
+         * past free-model context windows by step ~40 on long ATS forms
+         * (2026-11-05 wordpress/enova deaths: snapshot-grinding, empty
+         * give-ups); the window keeps the task message plus the most recent
+         * results, so the CURRENT form page is always in view while the
+         * stale middle goes.
+         */
+        fun appendUserMessage(text: String) {
+            messages += ChatMessage("user", text)
+            while (messages.size > MAX_CONTEXT_MESSAGES) {
+                messages.removeAt(1)
+            }
+        }
 
         /** Create an AttemptHistoryEntry if this attempt failed with serious issues. */
         fun createAttemptHistoryEntry(finalStatus: String): AttemptHistoryEntry? {
@@ -645,12 +665,34 @@ class BrowserAgent(
                 result
             }
             "skip_task" -> {
-                val reason = call.arguments.path("reason").asText("unknown")
-                val detail = call.arguments.path("detail").asText("")
-                when (reason) {
-                    "duplicate" -> ApplyResult.DuplicateNow(detail)
-                    "captcha", "portal-block" -> ApplyResult.Blocked(reason, detail)
-                    else -> ApplyResult.Failed("skipped: $reason $detail")
+                val reason = call.arguments.path("reason").asText("unknown").trim()
+                val detail = call.arguments.path("detail").asText("").trim()
+                if (reason.isBlank() || reason == "unknown") {
+                    // 2026-11-05 wordpress: the model reached the ATS form and
+                    // gave up with EMPTY skip arguments; accepting that walled
+                    // a live listing ("browser-failed: skipped:"). An unstated
+                    // reason is an argument-fidelity flake, not a decision:
+                    // refuse once with a nudge; a model that insists requeues
+                    // as Transient. Never a wall.
+                    state.emptySkipTrips += 1
+                    if (state.emptySkipTrips >= EMPTY_SKIP_LIMIT) {
+                        return ApplyResult.Transient(
+                            "model gave up without a stated reason after ${state.emptySkipTrips} skip_task tries",
+                        )
+                    }
+                    ToolOutcome(
+                        "skip_task",
+                        "REFUSED: skip_task needs a reason - captcha | duplicate | portal-block (plus a short " +
+                            "detail). If you truly cannot proceed, call skip_task again with one of those reasons; " +
+                            "otherwise continue working the form.",
+                        failed = true,
+                    )
+                } else {
+                    when (reason) {
+                        "duplicate" -> ApplyResult.DuplicateNow(detail)
+                        "captcha", "portal-block" -> ApplyResult.Blocked(reason, detail)
+                        else -> ApplyResult.Failed("skipped: $reason $detail")
+                    }
                 }
             }
             "upload_cv" ->
@@ -880,6 +922,22 @@ class BrowserAgent(
         val TOOL_TIMEOUT: Duration = Duration.ofMillis(AgentLoopBounds.TOOL_TIMEOUT_MS)
 
         /**
+         * Conversation window: task message + the most recent tool results.
+         * Public for the window test. Unbounded accumulation of 4000-char
+         * results blew free-model context windows by step ~40 on long ATS
+         * forms (2026-11-05 wordpress/enova degeneration). Sized for margin:
+         * the system template alone measures ~9.7k chars and Polish a11y text
+         * tokenizes near 3 chars/token, so 8 results x 4000 chars + system +
+         * task stay inside a 16k-token model window with the output budget.
+         * (A hard overflow surfaces as "llm loop failed", which is an
+         * INFRA_SIGNATURE: re-enqueued, never walled.)
+         */
+        const val MAX_CONTEXT_MESSAGES = 9
+
+        /** First empty skip_task is refused with a nudge; the second is Transient. */
+        private const val EMPTY_SKIP_LIMIT = 2
+
+        /**
          * Navigate-loop guard threshold (NFJ 2026-11-04): the 2nd consecutive
          * identical navigate is blocked with a corrective shove; a model that
          * relapses dies on the ordinary failure streak instead of the step cap.
@@ -1037,7 +1095,8 @@ class BrowserAgent(
                 status.contains("portal-block") ||
                 status.contains("captcha") ||
                 status.contains("no tool call") ||
-                status.contains("process died")
+                status.contains("process died") ||
+                status.contains("without a stated reason")
 
         /** Consecutive same-tool failures that end the attempt as Failed.
          * Raised 3 -> 5 on 2026-10-26: the dominant failure is now a fast
