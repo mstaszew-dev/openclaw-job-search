@@ -31,20 +31,74 @@ class ApplyClickerTest {
         ApplyClicker.MARKER + mapper.writeValueAsString(mapOf("clicked" to true, "url" to url))
 
     @Test
-    fun `clicks an enabled control and reports the tab state`() {
+    fun `clicks an enabled control, switches to the opened ATS tab and reports it`() {
         every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("APPLY_PROBE_MARKER") }, any()) } returns probe(found = true)
-        every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("el.click()") }, any()) } returns clickResult("https://nofluffjobs.com/pl/job/x/success")
-        every { browser.callToolText(eq("browser_tabs"), any(), any()) } returns
-            "- 0: (current) [](about:blank)\n- 1: [Traffit](https://bluebinary.traffit.com/public/an/abc)"
+        every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("el.click()") }, any()) } returns clickResult("https://nofluffjobs.com/pl/job/x")
+        var clickHappened = false
+        every { browser.callToolText(eq("browser_tabs"), any(), any()) } answers {
+            val args = secondArg<com.fasterxml.jackson.databind.JsonNode>()
+            if (args.path("action").asText() == "select") "selected tab 1"
+            else if (clickHappened) "- 0: [](https://nofluffjobs.com/pl/job/x)\n- 1: [Traffit](https://bluebinary.traffit.com/public/an/abc)"
+            else "- 0: (current) [](https://nofluffjobs.com/pl/job/x)"
+        }
+        every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("el.click()") }, any()) } answers {
+            clickHappened = true
+            clickResult("https://nofluffjobs.com/pl/job/x")
+        }
 
         val result = clicker().click(browser, selector = null)
 
         assertThat(result).startsWith("apply_click: clicked")
-        assertThat(result).contains("/success")
+        assertThat(result).contains("SWITCHED")
         assertThat(result).contains("traffit.com")
-        assertThat(result).contains("browser_tabs")
-        verify(exactly = 1) { browser.callToolText(eq("browser_tabs"), any(), any()) }
+        verify(exactly = 1) {
+            browser.callToolText(eq("browser_tabs"), match { it.path("action").asText() == "select" && it.path("index").asInt() == 1 }, any())
+        }
         assertThat(sleeps).isEmpty()
+    }
+
+    /**
+     * 2026-11-05 inzynier live run: apply_click opened the ATS tab but the
+     * model never called browser_tabs(select) - it ground snapshots on the
+     * listing until the breaker killed it. The model demonstrably will not do
+     * the switch, so the worker owns it: diff the tab list across the click
+     * and select the NEW tab deterministically.
+     */
+    @Test
+    fun `auto-select names the new tab index in the answer`() {
+        every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("APPLY_PROBE_MARKER") }, any()) } returns probe(found = true)
+        var clickHappened = false
+        every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("el.click()") }, any()) } answers {
+            clickHappened = true
+            clickResult("https://nofluffjobs.com/pl/job/x")
+        }
+        every { browser.callToolText(eq("browser_tabs"), any(), any()) } answers {
+            val args = secondArg<com.fasterxml.jackson.databind.JsonNode>()
+            if (args.path("action").asText() == "select") "selected tab 3"
+            else if (clickHappened) "- 0: [](https://x)\n- 2: [](https://gmail.com)\n- 3: [ATS](https://ats.example/form)"
+            else "- 0: (current) [](https://x)\n- 2: [](https://gmail.com)"
+        }
+
+        val result = clicker().click(browser, selector = null)
+
+        assertThat(result).contains("SWITCHED")
+        assertThat(result).contains("index 3")
+        verify(exactly = 1) {
+            browser.callToolText(eq("browser_tabs"), match { it.path("action").asText() == "select" && it.path("index").asInt() == 3 }, any())
+        }
+    }
+
+    /** No new tab (same-tab redirect): no switch, plain report. */
+    @Test
+    fun `no new tab means no switch`() {
+        every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("APPLY_PROBE_MARKER") }, any()) } returns probe(found = true)
+        every { browser.callToolText(eq("browser_evaluate"), match { it.path("function").asText().contains("el.click()") }, any()) } returns clickResult("https://x/success")
+        every { browser.callToolText(eq("browser_tabs"), any(), any()) } returns "- 0: [](https://x/success)"
+
+        val result = clicker().click(browser, selector = null)
+
+        assertThat(result).doesNotContain("SWITCHED")
+        verify(exactly = 0) { browser.callToolText(eq("browser_tabs"), match { it.path("action").asText() == "select" }, any()) }
     }
 
     @Test

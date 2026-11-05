@@ -61,11 +61,17 @@ class ApplyClicker(
                 return "Error: apply_click: the apply control vanished after a wait; take a browser_snapshot and continue"
             }
         }
-        return clickThrough(browser, current, selector, waits)
+        return clickThrough(browser, current, selector, waits, listTabs(browser))
     }
 
     /** The probe says enabled: click and report URL + tab state. */
-    private fun clickThrough(browser: McpStdioClient, probe: com.fasterxml.jackson.databind.JsonNode, selector: String?, waits: Int): String {
+    private fun clickThrough(
+        browser: McpStdioClient,
+        probe: com.fasterxml.jackson.databind.JsonNode,
+        selector: String?,
+        waits: Int,
+        tabsBefore: String,
+    ): String {
         val clicked = evaluate(browser, clickFunction(selector))
             ?: return "Error: apply_click: click evaluate failed; take a browser_snapshot and use browser_click with a real ref"
         if (!clicked.path("clicked").asBoolean(false)) {
@@ -77,22 +83,67 @@ class ApplyClicker(
         val url = clicked.path("url").asText("")
         val text = probe.path("text").asText("")
         val waitedNote = if (waits > 0) " after $waits hydration wait(s)" else ""
-        val tabs = try {
-            browser.callToolText("browser_tabs", mapper.createObjectNode().apply { put("action", "list") }, TOOL_TIMEOUT)
-        } catch (e: Exception) {
-            if (e is InterruptedException) Thread.currentThread().interrupt()
-            log.warn("apply_click: tab list failed: {}", e.message)
-            ""
-        }
+        val tabsAfter = listTabs(browser)
         return buildString {
             append("apply_click: clicked \"$text\"$waitedNote; URL after click: $url.\n")
-            append("Tabs now:\n").append(tabs.take(800)).append("\n")
+            // 2026-11-05 inzynier: the model never switched to the ATS tab the
+            // click opened - it ground listing snapshots until the breaker
+            // killed the run. The switch is worker-owned mechanics now: diff
+            // the tab lists across the click and select the NEW tab.
+            val newTab = newTabIndexOf(tabsBefore, tabsAfter)
+            if (newTab != null) {
+                val switched = try {
+                    browser.callToolText(
+                        "browser_tabs",
+                        mapper.createObjectNode().apply {
+                            put("action", "select")
+                            put("index", newTab)
+                        },
+                        TOOL_TIMEOUT,
+                    )
+                    true
+                } catch (e: Exception) {
+                    if (e is InterruptedException) Thread.currentThread().interrupt()
+                    log.warn("apply_click: auto-select of tab $newTab failed: {}", e.message)
+                    false
+                }
+                if (switched) {
+                    append("SWITCHED to the new ATS tab (index $newTab) - fill the form HERE: ")
+                    append("profile_fill first, then browser_fill_form for the remaining fields, ")
+                    append("upload_cv when an upload control appears, click submit, then ")
+                    append("record_submission with the confirmation URL.\n")
+                    append("Tabs now:\n").append(tabsAfter.take(800))
+                    return@buildString
+                }
+            }
+            append("Tabs now:\n").append(tabsAfter.take(800)).append("\n")
             append("If a NEW tab holds the ATS form (traffit/lever/greenhouse/recruitee or an /apply URL), " +
                 "browser_tabs(action=\"select\", index=N) to it and fill the form there. If this tab shows a " +
                 "modal (e.g. \"Zaznacz czy zaaplikowales\") or /success, the click WORKED: take a browser_snapshot " +
                 "and continue from what it shows.")
         }
     }
+
+    private fun listTabs(browser: McpStdioClient): String = try {
+        browser.callToolText("browser_tabs", mapper.createObjectNode().apply { put("action", "list") }, TOOL_TIMEOUT)
+    } catch (e: Exception) {
+        if (e is InterruptedException) Thread.currentThread().interrupt()
+        log.warn("apply_click: tab list failed: {}", e.message)
+        ""
+    }
+
+    /**
+     * Index of the tab that appeared across the click, parsed from
+     * playwright-mcp list lines ("- 1: [Title](url)"); null when nothing new
+     * or the diff is ambiguous (multiple new tabs - the model chooses).
+     */
+    internal fun newTabIndexOf(before: String, after: String): Int? {
+        val urlsBefore = TAB_LINE.findAll(before).map { it.groupValues[2] }.toSet()
+        val newLines = TAB_LINE.findAll(after).filter { it.groupValues[2] !in urlsBefore }.toList()
+        return if (newLines.size == 1) newLines.single().groupValues[1].toIntOrNull() else null
+    }
+
+    private val TAB_LINE = Regex("- (\\d+):.*\\(([^()]*)\\)\\s*$")
 
     private fun probe(browser: McpStdioClient, selector: String?): com.fasterxml.jackson.databind.JsonNode? =
         evaluate(browser, probeFunction(selector))
