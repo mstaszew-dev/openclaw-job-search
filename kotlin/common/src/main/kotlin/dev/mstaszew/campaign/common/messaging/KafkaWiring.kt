@@ -152,18 +152,27 @@ class KafkaWiring {
 
         /**
          * Worst case of one apply: effectiveMaxSteps iterations, each of which
-         * waits up to STEP_TIMEOUT on the model and then up to TOOL_TIMEOUT on
-         * Playwright, plus 30 minutes of margin. Derived from AgentLoopBounds
-         * (the same source the loop reads), so a WORKER_MAX_STEPS override
-         * raises this budget with the loop instead of drifting below it; the
-         * relationship is pinned by PollBudgetTest.
+         * can burn CHAT_ATTEMPTS x STEP_TIMEOUT on the model (LlmClient
+         * retries inside one step) plus backoffs, then TOOL_TIMEOUT on
+         * Playwright; plus margin. Derived from AgentLoopBounds (the same
+         * source the loop reads), so a WORKER_MAX_STEPS override raises this
+         * budget with the loop instead of drifting below it; the relationship
+         * is pinned by PollBudgetTest/KafkaWiringTest. The margin is the
+         * larger of 30 minutes and 10% of the worst case: with the 2026-11-05
+         * laptop step timeout (300s), 30 minutes alone dipped under the 10%
+         * headroom the headroom test pins.
          */
         val MAX_POLL_INTERVAL_MS: Long =
-            AgentLoopBounds.worstCaseMs + Duration.ofMinutes(30).toMillis()
+            AgentLoopBounds.worstCaseMs + pollMarginMs(AgentLoopBounds.worstCaseMs)
+
+        fun pollMarginMs(worstCaseMs: Long): Long =
+            maxOf(Duration.ofMinutes(30).toMillis(), worstCaseMs / 10)
 
         /** The agent loop bounds this budget must cover, mirrored for the test. */
         val AGENT_MAX_STEPS: Int = AgentLoopBounds.effectiveMaxSteps
-        const val AGENT_STEP_TIMEOUT_MS = AgentLoopBounds.STEP_TIMEOUT_MS
+        // STEP_TIMEOUT_MS is env-derived since the laptop-timeout fix, so it
+        // can no longer be a const; the mirror stays a val like its siblings.
+        val AGENT_STEP_TIMEOUT_MS: Long = AgentLoopBounds.STEP_TIMEOUT_MS
         const val AGENT_TOOL_TIMEOUT_MS = AgentLoopBounds.TOOL_TIMEOUT_MS
 
         /** What the loop can actually take, with the margin applied. */

@@ -204,9 +204,12 @@ class BrowserAgentTest {
         assertThat(BrowserAgent.parseMaxSteps("abc")).isEqualTo(80)
         assertThat(BrowserAgent.parseMaxSteps("0")).isEqualTo(1)
         assertThat(BrowserAgent.parseMaxSteps("-5")).isEqualTo(1)
-        // Upper clamp: an absurd cap must keep worstCaseMs + margin inside
-        // Int range, because Kafka's poll interval config is Type.INT.
-        assertThat(BrowserAgent.parseMaxSteps("999999")).isEqualTo(10000)
+        // Upper clamp: the ceiling is DERIVED from the Kafka Type.INT poll
+        // bound with the retry-aware step worst case (2026-11-05: a blind
+        // 10,000 constant overflowed 2x with the 300s step timeout). Assert
+        // the invariant, not a literal that moves with the step timeout.
+        assertThat(BrowserAgent.parseMaxSteps("999999"))
+            .isEqualTo(dev.mstaszew.campaign.common.messaging.AgentLoopBounds.MAX_STEPS_CEILING)
     }
 
     /**

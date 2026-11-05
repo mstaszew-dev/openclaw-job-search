@@ -1,5 +1,6 @@
 package dev.mstaszew.campaign.worker
 
+import dev.mstaszew.campaign.common.messaging.AgentLoopBounds
 import dev.mstaszew.campaign.common.messaging.KafkaWiring
 import dev.mstaszew.campaign.worker.apply.BrowserAgent
 import org.assertj.core.api.Assertions.assertThat
@@ -20,8 +21,14 @@ import java.time.Duration
  */
 class PollBudgetTest {
 
+    /**
+     * Retry-aware per-step worst case (2026-11-05 review SHOULD-1): one step
+     * can burn LlmClient's CHAT_ATTEMPTS x STEP_TIMEOUT plus backoffs before
+     * Playwright runs - the plain (STEP + TOOL) product undercounted the real
+     * per-step ceiling by 2.46x and let the consumer approach eviction.
+     */
     private val worstCaseMs: Long =
-        BrowserAgent.EFFECTIVE_MAX_STEPS * (BrowserAgent.STEP_TIMEOUT.toMillis() + BrowserAgent.TOOL_TIMEOUT.toMillis())
+        BrowserAgent.EFFECTIVE_MAX_STEPS * AgentLoopBounds.stepWorstCaseMs
 
     @Test
     fun `poll interval covers the real worst case apply loop`() {
