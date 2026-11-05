@@ -561,6 +561,7 @@ class WorkerLoop(
             "BLOCKED: this is navigate",
             "Cannot navigate to invalid URL",
             "wander breaker:",
+            "step cap",
         )
     }
 

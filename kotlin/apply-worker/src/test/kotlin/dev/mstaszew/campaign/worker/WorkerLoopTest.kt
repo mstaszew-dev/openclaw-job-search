@@ -207,6 +207,19 @@ class WorkerLoopTest {
     }
 
     @Test
+    fun `a step-cap failure requeues instead of walling`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Failed("step cap 200 reached without outcome")
+
+        loop("live").onMessage(job, ack)
+
+        assertThat(ack.count).isZero()
+        verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
+        verify(exactly = 0) { jobState.save(match { it.status == JobStatus.FAILED }) }
+    }
+
+    @Test
     fun `a genuine portal failure still walls`() {
         every { dedup.check(any()) } returns DuplicateDecision.CLEAR
         every { browserAgent.run(any(), any(), any(), any(), any()) } returns
