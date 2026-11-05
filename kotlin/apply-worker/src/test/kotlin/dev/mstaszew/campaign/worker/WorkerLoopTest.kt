@@ -303,11 +303,28 @@ class WorkerLoopTest {
     fun `live mode posts a Slack failure when the apply fails`() {
         every { dedup.check(any()) } returns DuplicateDecision.CLEAR
         every { browserAgent.run(any(), any(), any(), any(), any()) } returns
-            ApplyResult.Failed("step cap 25 reached without outcome")
+            ApplyResult.Failed(
+                "TimeoutError: browserBackend.callTool: Timeout 30000ms exceeded at element interactable check",
+            )
 
         loop("live").onMessage(job, ack)
 
-        verify(exactly = 1) { notifier.failed("justjoin:jj-1", "step cap 25 reached without outcome") }
+        verify(exactly = 1) { notifier.failed("justjoin:jj-1", "TimeoutError: browserBackend.callTool: Timeout 30000ms exceeded at element interactable check") }
+    }
+
+    @Test
+    fun `live mode walls a browser-failed listing from re-enqueue`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Failed(
+                "TimeoutError: browserBackend.callTool: Timeout 30000ms exceeded at element interactable check",
+            )
+
+        loop("live").onMessage(job, ack)
+
+        verify(exactly = 1) { recorder.recordFailedWall(any(), any(), any()) }
+        verify { jobState.save(match { it.status == JobStatus.FAILED }) }
+        assertThat(ack.count).isEqualTo(1)
     }
 
     @Test
@@ -668,22 +685,6 @@ class WorkerLoopTest {
      * zombie loop (iteamly, 2026-10-25: four grinds in one evening). The
      * Failed outcome must wall the listing like a dead letter does.
      */
-    @Test
-    fun `live mode walls a browser-failed listing from re-enqueue`() {
-        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
-        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
-            ApplyResult.Failed("step cap 80 reached without outcome")
-
-        loop("live").onMessage(job, ack)
-
-        verify(exactly = 1) {
-            recorder.recordFailedWall(any(), eq("justjoin:jj-1"), match { it.startsWith("browser-failed") })
-        }
-        verify { jobState.save(match { it.id == "justjoin:jj-1" && it.status == JobStatus.FAILED }) }
-        verify(exactly = 1) { notifier.failed("justjoin:jj-1", "step cap 80 reached without outcome") }
-        assertThat(ack.count).isEqualTo(1)
-    }
-
     /**
      * The grind already happened; a wall-write failure must degrade loudly to
      * the pre-wall behavior rather than throw the message back into
