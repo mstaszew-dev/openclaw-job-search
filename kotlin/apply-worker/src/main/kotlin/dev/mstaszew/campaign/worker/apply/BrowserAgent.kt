@@ -539,6 +539,20 @@ class BrowserAgent(
               SUCCEEDED - do NOT navigate back to the listing. Take
               browser_tabs(action="list"), select the ATS tab, and finish the
               form there, capturing its confirmation URL.
+            - profile_fill/submit sequence (2026-11-06): after
+              profile_fill fills identity fields:
+              1) If profile_fill reports missing fields, take
+                 browser_snapshot, then browser_fill_form those fields using
+                 refs from the snapshot.
+              2) After ALL fields are filled (or profile_fill reports none
+                 missing), click the submit button (Wyślij / Send / Submit /
+                 apply) if visible.
+              3) Then call record_submission with the confirmation URL/text.
+              4) Do NOT snapshot again after filling - submit immediately.
+              5) Do NOT click apply again - the apply control was already
+                 clicked. If profile_fill reports nothing missing and there is
+                 no submit button, call record_submission immediately - the
+                 form may auto-submit.
             - The SAME portal may render buttons in ENGLISH or POLISH: look for
               the apply control under ANY of these labels: Aplikuj, Zaaplikuj,
               Apply, Apply quickly, Quick apply. (The 2026-10-30 Miele/Intrec/
