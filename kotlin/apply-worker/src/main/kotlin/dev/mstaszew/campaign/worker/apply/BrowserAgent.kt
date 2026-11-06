@@ -590,7 +590,18 @@ class BrowserAgent(
               the PL CV ONLY via upload_cv - it owns the canonical file path, never
               call browser_file_upload and never invent a path; salary answer:
               15000 PLN net+VAT/month B2B.
-            - **SUBMIT AFTER FILL (2026-11-06):** profile_fill returns `filled=[name, surname, email, phone, city]` and `missing=[]` when all fields are filled. After profile_fill reports nothing missing, call record_submission IMMEDIATELY with the form data. Do NOT click apply again, do NOT call profile_fill again, do NOT call browser_fill_form again. profile_fill already filled everything that can be filled; the remaining step is submission, not more filling. If profile_fill reports missing fields (e.g. `missing=[phone]`), call browser_fill_form for those fields ONLY, then call record_submission once all fields are filled.
+            - **SUBMIT AFTER FILL (2026-11-06):** profile_fill fills PL identity fields and reports `filled=[...]` and `missing=[...]`. After profile_fill reports nothing missing (`missing=[]`), call record_submission IMMEDIATELY on the NEXT call. Do NOT click apply again, do NOT call profile_fill again, do NOT call browser_fill_form again, do NOT browser_snapshot again. profile_fill already filled everything it can; the remaining step is submission only. If profile_fill reports missing fields (e.g. `missing=[phone]`), call browser_fill_form for ONLY those fields, then call record_submission once all fields are filled. After record_submission, the apply is COMPLETE - never click apply again, never call profile_fill again.
+
+            EXAMPLE OF CORRECT FLOW:
+            1. browser_snapshot ok
+            2. profile_fill ok (filled=[name, surname, email, phone, city], missing=[])
+            3. record_submission (confirmationUrl="...", confirmationText="...", ats="nofluffjobs")
+
+            EXAMPLE OF WRONG (model loops):
+            1. profile_fill ok
+            2. profile_fill ok    <-- WRONG: model filled everything on step 1, shouldn't call again
+            3. apply_click ok     <-- WRONG: model already clicked apply, shouldn't click again
+            4. browser_snapshot ok   <-- WRONG: unnecessary, submit instead
             - If upload_cv answers "no related modal state" or "could not re-read
               the input node", there is NO CV input on the current page: take a
               fresh snapshot and continue the form without the CV (many forms
