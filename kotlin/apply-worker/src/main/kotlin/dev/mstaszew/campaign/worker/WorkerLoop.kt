@@ -580,6 +580,7 @@ class WorkerLoop(
             "BLOCKED: navigate #",
             "BLOCKED: open_listing",
             "Cannot navigate to invalid URL",
+            "is not a valid selector",
             "wander breaker:",
             "step cap",
         )

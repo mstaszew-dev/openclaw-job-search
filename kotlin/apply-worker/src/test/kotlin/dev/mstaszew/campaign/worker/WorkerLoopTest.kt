@@ -272,6 +272,27 @@ class WorkerLoopTest {
         verify(exactly = 0) { jobState.save(match { it.status == JobStatus.FAILED }) }
     }
 
+    /**
+     * 2026-11-06 technik-informatyk: the model typed element refs into CSS
+     * selector slots (':e68' is not a valid selector) 10 times - an
+     * argument-fidelity flake that must requeue, not wall.
+     */
+    @Test
+    fun `a garbage-selector click failure requeues instead of walling`() {
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        every { browserAgent.run(any(), any(), any(), any(), any()) } returns
+            ApplyResult.Failed(
+                "loop breaker: browser_click failed 10 consecutive times; last error: " +
+                    "SyntaxError: Failed to execute 'querySelectorAll' on 'Document': ':e68' is not a valid selector.",
+            )
+
+        loop("live").onMessage(job, ack)
+
+        assertThat(ack.count).isZero()
+        verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
+        verify(exactly = 0) { jobState.save(match { it.status == JobStatus.FAILED }) }
+    }
+
     @Test
     fun `a genuine portal failure still walls`() {
         every { dedup.check(any()) } returns DuplicateDecision.CLEAR
