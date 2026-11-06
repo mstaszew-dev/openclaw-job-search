@@ -121,6 +121,25 @@ class ProfileFillerTest {
         assertThat(result).contains("browser_fill_form")
     }
 
+    /**
+     * The 2026-11-06 theprotocol grind: the drawer has no city field, so
+     * profile_fill returned missing=[city] on every call and the model,
+     * told to fill the missing fields, re-called profile_fill 15 times and
+     * never submitted. The verdict must warn that a missing field the form
+     * does not show means the form LACKS it (skip and submit), and that a
+     * repeated profile_fill always returns the same answer.
+     */
+    @Test
+    fun `missing verdict warns the form may lack the field and profile_fill must not repeat`() {
+        val browser = browser(evaluate = { fencedReport(listOf("name", "surname", "email", "phone"), listOf("city")) })
+
+        val result = ProfileFiller(props()).fill(browser)
+
+        assertThat(result).contains("missing: city")
+        assertThat(result).contains("does not have it")
+        assertThat(result).contains("NEVER call profile_fill again")
+    }
+
     @Test
     fun `evaluate failure is an Error verdict, never a throw`() {
         val browser = browser(evaluate = { throw McpClientException("process died") })

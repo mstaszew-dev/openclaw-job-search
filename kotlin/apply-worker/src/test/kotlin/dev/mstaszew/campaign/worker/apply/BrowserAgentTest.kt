@@ -666,6 +666,12 @@ class BrowserAgentTest {
         assertThat(system).contains("continue the form without the CV")
         assertThat(system).contains("element ref from")
         assertThat(system).doesNotContain("never open new tabs")
+        // 2026-11-06 theprotocol grind: the drawer has no city field, so
+        // "record once all fields are filled" was unsatisfiable and the model
+        // looped profile_fill (missing=[city]) to the step cap 15+ times. The
+        // rule must make submission reachable with permanent missing fields.
+        assertThat(system).contains("record_submission even if some fields stay missing")
+        assertThat(system).contains("NEVER call profile_fill twice")
     }
 
     @Test

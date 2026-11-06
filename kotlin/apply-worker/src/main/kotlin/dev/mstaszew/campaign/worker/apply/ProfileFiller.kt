@@ -79,7 +79,9 @@ class ProfileFiller(
         if (filled.isEmpty()) verdict.append("nothing filled") else verdict.append(filled.joinToString(", "))
         if (missing.isNotEmpty()) {
             verdict.append("; missing: ").append(missing.joinToString(", "))
-            verdict.append(" (fill these via browser_fill_form with real refs from a fresh snapshot)")
+            verdict.append(" (fill the ones the form actually shows via browser_fill_form with real refs from a fresh snapshot; ")
+            verdict.append("if the form does not have a field for one of these, it does not have it - skip it and submit; ")
+            verdict.append("NEVER call profile_fill again on this form: its answer never changes)")
         }
         if (consents.isObject) {
             val ticked = consents.path("ticked").asInt(0)

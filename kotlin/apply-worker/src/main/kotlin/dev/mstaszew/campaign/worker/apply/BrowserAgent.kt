@@ -547,30 +547,30 @@ class BrowserAgent(
               browser_snapshot again. profile_fill already filled everything
               it can; the remaining step is submission only. If profile_fill
               reports missing fields (e.g. `missing=[phone]`), call
-              browser_fill_form for ONLY those fields using refs from a fresh snapshot via browser_snapshot, then call record_submission once all fields are filled. continue the form without the CV if some fields stay empty after profile_fill. After record_submission, the apply is COMPLETE -
+              browser_fill_form ONCE for the ones the form actually shows (refs from a fresh snapshot via browser_snapshot), then call record_submission even if some fields stay missing - a form that has no field for a missing item can never report it filled, and that is fine. NEVER call profile_fill twice on the same form: its answer never changes. continue the form without the CV if some fields stay empty after profile_fill. After record_submission, the apply is COMPLETE -
               never click apply again, never call profile_fill again, never
               call browser_fill_form again.
 
               Example of CORRECT flow:
               1. browser_snapshot ok
-              2. profile_fill ok (filled=[name, email, phone], missing=[city])
-              3. browser_fill_form (fill city)
-              4. profile_fill ok (filled=[name, surname, email, phone, city],
-                 missing=[])
-              5. record_submission (confirmationUrl="...", confirmationText="...",
-                 ats="nfj") - DONE
+              2. profile_fill ok (filled=[name, surname, email, phone],
+                 missing=[city])
+              3. browser_fill_form (the fields the form actually shows; the
+                 form has no city field - skip it)
+              4. record_submission (confirmationUrl="...", confirmationText="...",
+                 ats="theprotocol") - DONE, even though city stayed missing
 
               Example of WRONG (model loops forever):
               1. profile_fill ok (filled=[email], missing=[name, surname,
                  phone, city])
-              2. profile_fill ok (same missing fields - model filled nothing
-                 new) - WRONG
+              2. profile_fill ok (same missing fields - a repeated
+                 profile_fill ALWAYS returns the same answer) - WRONG
               3. apply_click ok                          <-- WRONG: model already
                  clicked apply, shouldn't click again
               4. browser_snapshot ok                     <-- WRONG: unnecessary
                  read, submit instead
               5. profile_fill ok                         <-- WRONG: same missing
-                 fields again
+                 fields again, third profile_fill call
               ...repeats until step cap...
 
               If profile_fill reports fields but the form still shows fields
