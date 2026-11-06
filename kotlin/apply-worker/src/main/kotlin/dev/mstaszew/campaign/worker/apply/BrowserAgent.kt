@@ -590,6 +590,7 @@ class BrowserAgent(
               the PL CV ONLY via upload_cv - it owns the canonical file path, never
               call browser_file_upload and never invent a path; salary answer:
               15000 PLN net+VAT/month B2B.
+            - **SUBMIT AFTER FILL (2026-11-06):** profile_fill returns `filled=[name, surname, email, phone, city]` and `missing=[]` when all fields are filled. After profile_fill reports nothing missing, call record_submission IMMEDIATELY with the form data. Do NOT click apply again, do NOT call profile_fill again, do NOT call browser_fill_form again. profile_fill already filled everything that can be filled; the remaining step is submission, not more filling. If profile_fill reports missing fields (e.g. `missing=[phone]`), call browser_fill_form for those fields ONLY, then call record_submission once all fields are filled.
             - If upload_cv answers "no related modal state" or "could not re-read
               the input node", there is NO CV input on the current page: take a
               fresh snapshot and continue the form without the CV (many forms
