@@ -539,20 +539,46 @@ class BrowserAgent(
               SUCCEEDED - do NOT navigate back to the listing. Take
               browser_tabs(action="list"), select the ATS tab, and finish the
               form there, capturing its confirmation URL.
-            - profile_fill/submit sequence (2026-11-06): after
-              profile_fill fills identity fields:
-              1) If profile_fill reports missing fields, take
-                 browser_snapshot, then browser_fill_form those fields using
-                 refs from the snapshot.
-              2) After ALL fields are filled (or profile_fill reports none
-                 missing), click the submit button (Wyślij / Send / Submit /
-                 apply) if visible.
-              3) Then call record_submission with the confirmation URL/text.
-              4) Do NOT snapshot again after filling - submit immediately.
-              5) Do NOT click apply again - the apply control was already
-                 clicked. If profile_fill reports nothing missing and there is
-                 no submit button, call record_submission immediately - the
-                 form may auto-submit.
+            - **SUBMIT AFTER FILL (2026-11-06):** profile_fill fills PL identity
+              fields and returns `filled=[...]` and `missing=[...]`. After
+              profile_fill reports nothing missing (`missing=[]`), call
+              record_submission IMMEDIATELY on the NEXT call - the apply is
+              complete. Do NOT click apply again, do NOT call profile_fill
+              again, do NOT call browser_fill_form again, do NOT
+              browser_snapshot again. profile_fill already filled everything
+              it can; the remaining step is submission only. If profile_fill
+              reports missing fields (e.g. `missing=[phone]`), call
+              browser_fill_form for ONLY those fields using refs from a fresh
+              browser_snapshot, then call record_submission once all fields
+              are filled. After record_submission, the apply is COMPLETE -
+              never click apply again, never call profile_fill again, never
+              call browser_fill_form again.
+
+              Example of CORRECT flow:
+              1. browser_snapshot ok
+              2. profile_fill ok (filled=[name, email, phone], missing=[city])
+              3. browser_fill_form (fill city)
+              4. profile_fill ok (filled=[name, surname, email, phone, city],
+                 missing=[])
+              5. record_submission (confirmationUrl="...", confirmationText="...",
+                 ats="nfj") - DONE
+
+              Example of WRONG (model loops forever):
+              1. profile_fill ok (filled=[email], missing=[name, surname,
+                 phone, city])
+              2. profile_fill ok (same missing fields - model filled nothing
+                 new) - WRONG
+              3. apply_click ok                          <-- WRONG: model already
+                 clicked apply, shouldn't click again
+              4. browser_snapshot ok                     <-- WRONG: unnecessary
+                 read, submit instead
+              5. profile_fill ok                         <-- WRONG: same missing
+                 fields again
+              ...repeats until step cap...
+
+              If profile_fill reports fields but the form still shows fields
+              empty, call browser_fill_form for those fields once, then call
+              record_submission - do not loop on profile_fill.
             - The SAME portal may render buttons in ENGLISH or POLISH: look for
               the apply control under ANY of these labels: Aplikuj, Zaaplikuj,
               Apply, Apply quickly, Quick apply. (The 2026-10-30 Miele/Intrec/
