@@ -1207,6 +1207,32 @@ class BrowserAgentTest {
     }
 
     /**
+     * Live 2026-11-06 (ai-automation-specialist swidnik): the model called
+     * profile_fill 5 times consecutively (missing=[city] every time) and,
+     * because profile_fill counts as an ACTION, each call reset the wander
+     * breaker - the unit rode to the 200-step cap. profile_fill's answer
+     * NEVER changes on the same form, so two consecutive identical answers
+     * prove the model will not act: the attempt must end, regrind-aware
+     * exactly like the open_listing relapse.
+     */
+    @Test
+    fun `repeated identical profile_fill answers end the attempt as a requeue`() {
+        every { browser.callToolText(eq("browser_evaluate"), any(), any()) } returns "https://nofluffjobs.com/pl/job/x"
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
+        assertThat((result as ApplyResult.Transient).detail).contains("profile_fill repeat")
+    }
+
+    /**
      * Convergence (review BLOCKER-2): requeueing alone cannot converge on a
      * deterministic relapse. Once the regrind budget is spent (regrindCycles
      * at the cap) the relapse must WALL: a Failed whose detail avoids every

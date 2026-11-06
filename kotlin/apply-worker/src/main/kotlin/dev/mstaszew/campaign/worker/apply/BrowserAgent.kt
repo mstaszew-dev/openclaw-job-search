@@ -360,6 +360,17 @@ class BrowserAgent(
             0
         }
 
+        /**
+         * Consecutive profile_fill calls (2026-11-06 swidnik grind): the
+         * model called profile_fill 5x in a row (missing=[city] every time)
+         * and, because profile_fill counts as an ACTION, each call reset
+         * the wander breaker - the unit rode to the step cap. Its answer
+         * never changes on the same form; at the limit the attempt ends
+         * (regrind-aware, like the open_listing relapse). Any other tool
+         * resets it.
+         */
+        var profileFillStreak: Int = 0
+
         /** Wander-breaker state: consecutive READ-ONLY steps, whatever their tool mix. */
         var readStreak: Int = 0
 
@@ -736,8 +747,12 @@ class BrowserAgent(
      * A Mongo failure here must escape the loop so the offset stays
      * uncommitted and Kafka redelivers the job instead.
      */
-    private fun dispatch(browser: McpStdioClientClient, call: ToolCall, state: LoopState): Any =
-        when (call.name) {
+    private fun dispatch(browser: McpStdioClientClient, call: ToolCall, state: LoopState): Any {
+        // profile_fill repeat tracking (2026-11-06): any other tool breaks
+        // the consecutive-run. profile_fill's answer never changes on the
+        // same form, so only its own streak matters.
+        if (call.name != "profile_fill") state.profileFillStreak = 0
+        return when (call.name) {
             "record_submission" -> {
                 val result = ApplyResult.Submitted(
                     confirmationUrl = call.arguments.path("confirmationUrl").asText(null),
@@ -858,14 +873,11 @@ class BrowserAgent(
                         // detail avoids every WorkerLoop
                         // MODEL_FLAKE_SIGNATURES string - evolve together.
                         val regrindCycles = state.regrindCyclesOrDefault()
-                        val detail = "open_listing relapse: called ${state.noOpOpenListingStreak}x while already " +
-                            "on the listing; the model will not act on this page state " +
-                            "(regrindCycles=$regrindCycles)"
-                        return if (regrindCycles >= JobStateRepositoryImpl.MAX_REGRIND_CYCLES) {
-                            ApplyResult.Failed("$detail - regrind exhausted; walling")
-                        } else {
-                            ApplyResult.Transient(detail)
-                        }
+                        return relapseTerminal(
+                            "open_listing relapse: called ${state.noOpOpenListingStreak}x while already " +
+                                "on the listing; the model will not act on this page state",
+                            regrindCycles,
+                        )
                     } else {
                         ToolOutcome(
                             "open_listing",
@@ -883,7 +895,22 @@ class BrowserAgent(
                         state,
                     )
                 }
-            "profile_fill" ->
+            "profile_fill" -> {
+                state.profileFillStreak += 1
+                if (state.profileFillStreak >= PROFILE_FILL_REPEAT_LIMIT) {
+                    // 2026-11-06 swidnik grind: the model called profile_fill
+                    // 5x consecutively (missing=[city] every time) and, as an
+                    // ACTION tool, each call reset the wander breaker - the
+                    // unit rode to the step cap. The answer NEVER changes on
+                    // the same form: at the limit end the attempt without
+                    // touching the browser, regrind-aware like the
+                    // open_listing relapse.
+                    return relapseTerminal(
+                        "profile_fill repeat: called ${state.profileFillStreak}x consecutively; its " +
+                            "answer never changes on the same form - the model will not act",
+                        state.regrindCyclesOrDefault(),
+                    )
+                }
                 // Worker-side, zero model arguments (theprotocol/eRecruiter
                 // 2026-11-05: the free model burned 200 steps re-typing the
                 // same identity block). The worker fills name/surname/email/
@@ -898,8 +925,29 @@ class BrowserAgent(
                 }.let { text ->
                     ToolOutcome("profile_fill", text, failed = text.startsWith("Error"))
                 }
+            }
             else -> browserTool(browser, call, state)
         }
+    }
+
+    /**
+     * Deterministic relapse terminal (review BLOCKER-2, 2026-11-06): the
+     * model repeating a decision-less call proves it cannot act on this
+     * page state, so the attempt ends NOW instead of feeding the loop
+     * breaker and requeueing into an identical grind. Requeue while a
+     * regrind chance remains (the retry reads this attempt's history);
+     * wall once the regrind budget is spent, so the outcome converges to a
+     * ledger decision. The wall detail avoids every WorkerLoop
+     * MODEL_FLAKE_SIGNATURES string - evolve together.
+     */
+    private fun relapseTerminal(detailBody: String, regrindCycles: Int): ApplyResult {
+        val detail = "$detailBody (regrindCycles=$regrindCycles)"
+        return if (regrindCycles >= JobStateRepositoryImpl.MAX_REGRIND_CYCLES) {
+            ApplyResult.Failed("$detail - regrind exhausted; walling")
+        } else {
+            ApplyResult.Transient(detail)
+        }
+    }
 
     /**
      * open_listing idempotence probe (2026-11-05 wordpress regrind death:
@@ -1102,6 +1150,9 @@ class BrowserAgent(
          */
         /** First no-op open_listing succeeds; a relapse is corrective-failed (feeds the loop breaker, not the step cap). */
         private const val NO_OP_OPEN_LISTING_LIMIT = 2
+
+    /** Consecutive identical profile_fill calls that end the attempt (2026-11-06 swidnik grind). */
+    private const val PROFILE_FILL_REPEAT_LIMIT = 2
 
         private const val NAVIGATE_REPEAT_LIMIT = 2
 
