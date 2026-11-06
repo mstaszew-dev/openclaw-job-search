@@ -30,3 +30,14 @@ rag/), read the canonical checklist first and apply it:
 SHOULD as "fix or justify"; NICE as suggestions. The campaign-agent annex
 (PY-1..PY-4) applies here (LLM gateway calls, MCP lifecycle, atomic state).
 Never approve with a BLOCKER open; three or more SHOULD findings escalates.
+
+## Kotlin deploy gotcha (2026-11-06)
+
+Deploy the apply-worker with `./gradlew :apply-worker:bootJar` - NOT `:jar`.
+`:jar` builds only `apply-worker-plain.jar` (a library jar); the Spring Boot
+fat jar `apply-worker.jar` that systemd runs is produced by `bootJar`, so a
+`:jar`-only "build" silently ships the previous day's fat jar and every
+deploy becomes a no-op (2026-11-06: three deploys shipped a 10:27 jar). After
+scp, verify the deployed jar actually contains the commit: extract
+`BOOT-INF/classes/dev/mstaszew/campaign/worker/apply/BrowserAgent*.class` and
+grep for a string introduced by the commit. VM clock is UTC (1h behind local).
