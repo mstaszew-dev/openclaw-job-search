@@ -601,6 +601,18 @@ class BrowserAgent(
               fill the form first, it would be wasted. If the captcha appears
               only at submit, fill the form, attempt once, then skip_task.
             - If the portal says already applied, call skip_task with reason duplicate.
+            - QUICK-APPLY confirmation (2026-11-06): after you click a form's
+              final submit button (Wyślij / Send / Submit) shows a thank-you or
+              confirmation state
+              ("dziękujemy", "przesłane", "aplikacja została wysłana", "thank you",
+              or a "czy udało Ci się zaaplikować" / did-you-apply tracker with
+              Yes/No buttons - theprotocol shows one after quick-apply) IS the
+              confirmation evidence: call record_submission IMMEDIATELY with that
+              text. The tracker's Yes/No buttons are optional analytics - clicks
+              on them often time out; NEVER grind them and never skip_task after
+              a confirmed submit (2026-11-06 business-analyst: the form was
+              submitted but the burn on the tracker buttons ended the attempt
+              without a ledger entry).
             - Before record_submission you MUST have visible confirmation evidence
               (thank-you text or success URL). No evidence means no record_submission.
             - Finish by calling record_submission (with the confirmation text/url you

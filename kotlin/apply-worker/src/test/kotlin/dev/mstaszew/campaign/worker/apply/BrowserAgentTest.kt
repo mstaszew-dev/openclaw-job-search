@@ -1274,6 +1274,13 @@ class BrowserAgentTest {
         assertThat(system).contains("wait_for(time=3)")
         assertThat(system).contains("/success")
         assertThat(system).contains("Zaznacz")
+        // 2026-11-06 business-analyst: the quick-apply form was SUBMITTED (the
+        // thank-you tracker modal appeared) but the model ground the tracker
+        // buttons and never called record_submission - the ledger missed a
+        // real application. The prompt must teach: confirmation modal = record
+        // immediately, tracker buttons are optional.
+        assertThat(system).contains("QUICK-APPLY confirmation")
+            .contains("record_submission IMMEDIATELY")
     }
 
     /** A different successful tool between repeats resets the wander count. */
