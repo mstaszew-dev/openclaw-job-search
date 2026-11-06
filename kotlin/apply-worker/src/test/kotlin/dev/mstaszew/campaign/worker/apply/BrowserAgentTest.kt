@@ -1916,8 +1916,8 @@ class BrowserAgentTest {
      */
     @Test
     fun `a superseding snapshot lands at the tail and survives the next prune`() {
-        val snapA = "### Page\n- Page URL: https://x/a\n- generic [ref=e1]: A"
-        val snapB = "### Page\n- Page URL: https://x/b\n- button \"Aplikuj\" [ref=e305] [cursor=pointer]"
+        val snapA = "### Page\n- Page URL: https://x/a\n```yaml\n- generic [ref=e1]: A"
+        val snapB = "### Page\n- Page URL: https://x/b\n```yaml\n- button \"Aplikuj\" [ref=e305] [cursor=pointer]"
         val transport = ScriptedTransport(
             listOf(
                 toolCallResponse("browser_snapshot", "{}"),

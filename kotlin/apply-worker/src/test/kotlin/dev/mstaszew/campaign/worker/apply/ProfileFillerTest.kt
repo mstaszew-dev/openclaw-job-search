@@ -163,6 +163,11 @@ class ProfileFillerTest {
         assertThat(js).contains("firstname")
         assertThat(js).contains("lastname")
         assertThat(js).contains("phonenumber")
+        // React radix drawer (theprotocol gdynia class): hashed ids, the
+        // stable anchor is the label text (Imię/Nazwisko/Telefon)
+        assertThat(js).contains("imię")
+        assertThat(js).contains("nazwisko")
+        assertThat(js).contains("telefon")
         // generic ATS anchors
         assertThat(js).contains("autocomplete")
         // the identity values travel as JSON, not as interpolated selector names

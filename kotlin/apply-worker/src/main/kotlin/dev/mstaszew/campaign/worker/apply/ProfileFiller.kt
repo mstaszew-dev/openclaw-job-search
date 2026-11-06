@@ -143,6 +143,11 @@ class ProfileFiller(
   const auto = (e, a) => (e.getAttribute('autocomplete') || '').toLowerCase() === a;
   const idSuffix = (e, s) => (e.id || '').toLowerCase().endsWith(s);
   const idOrName = (e, f) => (e.id || '').toLowerCase().includes(f.toLowerCase()) || (e.name || '').toLowerCase().includes(f.toLowerCase());
+  // Label-text anchor (2026-11-06): React radix drawers (theprotocol gdynia
+  // class) auto-generate hashed ids (_R_...-form-item) that no id anchor can
+  // match - the stable text is the field's label or aria-label.
+  const labelText = (e) => (((e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.getAttribute('aria-label') || '') + '').toLowerCase();
+  const labelHas = (e, w) => labelText(e).includes(w);
   const taken = new Set();
   const fillText = (kind, matches, value) => {
     if (!value) return;
@@ -151,10 +156,10 @@ class ProfileFiller(
     if (!el) { out.missing.push(kind); return; }
     taken.add(el); setNative(el, kind, value);
   };
-  fillText('name', [e => idSuffix(e, 'tbname'), e => auto(e, 'given-name'), e => idSuffix(e, 'tbfirstname'), e => idSuffix(e, 'firstname')], ID.name);
-  fillText('surname', [e => idSuffix(e, 'tbsurname'), e => auto(e, 'family-name'), e => idSuffix(e, 'tblastname'), e => idSuffix(e, 'lastname')], ID.surname);
-  fillText('email', [e => idSuffix(e, 'tbmail'), e => auto(e, 'email'), e => (e.type || '') === 'email'], ID.email);
-  fillText('phone', [e => idSuffix(e, 'tbcellphone'), e => auto(e, 'tel'), e => idSuffix(e, 'phonenumber')], ID.phone);
+  fillText('name', [e => idSuffix(e, 'tbname'), e => auto(e, 'given-name'), e => idSuffix(e, 'tbfirstname'), e => idSuffix(e, 'firstname'), e => labelHas(e, 'imię')], ID.name);
+  fillText('surname', [e => idSuffix(e, 'tbsurname'), e => auto(e, 'family-name'), e => idSuffix(e, 'tblastname'), e => idSuffix(e, 'lastname'), e => labelHas(e, 'nazwisko')], ID.surname);
+  fillText('email', [e => idSuffix(e, 'tbmail'), e => auto(e, 'email'), e => (e.type || '') === 'email', e => labelHas(e, 'e-mail') || labelHas(e, 'email')], ID.email);
+  fillText('phone', [e => idSuffix(e, 'tbcellphone'), e => auto(e, 'tel'), e => idSuffix(e, 'phonenumber'), e => labelHas(e, 'telefon')], ID.phone);
   fillText('city', [e => idSuffix(e, 'tbcity'), e => auto(e, 'address-level2'), e => idOrName(e, 'city')], ID.city);
   const country = all.find(e => e.tagName === 'SELECT' && (idSuffix(e, 'lstcountries') || idOrName(e, 'country')));
   const region = all.find(e => e.tagName === 'SELECT' && (idSuffix(e, 'lstregions') || idOrName(e, 'region') || idOrName(e, 'state')));

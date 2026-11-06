@@ -422,13 +422,13 @@ class BrowserAgent(
                     messages[messages.size - 1] = ChatMessage("user", text)
                     return
                 }
-                if (text.startsWith(SNAPSHOT_PREFIX)) {
-                    val prev = messages.indexOfLast { it.content.startsWith(SNAPSHOT_PREFIX) }
+                if (text.contains(SNAPSHOT_PREFIX)) {
+                    val prev = messages.indexOfLast { it.content.contains(SNAPSHOT_PREFIX) }
                     if (prev >= 0) messages.removeAt(prev)
                     appendUserMessage(text)
                     return
                 }
-                log.warn("snapshot result without the expected '{}' prefix; appended unpruned", SNAPSHOT_PREFIX)
+                log.warn("snapshot result without the expected '{}' section; appended unpruned", SNAPSHOT_PREFIX)
             }
             appendUserMessage(text)
         }
@@ -1007,8 +1007,14 @@ class BrowserAgent(
         const val SNAPSHOT_TEXT_LIMIT = 36_000
         const val TOOL_TEXT_LIMIT = 2_000
 
-        /** MCP snapshots open with this header; the supersession rule keys on it. */
-        const val SNAPSHOT_PREFIX = "### Page"
+        /**
+         * Snapshot marker for the supersession rule. CONTAINS, not startsWith:
+         * with a drawer/modal open the MCP response leads with "### Modal
+         * state" and only later carries "### Snapshot" + the yaml body (the
+         * startsWith variant was caught live by the prefix-drift warn,
+         * 2026-11-06 technik-informatyk).
+         */
+        const val SNAPSHOT_PREFIX = "```yaml"
 
         /** First empty skip_task is refused with a nudge; the second is Transient. */
         private const val EMPTY_SKIP_LIMIT = 2
