@@ -243,21 +243,39 @@ class WorkerLoop(
                 (existing ?: JobStateDocument(id = job.id, source = job.source, sourceJobId = job.sourceJobId))
                     .apply {
                         status = JobStatus.DEAD
-                        lastError = message
                         maxAttempts = props.maxAttempts
                         // 2026-11-05 specjalista: a model-flake dead letter
                         // makes no employer contact, so the attempt counter
                         // resets and the finder's regrind pass (12h cooldown)
                         // can recover the listing when a better model rotates
                         // in. Genuine dead portals keep their earned count.
+                        // 2026-11-06 DLQ check: infra deaths (MCP process
+                        // died, gateway down, wedged browser) and browser-busy
+                        // lease losses also make no employer contact, but
+                        // their raw failure text escaped WITHOUT the
+                        // "model-flake failure" prefix - 5 listings stranded
+                        // unrecoverable (3 MCP deaths + 2 lease losses).
+                        // Classify them recoverable too: reset attempts, bump
+                        // regrindCycles, and prefix lastError so the regrind
+                        // candidate + claim regexes match - evolve together.
+                        val recoverable = message.startsWith("model-flake failure") ||
+                            INFRA_SIGNATURES.any { message.contains(it) } ||
+                            message.contains("browser busy")
+                        if (recoverable) {
+                            attempts = 0
+                            regrindCycles += 1
+                            lastError = if (message.startsWith("model-flake failure")) {
+                                message
+                            } else {
+                                "model-flake failure, requeueing: $message"
+                            }
+                        } else {
+                            lastError = message
+                        }
                         // Accepted window (review S4): a stale redelivery in
                         // the crash-after-dead-letter gap now re-grinds once
                         // instead of hitting the cheap overBound read; dedup
                         // still prevents any double apply.
-                        if (message.startsWith("model-flake failure")) {
-                            attempts = 0
-                            regrindCycles += 1
-                        }
                         touch()
                     },
             )

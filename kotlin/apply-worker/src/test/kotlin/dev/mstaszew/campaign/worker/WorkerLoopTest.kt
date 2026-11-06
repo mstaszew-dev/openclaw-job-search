@@ -243,6 +243,60 @@ class WorkerLoopTest {
         assertThat(saved.attempts).isEqualTo(0)
     }
 
+    /**
+     * DLQ check 2026-11-06: 5 listings stranded unrecoverable - 3 MCP
+     * process deaths and 2 browser-busy lease losses whose raw failure text
+     * escaped the listener WITHOUT the "model-flake failure" prefix, so
+     * failJob kept attempts=3 / regrindCycles missing and the regrind query
+     * (which requires both the prefix regex and regrindCycles < 2) never
+     * recovered them. Infra and lease deaths make no employer contact
+     * either: failJob must classify them recoverable - reset attempts, bump
+     * regrindCycles, and prefix lastError so the regrind regex matches.
+     */
+    @Test
+    fun `an infra dead letter also resets attempts and becomes regrind-eligible`() {
+        val stored = mutableListOf<JobStateDocument>()
+        every { jobState.findById("justjoin:jj-1") } answers { Optional.ofNullable(stored.lastOrNull()) }
+        every { jobState.save(any<JobStateDocument>()) } answers {
+            val doc = firstArg<JobStateDocument>()
+            stored.add(doc)
+            doc
+        }
+        every { dedup.check(any()) } returns DuplicateDecision.CLEAR
+        // A raw McpClientException escaped the agent (kill-mid-lease shape):
+        // the listener dead-letters the RAW message, not an
+        // ApplyRetryException-prefixed one.
+        every { browserAgent.run(any(), any(), any(), any(), any()) } throws
+            dev.mstaszew.campaign.common.mcp.McpClientException("call failed: MCP server process died (exit=0)")
+        every {
+            kafka.send(dev.mstaszew.campaign.common.messaging.Topics.JOBS_DLQ, any<String>(), any<Any>())
+        } returns CompletableFuture.completedFuture(mockk(relaxed = true))
+
+        val loop = WorkerLoop(
+            listings = listings,
+            events = events,
+            jobState = jobState,
+            dedup = dedup,
+            recorder = recorder,
+            browserAgent = browserAgent,
+            chromeLease = chromeLease,
+            props = WorkerProperties(applyMode = "live", workerId = "w1", maxAttempts = 1),
+            tx = tx,
+            kafka = kafka,
+            notifier = notifier,
+            mapper = com.fasterxml.jackson.databind.ObjectMapper(),
+        )
+        loop.onMessage(job, ack)
+
+        val saved = stored.last()
+        assertThat(saved.status).isEqualTo(JobStatus.DEAD)
+        assertThat(saved.attempts).isEqualTo(0)
+        assertThat(saved.regrindCycles).isEqualTo(1)
+        // The regrind wire-contract: lastError must carry the prefix the
+        // candidate + claim queries regex-match - evolve together.
+        assertThat(saved.lastError).startsWith("model-flake failure")
+    }
+
     @Test
     fun `a garbage-url navigate failure requeues instead of walling`() {
         every { dedup.check(any()) } returns DuplicateDecision.CLEAR
