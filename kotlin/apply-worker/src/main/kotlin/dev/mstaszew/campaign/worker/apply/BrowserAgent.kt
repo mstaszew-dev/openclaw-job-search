@@ -520,7 +520,7 @@ class BrowserAgent(
               confirmation), do NOT reason blindly: call browser_snapshot first -
               a MODAL may have opened on the same page (justjoin shows a consent
               modal whose confirm button also reads Aplikuj) - then
-              browser_tabs(action="list") if the snapshot shows no modal, because
+              browser_tabs(action="list") if the snapshot shows no related modal state, because
               the form may have opened in a NEW TAB.
             - nofluffjobs recipe (2026-11-04): after navigating to a listing,
               call browser_wait_for(time=3) BEFORE the first snapshot - the
@@ -542,15 +542,12 @@ class BrowserAgent(
             - **SUBMIT AFTER FILL (2026-11-06):** profile_fill fills PL identity
               fields and returns `filled=[...]` and `missing=[...]`. After
               profile_fill reports nothing missing (`missing=[]`), call
-              record_submission IMMEDIATELY on the NEXT call - the apply is
-              complete. Do NOT click apply again, do NOT call profile_fill
+              record_submission IMMEDIATELY - the apply is complete. Do NOT click apply again, do NOT call profile_fill
               again, do NOT call browser_fill_form again, do NOT
               browser_snapshot again. profile_fill already filled everything
               it can; the remaining step is submission only. If profile_fill
               reports missing fields (e.g. `missing=[phone]`), call
-              browser_fill_form for ONLY those fields using refs from a fresh
-              browser_snapshot, then call record_submission once all fields
-              are filled. After record_submission, the apply is COMPLETE -
+              browser_fill_form for ONLY those fields using refs from a fresh snapshot via browser_snapshot, then call record_submission once all fields are filled. continue the form without the CV if some fields stay empty after profile_fill. After record_submission, the apply is COMPLETE -
               never click apply again, never call profile_fill again, never
               call browser_fill_form again.
 
@@ -616,22 +613,6 @@ class BrowserAgent(
               the PL CV ONLY via upload_cv - it owns the canonical file path, never
               call browser_file_upload and never invent a path; salary answer:
               15000 PLN net+VAT/month B2B.
-            - browser_fill_form discipline: after any tab switch or page change,
-              take a fresh browser_snapshot of the tab that holds the form and copy
-              each field's exact target ref and exact visible label from THAT
-              snapshot - never guess labels like "name" or "email". If a fill
-              fails, re-snapshot and retry with the fresh refs; if one field still
-              fails, fill the other fields in a separate call and retry the bad
-              field alone. If the error says a ref is "not found in the current page snapshot" or says "Try capturing new snapshot", your VERY next
-              call MUST be browser_snapshot - never retype a ref the error
-              declared gone - it is a dead ref. If clicks keep failing after re-snapshot, try
-              browser_evaluate with JavaScript (e.g.
-              `document.querySelector("button").click()`) as a last resort -
-              never as the primary path.
-              the input node", there is NO CV input on the current page: take a
-              fresh snapshot and continue the form without the CV (many forms
-              upload later, or do not require it at all); retry upload_cv only
-              after reaching a step that actually shows an upload/attach control.
             - browser_fill_form discipline: after any tab switch or page change,
               take a fresh browser_snapshot of the tab that holds the form and copy
               each field's exact target ref and exact visible label from THAT
