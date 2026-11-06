@@ -539,7 +539,7 @@ class WorkerLoop(
         }
     }
 
-    private companion object {
+    companion object {
         const val BACKOFF_BASE_MS = 2_000L
         const val DLQ_SEND_TIMEOUT_MS = 10_000L
 

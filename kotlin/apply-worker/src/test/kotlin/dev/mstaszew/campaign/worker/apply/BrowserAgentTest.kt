@@ -1177,18 +1177,18 @@ class BrowserAgentTest {
     }
 
     /**
-     * The wordpress death shape, take two (review 2026-11-05): a model that
-     * keeps calling open_listing while ALREADY on the listing would get a
-     * success every time, which resets the wander streak on every call and
-     * can only end at the 200-step cap with no attempt history. The first
-     * no-op is the fix (redirect to action); the second is a corrective
-     * failure so the loop breaker can end the attempt WITH history, and the
-     * "BLOCKED: open_listing" prefix is what WorkerLoop's
-     * MODEL_FLAKE_SIGNATURES requeue check contains-matches (evolve
-     * together).
+     * The wordpress death shape, review BLOCKER-2 (2026-11-06): the old
+     * contract corrective-FAILED the 2nd no-op open_listing, which fed the
+     * loop breaker, matched MODEL_FLAKE_SIGNATURES ("BLOCKED: open_listing"),
+     * requeued the job, and the next attempt ground identically - 13
+     * theprotocol listings burned 11-26 open_listing calls per attempt for
+     * zero progress. Two relapses prove the model cannot act on this page
+     * state: the attempt must END immediately. With regrind budget left the
+     * terminal result is Transient (requeue; a retry reads the attempt
+     * history).
      */
     @Test
-    fun `second open_listing on the same page answers a corrective failure`() {
+    fun `second open_listing on the same page ends the attempt as a requeue`() {
         every {
             browser.callToolText(eq("browser_evaluate"), any(), any())
         } returns "https://nofluffjobs.com/pl/job/x"
@@ -1197,19 +1197,52 @@ class BrowserAgentTest {
             listOf(
                 toolCallResponse("open_listing", "{}"),
                 toolCallResponse("open_listing", "{}"),
-                toolCallResponse(
-                    "record_submission",
-                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"nfj"}""",
-                ),
             ),
         )
 
         val result = run(agent(transport))
 
-        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
-        // The 2nd open_listing's tool result rides into the next request
-        // body; a single corrective failure must not end the attempt.
-        assertThat(transport.bodies.last()).contains("BLOCKED: open_listing")
+        assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
+        assertThat((result as ApplyResult.Transient).detail).contains("open_listing relapse")
+    }
+
+    /**
+     * Convergence (review BLOCKER-2): requeueing alone cannot converge on a
+     * deterministic relapse. Once the regrind budget is spent (regrindCycles
+     * at the cap) the relapse must WALL: a Failed whose detail avoids every
+     * MODEL_FLAKE_SIGNATURES string, so wallFailedReenqueue takes the
+     * listing out of the queue with a ledger decision.
+     */
+    @Test
+    fun `open_listing relapse walls the listing once regrind is exhausted`() {
+        every { jobStateRepo.findById(any()) } returns Optional.of(
+            dev.mstaszew.campaign.common.domain.JobStateDocument(
+                id = "nofluffjobs:n-1",
+                regrindCycles = dev.mstaszew.campaign.common.repo.JobStateRepositoryImpl.MAX_REGRIND_CYCLES,
+            ),
+        )
+        every {
+            browser.callToolText(eq("browser_evaluate"), any(), any())
+        } returns "https://nofluffjobs.com/pl/job/x"
+
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("open_listing", "{}"),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Failed::class.java)
+        val detail = (result as ApplyResult.Failed).detail
+        assertThat(detail).contains("open_listing relapse")
+        // The wall wire-contract: the detail must carry NO model-flake
+        // signature, or WorkerLoop would requeue instead of walling and the
+        // grind would cycle forever (evolve together).
+        dev.mstaszew.campaign.worker.WorkerLoop.MODEL_FLAKE_SIGNATURES.forEach {
+            assertThat(detail).doesNotContain(it)
+        }
     }
 
     /**

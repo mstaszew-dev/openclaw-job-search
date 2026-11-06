@@ -14,6 +14,7 @@ import dev.mstaszew.campaign.common.domain.AttemptHistoryEntry
 import dev.mstaszew.campaign.common.domain.JobListingEntity
 import dev.mstaszew.campaign.common.repo.JobListingRepository
 import dev.mstaszew.campaign.common.repo.JobStateRepository
+import dev.mstaszew.campaign.common.repo.JobStateRepositoryImpl
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.time.Duration
@@ -340,11 +341,24 @@ class BrowserAgent(
 
         /**
          * Consecutive no-op open_listing answers (already on the listing).
-         * The first succeeds and redirects to action; a relapse is
-         * corrective-failed so the loop breaker, not the step cap, ends the
-         * attempt with history. A navigating open_listing resets it.
+         * The first succeeds and redirects to action; reaching the limit
+         * ENDS the attempt (BLOCKER-2 2026-11-06: the old corrective-failure
+         * fed the loop breaker and requeued into an identical grind). A
+         * navigating open_listing resets it.
          */
         var noOpOpenListingStreak: Int = 0
+
+        /**
+         * Persisted regrind cycle count for this job (BLOCKER-2 2026-11-06):
+         * the open_listing relapse walls only when the regrind budget is
+         * spent; a missing row or a failed read maps to 0 (requeue path).
+         */
+        fun regrindCyclesOrDefault(): Int = try {
+            jobState.findById(jobId).orElse(null)?.regrindCycles ?: 0
+        } catch (e: Exception) {
+            if (e is InterruptedException) Thread.currentThread().interrupt()
+            0
+        }
 
         /** Wander-breaker state: consecutive READ-ONLY steps, whatever their tool mix. */
         var readStreak: Int = 0
@@ -831,14 +845,27 @@ class BrowserAgent(
                 if (alreadyOnListing(browser, state.listing.url)) {
                     state.noOpOpenListingStreak += 1
                     if (state.noOpOpenListingStreak >= NO_OP_OPEN_LISTING_LIMIT) {
-                        ToolOutcome(
-                            "open_listing",
-                            "BLOCKED: open_listing #${state.noOpOpenListingStreak} while already on the " +
-                                "listing page - you were told to ACT, not to re-open. Take " +
-                                "browser_snapshot and click the apply control or fill the form; more " +
-                                "open_listing calls will end this attempt.",
-                            failed = true,
-                        )
+                        // BLOCKER-2 review 2026-11-06: 13 theprotocol listings
+                        // ground open_listing 11-26 times per attempt - the
+                        // corrective failure fed the loop breaker, the flake
+                        // signature requeued the job, and the next attempt
+                        // ground identically for zero progress. Two relapses
+                        // prove the model cannot act on this page state: end
+                        // the attempt NOW. Requeue while a regrind chance
+                        // remains (the retry reads this attempt's history);
+                        // wall once the regrind budget is spent, so the
+                        // outcome converges to a ledger decision. The wall
+                        // detail avoids every WorkerLoop
+                        // MODEL_FLAKE_SIGNATURES string - evolve together.
+                        val regrindCycles = state.regrindCyclesOrDefault()
+                        val detail = "open_listing relapse: called ${state.noOpOpenListingStreak}x while already " +
+                            "on the listing; the model will not act on this page state " +
+                            "(regrindCycles=$regrindCycles)"
+                        return if (regrindCycles >= JobStateRepositoryImpl.MAX_REGRIND_CYCLES) {
+                            ApplyResult.Failed("$detail - regrind exhausted; walling")
+                        } else {
+                            ApplyResult.Transient(detail)
+                        }
                     } else {
                         ToolOutcome(
                             "open_listing",

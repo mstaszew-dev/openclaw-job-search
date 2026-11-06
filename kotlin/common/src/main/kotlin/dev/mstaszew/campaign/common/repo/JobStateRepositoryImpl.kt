@@ -193,7 +193,7 @@ class JobStateRepositoryImpl(
         return result.matchedCount > 0L
     }
 
-    private companion object {
+    companion object {
         /**
          * Recovery bound (review S3, 2026-11-05): a listing the model
          * deterministically fails gets at most this many dead-letter ->

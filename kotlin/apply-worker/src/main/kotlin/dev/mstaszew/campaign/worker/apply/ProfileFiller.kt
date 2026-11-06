@@ -126,7 +126,8 @@ class ProfileFiller(
   const visible = (e) => e.offsetParent !== null || e.type === 'hidden';
   const all = Array.from(document.querySelectorAll('input, select, textarea')).filter(visible);
   const setNative = (el, kind, value) => {
-    const proto = el.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+    const proto = el.tagName === 'SELECT' ? HTMLSelectElement.prototype
+      : el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const desc = Object.getOwnPropertyDescriptor(proto, 'value');
     if (desc && desc.set) { desc.set.call(el, value); } else { el.value = value; }
     el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -154,6 +155,7 @@ class ProfileFiller(
   const fillText = (kind, matches, value) => {
     if (!value) return;
     const el = all.find(e => e.tagName !== 'SELECT' && e.type !== 'checkbox' && e.type !== 'radio'
+      && e.type !== 'hidden'
       && !taken.has(e) && matches.some(m => m(e)));
     if (!el) { out.missing.push(kind); return; }
     taken.add(el); setNative(el, kind, value);
@@ -162,7 +164,7 @@ class ProfileFiller(
   fillText('surname', [e => idSuffix(e, 'tbsurname'), e => auto(e, 'family-name'), e => idSuffix(e, 'tblastname'), e => idSuffix(e, 'lastname'), e => labelHas(e, 'nazwisko')], ID.surname);
   fillText('email', [e => idSuffix(e, 'tbmail'), e => auto(e, 'email'), e => (e.type || '') === 'email', e => labelHas(e, 'e-mail') || labelHas(e, 'email')], ID.email);
   fillText('phone', [e => idSuffix(e, 'tbcellphone'), e => auto(e, 'tel'), e => idSuffix(e, 'phonenumber'), e => labelHas(e, 'telefon')], ID.phone);
-  fillText('city', [e => idSuffix(e, 'tbcity'), e => auto(e, 'address-level2'), e => idOrName(e, 'city')], ID.city);
+  fillText('city', [e => idSuffix(e, 'tbcity'), e => auto(e, 'address-level2'), e => idOrName(e, 'city'), e => labelHas(e, 'miasto'), e => labelHas(e, 'city')], ID.city);
   const country = all.find(e => e.tagName === 'SELECT' && (idSuffix(e, 'lstcountries') || idOrName(e, 'country')));
   const region = all.find(e => e.tagName === 'SELECT' && (idSuffix(e, 'lstregions') || idOrName(e, 'region') || idOrName(e, 'state')));
   if (ID.country && country && textSel(country, ID.country)) {} else if (ID.country && country) out.missing.push('country[' + ID.country + ']');

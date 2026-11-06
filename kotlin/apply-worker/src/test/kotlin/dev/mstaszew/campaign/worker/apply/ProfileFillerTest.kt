@@ -187,6 +187,16 @@ class ProfileFillerTest {
         assertThat(js).contains("imię")
         assertThat(js).contains("nazwisko")
         assertThat(js).contains("telefon")
+        // Review 2026-11-06: city had no label anchor, so a React drawer WITH
+        // a city field still reported missing=[city] and the model ground
+        assertThat(js).contains("miasto")
+        assertThat(js).contains("'city'")
+        // Review SHOULD-2: the input value setter on a textarea throws
+        // Illegal invocation in Chrome and kills the whole evaluate
+        assertThat(js).contains("HTMLTextAreaElement")
+        // Review SHOULD-3: a hidden input must never consume an anchor while
+        // the visible field stays empty
+        assertThat(js).contains("e.type !== 'hidden'")
         // generic ATS anchors
         assertThat(js).contains("autocomplete")
         // the identity values travel as JSON, not as interpolated selector names
