@@ -41,3 +41,18 @@ deploy becomes a no-op (2026-11-06: three deploys shipped a 10:27 jar). After
 scp, verify the deployed jar actually contains the commit: extract
 `BOOT-INF/classes/dev/mstaszew/campaign/worker/apply/BrowserAgent*.class` and
 grep for a string introduced by the commit. VM clock is UTC (1h behind local).
+
+## VM Chrome management (2026-11-07)
+
+Chrome on the VM runs HEADLESS via a transient systemd-run unit (no X server):
+restart with `sudo systemctl restart campaign-chrome3` or recreate the unit. A
+permanent headed-on-Wayland setup exists for when the desktop session is up:
+`campaign-chrome.service` (--ozone-platform=wayland, WAYLAND_DISPLAY=wayland-0,
+Restart=always) plus `campaign-chrome-watchdog.timer` (every 5 min runs
+/opt/campaign/bin/chrome-probe.sh - a REAL connectOverCDP roundtrip, because a
+wedged Chrome still answers HTTP /json/version - and restarts the unit on
+failure; the probe must run as ubuntu, as root node resolves differently).
+Deploy gotcha extends to the finder: `./gradlew :finder-service:bootJar`
+(output finder-service/build/libs/finder-service.jar), NOT :jar, and verify
+BOOT-INF/lib/common.jar bytes after scp (the Nov 4 finder jar silently missed
+the Nov 5 regrind branch for a day).
