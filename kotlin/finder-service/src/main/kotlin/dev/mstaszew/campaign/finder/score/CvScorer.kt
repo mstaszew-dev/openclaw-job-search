@@ -87,16 +87,32 @@ class CvScorer(
             listOf(ChatMessage("system", system), ChatMessage("user", user)),
             maxTokens = 200,
         )
+        val content = result.content
         val node = try {
-            mapper.readTree(extractJson(result.content))
-        } catch (e: Exception) {
-            throw LlmClientException("unparseable score output: ${result.content.take(120)}", e)
+            mapper.readTree(extractJson(content))
+        } catch (_: Exception) {
+            null
         }
-        val score = node.path("score").asInt(-1)
-        if (score < 0 || score > 100) {
-            throw LlmClientException("score out of range in: ${result.content.take(120)}")
+        if (node != null) {
+            val score = node.path("score").asInt(-1)
+            if (score in 0..100) {
+                return CvScore(score, node.path("reason").asText(""), CvScore.Source.LLM)
+            }
         }
-        return CvScore(score, node.path("reason").asText(""), CvScore.Source.LLM)
+        // 2026-11-07 DLQ evidence: the free pool's most common shape is a
+        // TRUNCATED JSON (`{"score": 30,` cut by maxTokens) - a REAL score
+        // was discarded for the neutral 70, enqueuing low-fit listings at
+        // accept level. Salvage the quoted "score": N before giving up.
+        salvageScore(content)?.let { return it }
+        throw LlmClientException("unparseable score output: ${content.take(120)}")
+    }
+
+    /** Quoted-key salvage only: `"score": 45` - prose numbers never count. */
+    private fun salvageScore(content: String): CvScore? {
+        val m = SALVAGE_SCORE_REGEX.find(content) ?: return null
+        val value = m.groupValues[1].toIntOrNull() ?: return null
+        if (value !in 0..100) return null
+        return CvScore(value, "salvaged from unparseable output: ${content.take(100)}", CvScore.Source.LLM)
     }
 
     /** Tolerates markdown-fenced JSON, which models like to emit. */
@@ -109,6 +125,9 @@ class CvScorer(
     companion object {
         /** Neutral accept used both when the gateway is down and when scoring is paused. */
         const val FALLBACK_SCORE = 70
+
+        /** Quoted-key score salvage (see [salvageScore]); prose numbers never count. */
+        private val SALVAGE_SCORE_REGEX = Regex("\"score\"\\s*:\\s*(\\d{1,3})(?!\\d)")
         private val log = LoggerFactory.getLogger(CvScorer::class.java)
 
         fun logPausedState(enabled: Boolean) {
