@@ -50,9 +50,11 @@ import java.util.concurrent.TimeUnit
  * - Redelivery is safe by construction. Dedupe runs again on every consume,
  *   and Recorder.recordSubmitted writes with insert-if-absent, so the same
  *   message consumed twice produces exactly one application row.
- * - Failure is handled by NOT committing and returning, letting the broker
- *   redeliver. job_state.attempts bounds how long that can go on; once the
- *   bound is hit the message goes to campaign.jobs.dlq and we DO commit.
+ * - Failure paths rethrow (2026-11-08 stall fix): the container's
+ *   DefaultErrorHandler seeks back and redelivers in-session after 1s; a
+ *   return-without-ack in pollAndInvoke mode never redelivered (fetch
+ *   position past the record, seek lost - an 82-minute silent stall live).
+ *   Attempts-exhausted messages go to campaign.jobs.dlq and we DO commit.
  * - max.poll.interval.ms must stay above the worst-case agent loop. Both are
  *   derived from AgentLoopBounds (WORKER_MAX_STEPS, default 80: 80 steps x
  *   (90s model + 120s Playwright) = 4.7h + 30 min margin), so an env override
@@ -110,10 +112,21 @@ class WorkerLoop(
             log.warn("job {} attempt {} failed: {}", job.id, attempt, message)
             if (attempt >= props.maxAttempts) {
                 deadLetter(job, attempt, message, ack)
-            } else {
-                // No commit: the broker redelivers after the backoff below.
-                backoff(attempt)
+                return
             }
+            // 2026-11-08 stall fix: the old requeue path - backoff sleep then
+            // return WITHOUT ack - never redelivered in pollAndInvoke mode.
+            // The consumer's fetch position had moved past the unacked record
+            // and the container lost the seek-back, so the job sat invisible
+            // until a restart (live: an 82-minute silence with 2 lagged
+            // records). Rethrow instead: the container's DefaultErrorHandler
+            // (FixedBackOff 1s, unlimited) seeks back and redelivers
+            // in-session, and recordAttempt's Mongo counter still bounds the
+            // retries via the maxAttempts dead-letter above. The ONLY
+            // unbounded retry is recordAttempt itself failing (outside this
+            // catch) - intentional, per KafkaWiring's backstop comment.
+            if (e is InterruptedException) Thread.currentThread().interrupt()
+            throw e
         }
     }
 
@@ -280,12 +293,6 @@ class WorkerLoop(
                     },
             )
         }
-    }
-
-    private fun backoff(attempt: Int) {
-        val millis = BACKOFF_BASE_MS * (1L shl (attempt - 1).coerceIn(0, 6))
-        log.info("retrying job in {} ms (attempt {}/{})", millis, attempt, props.maxAttempts)
-        Thread.sleep(millis)
     }
 
     /** Persisted in one short transaction; nothing here schedules work. */
@@ -558,7 +565,6 @@ class WorkerLoop(
     }
 
     companion object {
-        const val BACKOFF_BASE_MS = 2_000L
         const val DLQ_SEND_TIMEOUT_MS = 10_000L
 
         /**

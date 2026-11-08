@@ -24,6 +24,7 @@ import io.mockk.slot
 import io.mockk.verify
 import io.mockk.verifyOrder
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.support.Acknowledgment
@@ -182,10 +183,15 @@ class WorkerLoopTest {
                     "Do exactly this: 1) browser_snapshot",
             )
 
-        // onMessage consumes ApplyRetryException as redelivery scheduling
-        // (no commit); the contract is no wall, no FAILED mark, no commit.
-        loop("live").onMessage(job, ack)
-
+        // 2026-11-08 stall fix: the requeue exception must REACH the
+        // container's DefaultErrorHandler, which seeks back and redelivers
+        // in-session (FixedBackOff 1s, unlimited). The old catch-path
+        // (backoff sleep + return without ack) never redelivered in
+        // pollAndInvoke mode - live: an 82-minute silence with 2 lagged
+        // records invisible until restart. The contract stays: no wall, no
+        // FAILED mark, no commit.
+        assertThatThrownBy { loop("live").onMessage(job, ack) }
+            .isInstanceOf(ApplyRetryException::class.java)
         assertThat(ack.count).isZero()
         verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
         verify(exactly = 0) { jobState.save(match { it.status == JobStatus.FAILED }) }
@@ -306,7 +312,10 @@ class WorkerLoopTest {
                     "tool browser_navigate failed: Error: Cannot navigate to invalid URL",
             )
 
-        loop("live").onMessage(job, ack)
+        // Same stall-fix contract as the navigate-guard test: the requeue
+        // must propagate to the container's error handler for the seek.
+        assertThatThrownBy { loop("live").onMessage(job, ack) }
+            .isInstanceOf(ApplyRetryException::class.java)
 
         assertThat(ack.count).isZero()
         verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
@@ -319,7 +328,8 @@ class WorkerLoopTest {
         every { browserAgent.run(any(), any(), any(), any(), any()) } returns
             ApplyResult.Failed("step cap 200 reached without outcome")
 
-        loop("live").onMessage(job, ack)
+        assertThatThrownBy { loop("live").onMessage(job, ack) }
+            .isInstanceOf(ApplyRetryException::class.java)
 
         assertThat(ack.count).isZero()
         verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
@@ -340,7 +350,8 @@ class WorkerLoopTest {
                     "SyntaxError: Failed to execute 'querySelectorAll' on 'Document': ':e68' is not a valid selector.",
             )
 
-        loop("live").onMessage(job, ack)
+        assertThatThrownBy { loop("live").onMessage(job, ack) }
+            .isInstanceOf(ApplyRetryException::class.java)
 
         assertThat(ack.count).isZero()
         verify(exactly = 0) { recorder.recordFailedWall(any(), any(), any()) }
@@ -487,7 +498,10 @@ class WorkerLoopTest {
     fun `a retryable failure does not commit and does not dead-letter`() {
         every { dedup.check(any()) } throws IllegalStateException("mongo blip")
 
-        loop().onMessage(job, ack)
+        // Stall fix: the retryable failure now propagates to the container's
+        // error handler (seek + in-session redelivery) instead of the
+        // backoff-and-return that lost records for hours.
+        assertThatThrownBy { loop().onMessage(job, ack) }
 
         assertThat(ack.count).isZero()
         verify(exactly = 0) { kafka.send(any<String>(), any<String>(), any<Any>()) }
@@ -647,7 +661,9 @@ class WorkerLoopTest {
         every { chromeLease.acquire(any(), any(), any(), any(), any(), any()) } returns leaseHandle
         every { browserAgent.run(any(), any(), any(), any(), any()) } throws RuntimeException("boom")
 
-        loop("live").onMessage(job, ack)
+        // Stall fix: the throw now propagates to the container's error
+        // handler; the lease release must still have happened on the way out.
+        assertThatThrownBy { loop("live").onMessage(job, ack) }
 
         verify { leaseHandle.release() }
         assertThat(ack.count).isEqualTo(0)
@@ -655,15 +671,17 @@ class WorkerLoopTest {
 
     /**
      * The finder's scan beat us to the browser. Deferring beats failing: the
-     * offset stays uncommitted, so the broker redelivers after the normal
-     * backoff instead of this job being lost or dead-lettered.
+     * requeue propagates to the container's error handler (stall fix), whose
+     * seek + 1s backoff redelivers in-session instead of the old
+     * backoff-and-return that lost records until restart.
      */
     @Test
     fun `a busy browser defers the job without committing or opening a tab`() {
         every { dedup.check(any()) } returns DuplicateDecision.CLEAR
         every { chromeLease.acquire(any(), any(), any(), any(), any(), any()) } returns null
 
-        loop("live").onMessage(job, ack)
+        assertThatThrownBy { loop("live").onMessage(job, ack) }
+            .isInstanceOf(BrowserBusyException::class.java)
 
         verify(exactly = 0) { browserAgent.run(any(), any(), any(), any(), any()) }
         assertThat(ack.count).isEqualTo(0)
