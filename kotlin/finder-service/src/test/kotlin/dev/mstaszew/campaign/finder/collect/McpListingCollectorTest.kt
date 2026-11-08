@@ -112,12 +112,14 @@ class McpListingCollectorTest {
     }
 
     @Test
-    fun `justjoin pagination is unchanged`() {
+    fun `justjoin paginates pages 1 to 5 like justjoin`() {
         val pages = McpListingCollector.pageVariants("justjoin", "https://justjoin.it/job-offers/remote/java")
         assertThat(pages).containsExactly(
             "https://justjoin.it/job-offers/remote/java",
             "https://justjoin.it/job-offers/remote/java?page=2",
             "https://justjoin.it/job-offers/remote/java?page=3",
+            "https://justjoin.it/job-offers/remote/java?page=4",
+            "https://justjoin.it/job-offers/remote/java?page=5",
         )
     }
 
@@ -128,7 +130,7 @@ class McpListingCollectorTest {
     }
 
     /**
-     * 2026-10-26 inflow expansion: the five original stack queries per board
+     * 2026-11-08 inflow expansion: the five original stack queries per board
      * are 100% swept (every window: seen == dupWindow + deduped + ineligible
      * + lowScore, enqueued 0). NFJ serves real category pages for spring,
      * typescript and javascript (200, verified); justjoin has no such remote
