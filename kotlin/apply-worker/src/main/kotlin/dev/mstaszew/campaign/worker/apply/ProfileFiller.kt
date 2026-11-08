@@ -30,6 +30,7 @@ import java.time.Duration
 class ProfileFiller(
     private val props: WorkerProperties,
     private val mapper: ObjectMapper = ObjectMapper(),
+    private val sleeper: (Long) -> Unit = { Thread.sleep(it) },
 ) {
 
     private val log = LoggerFactory.getLogger(ProfileFiller::class.java)
@@ -114,6 +115,58 @@ class ProfileFiller(
         null
     }
 
+    /**
+     * Worker-side submit assist (2026-11-08 sopot): the confirmation probe's
+     * missing half. On some forms the drawer does NOT auto-submit after the
+     * fill - a submit control sits there waiting for a click the free model
+     * refuses to make. Called when the model repeats profile_fill: re-check
+     * the confirmation, then probe for a STRONG submit control (send/submit/
+     * wyślij/zaaplikuj/dalej - the aplikuj/apply labels are the drawer-open
+     * controls and are deliberately excluded so this can never re-click the
+     * Apply button), click ONCE, wait, and re-probe the confirmation.
+     * Returns the guidance string for the model, or null when nothing to
+     * click (caller keeps the relapse terminal).
+     */
+    fun submitAssist(browser: McpStdioClient): String? {
+        detectConfirmation(browser)?.let { c ->
+            if (c.path("confirmed").asBoolean(false)) {
+                return confirmationGuidance(c.path("marker").asText(""), c.path("url").asText(""))
+            }
+        }
+        val probe = evaluateJs(browser, SUBMIT_JS, SUBMIT_MARKER) ?: return null
+        if (!probe.path("found").asBoolean(false)) return null
+        val text = probe.path("text").asText("")
+        val clicked = evaluateJs(browser, CLICK_JS, CLICK_MARKER) ?: return null
+        if (!clicked.path("clicked").asBoolean(false)) return null
+        sleeper(3000)
+        detectConfirmation(browser)?.let { c ->
+            if (c.path("confirmed").asBoolean(false)) {
+                return confirmationGuidance(c.path("marker").asText(""), c.path("url").asText(""))
+            }
+        }
+        return "AUTO-SUBMIT clicked '$text' for you; the page shows no thank-you yet. Take ONE browser_snapshot: " +
+            "if a confirmation appears, call record_submission with it; if the form shows a validation error, fix that " +
+            "one field via browser_fill_form and click submit once more. Do NOT call profile_fill again."
+    }
+
+    /** The evidence-carrying instruction the model must act on. */
+    fun confirmationGuidance(marker: String, url: String) =
+        "CONFIRMATION VISIBLE on the page: '$marker' (url=$url). The apply already went through - call " +
+            "record_submission NOW with confirmationText='$marker' and confirmationUrl='$url'. " +
+            "Do NOT call profile_fill again."
+
+    private fun evaluateJs(browser: McpStdioClient, js: String, marker: String): com.fasterxml.jackson.databind.JsonNode? = try {
+        val raw = browser.callToolText(
+            "browser_evaluate",
+            mapper.createObjectNode().apply { put("function", js) },
+            TOOL_TIMEOUT,
+        )
+        McpEvaluateJson.extract(mapper, raw, marker)
+    } catch (e: Exception) {
+        if (e is InterruptedException) Thread.currentThread().interrupt()
+        null
+    }
+
     private fun com.fasterxml.jackson.databind.JsonNode.asTextList(): List<String> =
         if (isArray) elements().asSequence().map { it.asText() }.toList() else emptyList()
 
@@ -129,6 +182,30 @@ class ProfileFiller(
 
         /** Marker for the submission-confirmation probe (see [detectConfirmation]). */
         const val CONFIRM_MARKER = "CONFIRM_PROBE_2b7e"
+
+        /** Markers for the submit-assist probe and click (see [submitAssist]). */
+        const val SUBMIT_MARKER = "SUBMIT_PROBE_4c1d"
+        const val CLICK_MARKER = "SUBMIT_CLICK_9d2e"
+
+        /**
+         * Submit-assist probe: visible form inputs + the first STRONG submit
+         * control. The aplikuj/apply labels are the drawer-open controls and
+         * are deliberately excluded - the assist must never re-click Apply.
+         */
+        private val SUBMIT_JS = """() => {
+  const inputs = [...document.querySelectorAll('input:not([type=hidden]):not([type=checkbox]), textarea, select')].filter(e => e.offsetParent !== null).length;
+  const cands = [...document.querySelectorAll('button, [role=button], input[type=submit]')].filter(e => e.offsetParent !== null && !e.disabled);
+  const el = cands.find(b => /^(wyślij|wyslij|send|submit|zaaplikuj|dalej|continue|next)/i.test(((b.innerText||b.value||'')+'').trim()));
+  return '${SUBMIT_MARKER}' + JSON.stringify({inputs: inputs, found: !!el, text: el ? ((el.innerText||el.value||'')+'').trim().slice(0,40) : ''});
+}"""
+
+        private val CLICK_JS = """() => {
+  const cands = [...document.querySelectorAll('button, [role=button], input[type=submit]')].filter(e => e.offsetParent !== null && !e.disabled);
+  const el = cands.find(b => /^(wyślij|wyslij|send|submit|zaaplikuj|dalej|continue|next)/i.test(((b.innerText||b.value||'')+'').trim()));
+  if (!el) return '${CLICK_MARKER}' + JSON.stringify({clicked:false, text:''});
+  el.click();
+  return '${CLICK_MARKER}' + JSON.stringify({clicked:true, text:((el.innerText||el.value||'')+'').trim().slice(0,40)});
+}"""
 
         /**
          * Confirmation markers: PL portal thank-you texts seen live plus the

@@ -371,6 +371,10 @@ class BrowserAgent(
          */
         var profileFillStreak: Int = 0
 
+        /** Submit assists used this attempt (2026-11-08): capped at ONE click
+         * so a flailing model can never produce a second portal submission. */
+        var submitAssists: Int = 0
+
         /** Wander-breaker state: consecutive READ-ONLY steps, whatever their tool mix. */
         var readStreak: Int = 0
 
@@ -899,31 +903,27 @@ class BrowserAgent(
                 state.profileFillStreak += 1
                 if (state.profileFillStreak >= PROFILE_FILL_REPEAT_LIMIT) {
                     // 2026-11-08 iteration: the repeat call is the signal the
-                    // model will not advance - but on theprotocol the drawer
-                    // AUTO-SUBMITS after profile_fill, so the thank-you the
-                    // model failed to read is already on the page. Probe for
-                    // it worker-side (zero clicking, zero model JS - this can
-                    // never double-submit): if visible, hand the model the
-                    // exact record_submission arguments; if not, the
-                    // relapse terminal stands (regrind-aware like the
-                    // open_listing relapse).
-                    val confirmation = try {
-                        profileFiller.detectConfirmation(browser.client)
-                    } catch (e: Exception) {
-                        if (e is InterruptedException) Thread.currentThread().interrupt()
+                    // model will not advance - but the form may already be
+                    // submitted (theprotocol auto-submits after the fill) or
+                    // waiting for a submit click the model refuses to make.
+                    // Worker-side, zero model JS: probe the confirmation; if
+                    // absent, click a STRONG submit control ONCE per attempt
+                    // and re-probe. Either way the model gets exact evidence
+                    // or the regrind-aware relapse terminal.
+                    val assist = if (state.submitAssists == 0) {
+                        state.submitAssists += 1
+                        try {
+                            profileFiller.submitAssist(browser.client)
+                        } catch (e: Exception) {
+                            if (e is InterruptedException) Thread.currentThread().interrupt()
+                            null
+                        }
+                    } else {
                         null
                     }
-                    if (confirmation != null && confirmation.path("confirmed").asBoolean(false)) {
-                        val marker = confirmation.path("marker").asText("submission confirmation")
-                        val url = confirmation.path("url").asText("")
+                    if (assist != null) {
                         state.profileFillStreak = 0
-                        return ToolOutcome(
-                            "profile_fill",
-                            "CONFIRMATION VISIBLE on the page: '$marker' (url=$url). The apply already went " +
-                                "through - call record_submission NOW with confirmationText='$marker' and " +
-                                "confirmationUrl='$url'. Do NOT call profile_fill again.",
-                            failed = false,
-                        )
+                        return ToolOutcome("profile_fill", assist, failed = false)
                     }
                     return relapseTerminal(
                         "profile_fill repeat: called ${state.profileFillStreak}x consecutively; its " +

@@ -1295,6 +1295,80 @@ class BrowserAgentTest {
     }
 
     /**
+     * 2026-11-08 sopot: a form where the drawer does NOT auto-submit - the
+     * confirmation probe found nothing, so the repeat terminal killed an
+     * otherwise-filled apply. The form was open with a submit control; a
+     * human would click it. The worker does the same: on the repeat, when no
+     * confirmation is visible, probe for the submit control, click ONCE
+     * (worker-side, zero model JS), re-probe the confirmation, and hand the
+     * model the evidence.
+     */
+    @Test
+    fun `profile_fill repeat with an open form clicks submit once and reports the confirmation`() {
+        every { browser.callToolText(eq("browser_evaluate"), any(), any()) } answers {
+            val fn = secondArg<com.fasterxml.jackson.databind.JsonNode>().path("function").asText()
+            when {
+                fn.contains(ProfileFiller.CONFIRM_MARKER) ->
+                    ProfileFiller.CONFIRM_MARKER + "{\"confirmed\":false,\"marker\":\"\",\"url\":\"https://theprotocol.it/aplikuj\"}"
+                fn.contains(ProfileFiller.SUBMIT_MARKER) ->
+                    ProfileFiller.SUBMIT_MARKER + "{\"inputs\":3,\"found\":true,\"text\":\"Wyślij aplikację\"}"
+                fn.contains(ProfileFiller.CLICK_MARKER) ->
+                    ProfileFiller.CLICK_MARKER + "{\"clicked\":true,\"text\":\"Wyślij aplikację\"}"
+                else -> "https://nofluffjobs.com/pl/job/x"
+            }
+        }
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://theprotocol.it/x","confirmationText":"done","ats":"theprotocol"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        // The click-path guidance names the button it clicked for the model.
+        assertThat(transport.bodies.last()).contains("AUTO-SUBMIT clicked")
+        assertThat(transport.bodies.last()).contains("Wyślij aplikację")
+    }
+
+    /** The assist clicks ONCE per attempt: a second repeat with the assist
+     * already used takes the relapse terminal (no double-submit risk). */
+    @Test
+    fun `a second submit assist in one attempt is refused`() {
+        every { browser.callToolText(eq("browser_evaluate"), any(), any()) } answers {
+            val fn = secondArg<com.fasterxml.jackson.databind.JsonNode>().path("function").asText()
+            when {
+                fn.contains(ProfileFiller.CONFIRM_MARKER) ->
+                    ProfileFiller.CONFIRM_MARKER + "{\"confirmed\":false,\"marker\":\"\",\"url\":\"https://x\"}"
+                fn.contains(ProfileFiller.SUBMIT_MARKER) ->
+                    ProfileFiller.SUBMIT_MARKER + "{\"inputs\":3,\"found\":true,\"text\":\"Wyślij\"}"
+                fn.contains(ProfileFiller.CLICK_MARKER) ->
+                    ProfileFiller.CLICK_MARKER + "{\"clicked\":true,\"text\":\"Wyślij\"}"
+                else -> "https://nofluffjobs.com/pl/job/x"
+            }
+        }
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
+        assertThat((result as ApplyResult.Transient).detail).contains("profile_fill repeat")
+    }
+
+    /**
      * Convergence (review BLOCKER-2): requeueing alone cannot converge on a
      * deterministic relapse. Once the regrind budget is spent (regrindCycles
      * at the cap) the relapse must WALL: a Failed whose detail avoids every
