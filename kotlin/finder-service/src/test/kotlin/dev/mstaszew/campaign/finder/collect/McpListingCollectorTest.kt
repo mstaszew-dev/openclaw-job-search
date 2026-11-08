@@ -227,7 +227,7 @@ verify(exactly = 1) {
                 any(),
             )
         }
-        verify(exactly = 9) {
+        verify(exactly = 15) {
             client.callToolText(
                 eq("browser_navigate"),
                 match { it.path("url").asText().contains("justjoin.it") },
@@ -300,8 +300,8 @@ verify(exactly = 1) {
             }
         }
         // No unexpected extra justjoin page beyond the three categories x
-        // three pages (pages 2-3 added 2026-10-26/27).
-        verify(exactly = 9) {
+        // five pages (pages 2-3 added 2026-10-26/27, 4-5 added 2026-11-08).
+        verify(exactly = 15) {
             client.callToolText(
                 eq("browser_navigate"),
                 match { it.path("url").asText().contains("justjoin.it") },
