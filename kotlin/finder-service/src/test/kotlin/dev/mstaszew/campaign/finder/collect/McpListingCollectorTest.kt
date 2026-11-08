@@ -93,6 +93,41 @@ class McpListingCollectorTest {
     }
 
     /**
+     * 2026-11-08 scope increase: pracuj scanned only page 1 of each keyword
+     * search while the user browsed relevant remote java jobs on pages 2+
+     * (live-verified: ?pn=2 serves a different offer set from page 1).
+     * pracuj now paginates 1-3 like justjoin.
+     */
+    @Test
+    fun `pracuj paginates pages 1 to 3 with the pn query param`() {
+        val pages = McpListingCollector.pageVariants(
+            "pracuj",
+            "https://www.pracuj.pl/praca/java;kw/praca%20zdalna;wm,home-office",
+        )
+        assertThat(pages).containsExactly(
+            "https://www.pracuj.pl/praca/java;kw/praca%20zdalna;wm,home-office",
+            "https://www.pracuj.pl/praca/java;kw/praca%20zdalna;wm,home-office?pn=2",
+            "https://www.pracuj.pl/praca/java;kw/praca%20zdalna;wm,home-office?pn=3",
+        )
+    }
+
+    @Test
+    fun `justjoin pagination is unchanged`() {
+        val pages = McpListingCollector.pageVariants("justjoin", "https://justjoin.it/job-offers/remote/java")
+        assertThat(pages).containsExactly(
+            "https://justjoin.it/job-offers/remote/java",
+            "https://justjoin.it/job-offers/remote/java?page=2",
+            "https://justjoin.it/job-offers/remote/java?page=3",
+        )
+    }
+
+    @Test
+    fun `other boards stay single page`() {
+        assertThat(McpListingCollector.pageVariants("nofluffjobs", "https://nofluffjobs.com/pl/java")).hasSize(1)
+        assertThat(McpListingCollector.pageVariants("theprotocol", "https://theprotocol.it/filtry/java")).hasSize(1)
+    }
+
+    /**
      * 2026-10-26 inflow expansion: the five original stack queries per board
      * are 100% swept (every window: seen == dupWindow + deduped + ineligible
      * + lowScore, enqueued 0). NFJ serves real category pages for spring,
