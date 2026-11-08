@@ -171,7 +171,7 @@ class FinderPipeline(
             salaryText = salaryText(listing),
             applicantCvProfile = cvProfile.profileText(),
         )
-        if (score.score < 60) return Outcome.LowScore(score.score, score.reason)
+        if (score.score < props.scoreGate) return Outcome.LowScore(score.score, score.reason)
 
         val message = JobMessage(
             source = listing.source,

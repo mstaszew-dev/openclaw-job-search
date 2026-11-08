@@ -28,6 +28,14 @@ data class FinderProperties(
     var mcpCommand: String = "node @playwright/mcp/cli.js --cdp-endpoint http://127.0.0.1:9222",
     var collectStacks: List<String> = listOf("java", "kotlin", "php", "node", "react"),
     /**
+     * Enqueue gate for LLM CV-alignment scores (2026-11-08 scope increase):
+     * a listing scoring below this is dropped as lowScore. Default 60
+     * mirrors the original hardcoded gate; lower it (e.g. 50) when the
+     * boards' fresh supply runs thin. Eligibility policy and dedup still
+     * apply - the gate only decides scoring, not targeting.
+     */
+    var scoreGate: Int = 60,
+    /**
      * Operator kill switch for the periodic re-grind pass. When false the
      * finder never re-enqueues rows that earlier attempts left FAILED.
      */

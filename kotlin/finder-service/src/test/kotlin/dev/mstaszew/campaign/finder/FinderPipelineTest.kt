@@ -82,6 +82,7 @@ class FinderPipelineTest {
         duplicate: Boolean = false,
         scorer: CvScorer? = null,
         collector: ListingCollector = ListingCollector { emptyList() },
+        gate: Int? = null,
     ): FinderPipeline {
         every { listings.save(any()) } answers {
             val entity = arg<JobListingEntity>(0)
@@ -116,7 +117,7 @@ class FinderPipelineTest {
             mapper = com.fasterxml.jackson.databind.ObjectMapper().registerModule(
                 com.fasterxml.jackson.datatype.jsr310.JavaTimeModule(),
             ),
-            props = FinderProperties(),
+            props = FinderProperties().apply { gate?.let { scoreGate = it } },
             chromeLease = chromeLease,
         )
     }
@@ -211,6 +212,28 @@ class FinderPipelineTest {
     @Test
     fun `low score stops the enqueue`() {
         val outcome = pipeline(score = 30).process(listing())
+
+        assertThat(outcome).isInstanceOf(FinderPipeline.Outcome.LowScore::class.java)
+        verify(exactly = 0) { kafka.send(any<String>(), any<String>(), any<Any>()) }
+    }
+
+    /**
+     * Scope increase 2026-11-08: the gate is operator-configurable
+     * (FINDER_SCORE_GATE). A 55-scored listing (dropped by the hardcoded 60)
+     * enqueues under a 50 gate - the pipeline's own eligibility policy and
+     * dedup still apply.
+     */
+    @Test
+    fun `a lowered score gate enqueues what the hardcoded 60 dropped`() {
+        val outcome = pipeline(score = 55, gate = 50).process(listing())
+
+        assertThat(outcome).isInstanceOf(FinderPipeline.Outcome.Enqueued::class.java)
+        assertThat((outcome as FinderPipeline.Outcome.Enqueued).score).isEqualTo(55)
+    }
+
+    @Test
+    fun `the lowered gate still drops listings under it`() {
+        val outcome = pipeline(score = 45, gate = 50).process(listing())
 
         assertThat(outcome).isInstanceOf(FinderPipeline.Outcome.LowScore::class.java)
         verify(exactly = 0) { kafka.send(any<String>(), any<String>(), any<Any>()) }
