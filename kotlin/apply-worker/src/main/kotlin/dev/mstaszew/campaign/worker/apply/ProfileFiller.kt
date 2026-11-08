@@ -93,6 +93,27 @@ class ProfileFiller(
         return verdict.toString()
     }
 
+    /**
+     * Worker-side submission-confirmation probe (2026-11-08): called by
+     * BrowserAgent when the model repeats profile_fill - on theprotocol the
+     * drawer AUTO-SUBMITS after the fill (live evidence: confirmation text
+     * recorded straight after a fill), so the thank-you the model failed to
+     * read is already on the page. Zero model JavaScript, zero clicking -
+     * this can never double-submit. Null when the probe fails or finds no
+     * confirmation.
+     */
+    fun detectConfirmation(browser: McpStdioClient): com.fasterxml.jackson.databind.JsonNode? = try {
+        val raw = browser.callToolText(
+            "browser_evaluate",
+            mapper.createObjectNode().apply { put("function", CONFIRM_JS) },
+            TOOL_TIMEOUT,
+        )
+        McpEvaluateJson.extract(mapper, raw, CONFIRM_MARKER)
+    } catch (e: Exception) {
+        if (e is InterruptedException) Thread.currentThread().interrupt()
+        null
+    }
+
     private fun com.fasterxml.jackson.databind.JsonNode.asTextList(): List<String> =
         if (isArray) elements().asSequence().map { it.asText() }.toList() else emptyList()
 
@@ -105,6 +126,22 @@ class ProfileFiller(
          * slicing unreliable; the marker anchors every occurrence.
          */
         const val MARKER = "PF_REPORT_5a91"
+
+        /** Marker for the submission-confirmation probe (see [detectConfirmation]). */
+        const val CONFIRM_MARKER = "CONFIRM_PROBE_2b7e"
+
+        /**
+         * Confirmation markers: PL portal thank-you texts seen live plus the
+         * NFJ tracker wording; the URL check covers success-path redirects.
+         */
+        private val CONFIRM_JS = """() => {
+  const markers = ["dziękujemy","dziękuję","przesłana","przesłane","wysłana","wysłane","udało się","aplikacja została","przesłanie aplikacji","successfully received","thank you","thanks for your application","application has been","czy udało ci się zaaplikować"];
+  const text = (document.body.innerText || "").toLowerCase();
+  const hit = markers.find(m => text.includes(m));
+  const url = location.href;
+  const urlHit = /success|thanks|sent|potwierdzenie/.test(url);
+  return '${CONFIRM_MARKER}' + JSON.stringify({ confirmed: !!(hit || urlHit), marker: hit || (urlHit ? "url:" + url.slice(-40) : ""), url: url });
+}"""
 
         private const val IDENTITY_PLACEHOLDER = "%%IDENTITY%%"
 

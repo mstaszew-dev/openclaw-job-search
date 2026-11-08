@@ -1233,6 +1233,68 @@ class BrowserAgentTest {
     }
 
     /**
+     * 2026-11-08 iteration: the repeat call itself is the signal the model
+     * will not advance - but on theprotocol the drawer AUTO-SUBMITS after
+     * profile_fill (live evidence: confirmation text recorded straight after
+     * a fill), so the page already shows the thank-you the model failed to
+     * read. On the repeat, the worker detects the confirmation worker-side
+     * and hands the model the exact record_submission arguments instead of
+     * killing the attempt.
+     */
+    @Test
+    fun `profile_fill repeat with a visible confirmation hands the evidence to the model`() {
+        every { browser.callToolText(eq("browser_evaluate"), any(), any()) } answers {
+            val fn = secondArg<com.fasterxml.jackson.databind.JsonNode>().path("function").asText()
+            if (fn.contains(ProfileFiller.CONFIRM_MARKER)) {
+                ProfileFiller.CONFIRM_MARKER + "{\"confirmed\":true,\"marker\":\"dziękujemy\",\"url\":\"https://theprotocol.it/success\"}"
+            } else {
+                "https://nofluffjobs.com/pl/job/x"
+            }
+        }
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://theprotocol.it/success","confirmationText":"dziękujemy","ats":"theprotocol"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+    }
+
+    /** The guidance text must carry the exact evidence the model should record. */
+    @Test
+    fun `the confirmation guidance names the confirmation text and url`() {
+        every { browser.callToolText(eq("browser_evaluate"), any(), any()) } answers {
+            val fn = secondArg<com.fasterxml.jackson.databind.JsonNode>().path("function").asText()
+            if (fn.contains(ProfileFiller.CONFIRM_MARKER)) {
+                ProfileFiller.CONFIRM_MARKER + "{\"confirmed\":true,\"marker\":\"przesłane\",\"url\":\"https://x/thanks\"}"
+            } else {
+                "https://nofluffjobs.com/pl/job/x"
+            }
+        }
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+            ),
+        )
+
+        run(agent(transport, maxSteps = 5))
+
+        assertThat(transport.bodies.last()).contains("record_submission NOW")
+        assertThat(transport.bodies.last()).contains("przesłane")
+        assertThat(transport.bodies.last()).contains("https://x/thanks")
+    }
+
+    /**
      * Convergence (review BLOCKER-2): requeueing alone cannot converge on a
      * deterministic relapse. Once the regrind budget is spent (regrindCycles
      * at the cap) the relapse must WALL: a Failed whose detail avoids every

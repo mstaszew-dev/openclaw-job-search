@@ -898,13 +898,33 @@ class BrowserAgent(
             "profile_fill" -> {
                 state.profileFillStreak += 1
                 if (state.profileFillStreak >= PROFILE_FILL_REPEAT_LIMIT) {
-                    // 2026-11-06 swidnik grind: the model called profile_fill
-                    // 5x consecutively (missing=[city] every time) and, as an
-                    // ACTION tool, each call reset the wander breaker - the
-                    // unit rode to the step cap. The answer NEVER changes on
-                    // the same form: at the limit end the attempt without
-                    // touching the browser, regrind-aware like the
-                    // open_listing relapse.
+                    // 2026-11-08 iteration: the repeat call is the signal the
+                    // model will not advance - but on theprotocol the drawer
+                    // AUTO-SUBMITS after profile_fill, so the thank-you the
+                    // model failed to read is already on the page. Probe for
+                    // it worker-side (zero clicking, zero model JS - this can
+                    // never double-submit): if visible, hand the model the
+                    // exact record_submission arguments; if not, the
+                    // relapse terminal stands (regrind-aware like the
+                    // open_listing relapse).
+                    val confirmation = try {
+                        profileFiller.detectConfirmation(browser.client)
+                    } catch (e: Exception) {
+                        if (e is InterruptedException) Thread.currentThread().interrupt()
+                        null
+                    }
+                    if (confirmation != null && confirmation.path("confirmed").asBoolean(false)) {
+                        val marker = confirmation.path("marker").asText("submission confirmation")
+                        val url = confirmation.path("url").asText("")
+                        state.profileFillStreak = 0
+                        return ToolOutcome(
+                            "profile_fill",
+                            "CONFIRMATION VISIBLE on the page: '$marker' (url=$url). The apply already went " +
+                                "through - call record_submission NOW with confirmationText='$marker' and " +
+                                "confirmationUrl='$url'. Do NOT call profile_fill again.",
+                            failed = false,
+                        )
+                    }
                     return relapseTerminal(
                         "profile_fill repeat: called ${state.profileFillStreak}x consecutively; its " +
                             "answer never changes on the same form - the model will not act",
