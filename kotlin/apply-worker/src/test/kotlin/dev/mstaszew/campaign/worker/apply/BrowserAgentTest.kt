@@ -1207,6 +1207,92 @@ class BrowserAgentTest {
     }
 
     /**
+     * Live 2026-11-09 (hubquest warszawa dead letter): the justjoin drawer
+     * ATS opens its apply form IN-PAGE with no URL change. After a
+     * SUCCESSFUL apply_click the model re-orients by calling open_listing;
+     * the URL probe reads the unchanged page as wander and the relapse
+     * terminal killed 3 attempts, twice AFTER an apply_click ok (attempt 3
+     * died at step 5 having clicked Apply at step 4). A successful
+     * apply_click must earn ONE no-navigate pardon: open_listing answers
+     * success worker-side and re-aims at the drawer.
+     */
+    @Test
+    fun `open_listing after a successful apply_click earns one no-navigate pardon`() {
+        every { browser.callToolText(eq("browser_evaluate"), any(), any()) } returns "https://nofluffjobs.com/pl/job/x"
+        val clicker = mockk<ApplyClicker> {
+            every { click(any(), any()) } returns "apply_click: clicked \"Aplikuj\"; the form opened in-page"
+        }
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("apply_click", "{}"),
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://x/ok","confirmationText":"ok","ats":"hubquest"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport, applyClicker = clicker))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        // The pardon must not navigate: the drawer IS the goal state.
+        verify(exactly = 0) {
+            browser.callToolText(
+                eq("browser_navigate"),
+                match { it.path("url").asText() == "https://nofluffjobs.com/pl/job/x" },
+                any(),
+            )
+        }
+    }
+
+    /**
+     * BLOCKER-2 convergence: the pardon is one per attempt. A further
+     * no-op open_listing after the pardon is still a true wander signal
+     * and hits the same relapse terminal.
+     */
+    @Test
+    fun `a second relapse after the apply-click pardon still ends the attempt`() {
+        every { browser.callToolText(eq("browser_evaluate"), any(), any()) } returns "https://nofluffjobs.com/pl/job/x"
+        val clicker = mockk<ApplyClicker> {
+            every { click(any(), any()) } returns "apply_click: clicked \"Aplikuj\"; the form opened in-page"
+        }
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("apply_click", "{}"),
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("open_listing", "{}"),
+            ),
+        )
+
+        val result = run(agent(transport, applyClicker = clicker))
+
+        assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
+        assertThat((result as ApplyResult.Transient).detail).contains("open_listing relapse")
+    }
+
+    /**
+     * Prompt nudge 2026-11-09 (hubquest): the drawer ATS reality must be in
+     * the system prompt, so the model never reaches the guard at all: after
+     * apply_click ok, open_listing is forbidden; snapshot and fill.
+     */
+    @Test
+    fun `prompt forbids open_listing after an apply click`() {
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("record_submission", "{}"),
+            ),
+        )
+        run(agent(transport))
+
+        assertThat(transport.bodies.first()).contains("After a successful apply_click, NEVER call")
+        assertThat(transport.bodies.first()).contains("open_listing again")
+    }
+
+    /**
      * Live 2026-11-06 (ai-automation-specialist swidnik): the model called
      * profile_fill 5 times consecutively (missing=[city] every time) and,
      * because profile_fill counts as an ACTION, each call reset the wander

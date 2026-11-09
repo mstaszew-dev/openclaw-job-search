@@ -348,6 +348,12 @@ class BrowserAgent(
          */
         var noOpOpenListingStreak: Int = 0
 
+        /** A successful apply_click happened; drawer ATS forms keep the URL on the listing. */
+        var applyClickOk: Boolean = false
+
+        /** The single post-apply_click open_listing pardon was consumed this attempt. */
+        var applyClickPardonUsed: Boolean = false
+
         /**
          * Persisted regrind cycle count for this job (BLOCKER-2 2026-11-06):
          * the open_listing relapse walls only when the regrind budget is
@@ -693,7 +699,10 @@ class BrowserAgent(
             a [disabled] button, clicks it, and reports the tab list (the ATS form usually
             opens in a NEW tab). PREFER apply_click over browser_click for the main Apply
             button on every portal; fall back to browser_click with a real snapshot ref only
-            when apply_click answers Error. profile_fill() - DETERMINISTIC identity fill with
+            when apply_click answers Error. After a successful apply_click, NEVER call
+            open_listing again: many portals (hubquest drawers) open the form in-page with
+            the URL unchanged, so take browser_snapshot and continue filling/submitting
+            instead. profile_fill() - DETERMINISTIC identity fill with
             no arguments and no JS from you: name, surname, email, phone, city, the country +
             voivodeship selects and the REQUIRED consents. Call it FIRST on every application
             form (theprotocol/eRecruiter, pracuj, any long ASP.NET-style form), then fill only
@@ -843,7 +852,7 @@ class BrowserAgent(
                     "Error: apply_click failed: ${e.message?.take(200)}"
                 }.let { text ->
                     ToolOutcome("apply_click", text, failed = text.startsWith("Error"))
-                }
+                }.also { if (!it.failed) state.applyClickOk = true }
             "open_listing" ->
                 // Deterministic listing navigation (2026-11-05: 6 of 8 recent
                 // failures were the model emitting garbage URLs - "https://: "
@@ -862,6 +871,24 @@ class BrowserAgent(
                 // call and could only end at the step cap with no attempt
                 // history (review 2026-11-05).
                 if (alreadyOnListing(browser, state.listing.url)) {
+                    // Hubquest carve-out 2026-11-09: drawer ATS forms open the
+                    // apply form IN-PAGE with no URL change, so after a
+                    // SUCCESSFUL apply_click the model re-orients via
+                    // open_listing and the URL probe reads it as wander (3
+                    // attempts dead, twice after an apply_click ok). One
+                    // re-aiming pardon per attempt: NO navigation, answer
+                    // success and point the model at the drawer. Bounded: a
+                    // further relapse call is still a true wander signal.
+                    if (state.applyClickOk && !state.applyClickPardonUsed) {
+                        state.applyClickPardonUsed = true
+                        return ToolOutcome(
+                            "open_listing",
+                            "No navigation needed: you already clicked Apply and the form is open in-page " +
+                                "(the URL did not change). Do NOT call open_listing again this attempt: " +
+                                "browser_snapshot and act on the form (fill it, submit it).",
+                            failed = false,
+                        )
+                    }
                     state.noOpOpenListingStreak += 1
                     if (state.noOpOpenListingStreak >= NO_OP_OPEN_LISTING_LIMIT) {
                         // BLOCKER-2 review 2026-11-06: 13 theprotocol listings
