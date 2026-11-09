@@ -23,6 +23,7 @@ import dev.mstaszew.campaign.worker.apply.Recorder
 import dev.mstaszew.campaign.worker.apply.SlackNotifier
 import dev.mstaszew.campaign.worker.apply.SubmissionVerifier
 import org.slf4j.LoggerFactory
+import jakarta.annotation.PostConstruct
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.core.KafkaTemplate
@@ -84,6 +85,18 @@ class WorkerLoop(
     // acquirer would enter a held browser and its release would drop the
     // first holder's lease.
     private val leaseOwner = "worker:${props.workerId}-${UUID.randomUUID().toString().substring(0, 8)}"
+
+    /**
+     * Clears any stale chrome lease left by a crashed previous instance.
+     * [leaseOwner] is instance-unique and the Kafka consumer group guarantees
+     * a single active consumer, so any lease document at startup is orphaned
+     * and safe to drop - this lets the new worker acquire immediately instead
+     * of waiting up to leaseWaitSeconds then throwing BrowserBusyException.
+     */
+    @PostConstruct
+    fun clearStaleChromeLease() {
+        chromeLease.clearStaleLease()
+    }
 
     @KafkaListener(
         topics = [Topics.JOBS],

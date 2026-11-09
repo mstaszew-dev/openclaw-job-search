@@ -169,6 +169,24 @@ class ChromeLease(
         }
     }
 
+    /**
+     * Drops any chrome lease document regardless of owner. Safe only at
+     * worker startup: [leaseOwner] is instance-unique (UUID suffix) and the
+     * Kafka consumer group guarantees a single active consumer, so any
+     * existing lease at startup belongs to a dead instance that never
+     * released it. Clearing it lets the new worker acquire immediately
+     * instead of waiting up to [leaseWaitSeconds] then throwing
+     * BrowserBusyException.
+     */
+    fun clearStaleLease(): Long {
+        if (!enabled) return 0L
+        val removed = mongo.remove(Query(Criteria.where("_id").`is`(LEASE_ID)), COLLECTION)
+        if (removed.deletedCount > 0) {
+            log.info("cleared stale chrome lease at startup")
+        }
+        return removed.deletedCount
+    }
+
     private fun leaseUpdate(owner: String, op: String, ttl: Duration, now: Instant): Update =
         Update()
             .set(F_OWNER, owner)
