@@ -179,6 +179,84 @@ class BrowserAgentTest {
     }
 
     /**
+     * 2026-11-10 peoplemore: the model wrote the terminal call as prose JSON
+     * in the OpenAI name/parameters shape, closing a string value with a
+     * typographic right quote (U+201D) instead of an ASCII quote. The strict
+     * parse failed on every narration trip, the completed traffit apply went
+     * unrecorded, and the requeue re-applied to the employer. The parse gets
+     * a sanitize-and-retry second chance, and the parameters node counts as
+     * the argument object exactly like arguments does.
+     */
+    @Test
+    fun `a text json tool call with typographic quotes still records`() {
+        val malformed = """{"choices":[{"message":{"content":"{\"name\": \"record_submission\", \"parameters\": {\"ats\": \"traffit.com”, \"confirmationUrl\": \"https://app.traffit.com/ok\", \"confirmationText\": \"sent\"}}"}}]}"""
+        val transport = ScriptedTransport(listOf(malformed))
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        verify(exactly = 1) {
+            recorder.recordSubmitted(any(), any(), match {
+                it.ats == "traffit.com" && it.confirmationUrl == "https://app.traffit.com/ok" &&
+                    it.confirmationText == "sent"
+            })
+        }
+    }
+
+    /**
+     * Tier 1's invariant: well-formed text JSON keeps its exact bytes. A
+     * confirmationText holding legal curly quotes INSIDE a value strict-
+     * parses on the first tier and is recorded untouched; a future
+     * "simplification" that always normalizes would mangle every Polish
+     * thank-you page and still pass every other test in this file.
+     */
+    @Test
+    fun `a well-formed text json tool call keeps typographic quotes in values`() {
+        val transport = ScriptedTransport(
+            listOf(
+                """{"choices":[{"message":{"content":"{\"tool\":\"record_submission\",\"arguments\":{\"ats\":\"traffit.com\",\"confirmationUrl\":\"https://app.traffit.com/ok\",\"confirmationText\":\"„Dziękujemy za aplikację”\"}}"}}]}""",
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        verify(exactly = 1) {
+            recorder.recordSubmitted(any(), any(), match {
+                it.confirmationText == "„Dziękujemy za aplikację”"
+            })
+        }
+    }
+
+    /**
+     * The parameters fallback's browser-tool surface: a text-JSON call in the
+     * OpenAI name/parameters shape must reach ArgCoerce and the MCP server
+     * with the inner object as the arguments, not the whole node (which the
+     * zod schema on the browser side would reject).
+     */
+    @Test
+    fun `a text json browser_tabs call in parameters shape dispatches the inner object`() {
+        every { browser.callToolText(eq("browser_tabs"), any(), any()) } returns "[tab 1] about:blank"
+        val transport = ScriptedTransport(
+            listOf(
+                """{"choices":[{"message":{"content":"{\"name\": \"browser_tabs\", \"parameters\": {\"action\": \"select\", \"index\": 1}}"}}]}""",
+                toolCallResponse("skip_task", """{"reason":"captcha","detail":"widget"}"""),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        verify {
+            browser.callToolText(
+                eq("browser_tabs"),
+                match { it.path("action").asText() == "select" && it.path("index").asInt() == 1 },
+                any(),
+            )
+        }
+        assertThat(result).isInstanceOf(ApplyResult.Blocked::class.java)
+    }
+
+    /**
      * The stall guard must report the EFFECTIVE cap (an operator requeueing
      * from Slack reads this number), and the cap must be injectable so tests
      * and the env override share one path.

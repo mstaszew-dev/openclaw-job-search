@@ -743,10 +743,50 @@ class BrowserAgent(
         val start = content.indexOf('{')
         val end = content.lastIndexOf('}')
         if (start < 0 || end <= start) return null
+        val body = content.substring(start, end + 1)
+        // 2026-11-10 peoplemore: the model wrote a valid terminal call as
+        // prose JSON but closed a string value with a typographic right
+        // quote (U+201D) instead of an ASCII one; the strict parse failed on
+        // every narration trip and a completed traffit apply went unrecorded.
+        // Strict parse first, so well-formed JSON keeps its exact bytes; the
+        // sanitize-and-retry second chance only runs when the first died.
+        // Curly double quotes inside string VALUES (Polish „...” evidence
+        // text) are normalized too - cosmetic, and the alternative is losing
+        // the whole call. Known narrow window: curly quotes serving as BOTH
+        // a delimiter and content in one call can truncate a value after
+        // normalization; the rescue log below makes any occurrence
+        // diagnosable. Single curly quotes (U+2018/U+2019) are deliberately
+        // NOT normalized: apostrophes in prose make that unsafe, and the
+        // 2026-11-05 single-quoted-JSON skip_reason class is already mined
+        // by reason matching.
+        val strict = body.fromJsonToolCall()
+        if (strict != null) return strict
+        val rescued = body
+            .replace('\u201C', '"').replace('\u201D', '"')
+            .replace('\u201E', '"').replace('\u201F', '"')
+            .fromJsonToolCall()
+        if (rescued != null) {
+            log.info("tool call {} rescued after typographic-quote normalization", rescued.name)
+        }
+        return rescued
+    }
+
+    private fun String.fromJsonToolCall(): ToolCall? {
         return try {
-            val node = mapper.readTree(content.substring(start, end + 1))
+            val node = mapper.readTree(this)
             val name = node.path("tool").asText(node.path("name").asText(""))
-            if (name.isBlank()) null else ToolCall(name, node.path("arguments").takeIf { it.isObject } ?: node)
+            if (name.isBlank()) null else {
+                // Free models mix the tool/arguments shape with the OpenAI
+                // name/parameters shape (the 2026-11-10 peoplemore call);
+                // arguments read from either node, with the whole object as
+                // the last resort so evidence fields still resolve.
+                ToolCall(
+                    name,
+                    node.path("arguments").takeIf { it.isObject }
+                        ?: node.path("parameters").takeIf { it.isObject }
+                        ?: node,
+                )
+            }
         } catch (e: Exception) {
             null
         }
