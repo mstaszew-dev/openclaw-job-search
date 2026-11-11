@@ -56,8 +56,9 @@ interface JobStateRepositoryCustom {
      * Rows for the periodic re-grind: FAILED on a transient issue (the worker
      * keeps portal blocks under a "blocked:" lastError prefix, which are
      * permanent and excluded) with attempts still inside [maxAttemptsParam],
-     * DEAD rows whose death was a model flake, and IN_FLIGHT rows stranded
-     * with no pending Kafka record behind them.
+     * including FAILED rows that carry no lastError field at all; DEAD rows
+     * whose death was a model flake; and IN_FLIGHT rows stranded with no
+     * pending Kafka record behind them.
      *
      * Two freshness bounds, not one: [olderThan] is the cooldown applied to
      * FAILED and DEAD rows (they are never mid-attempt, so a short quiet

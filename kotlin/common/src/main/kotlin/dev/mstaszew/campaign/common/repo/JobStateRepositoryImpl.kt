@@ -116,10 +116,10 @@ class JobStateRepositoryImpl(
             // "blocked:"-prefixed lastErrors are permanent portal blocks;
             // grinding those again burns an attempt for a known dead end.
             // `$not` with a regex, not a negative-lookahead regex: Mongo
-            // regex operators never match a missing field, so 8 rows left
-            // FAILED with no lastError at all by the Nov 6 00:19 bulk
-            // failure were invisible to this pass forever (2026-11-11).
-            // `$not` matches absent fields and still excludes blocked rows.
+            // `$regex` never matches a missing field, so 8 rows that the
+            // Nov 6 00:19 bulk failure left FAILED with no `lastError` were
+            // invisible to this pass. `$not` matches absent fields and still
+            // excludes blocked rows.
             Criteria.where("lastError").not().regex("""^blocked:"""),
             Criteria.where("updatedAt").lt(olderThan),
         )

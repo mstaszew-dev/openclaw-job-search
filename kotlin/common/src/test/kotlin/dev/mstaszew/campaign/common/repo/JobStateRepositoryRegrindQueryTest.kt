@@ -6,6 +6,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import org.assertj.core.api.Assertions.assertThat
+import org.bson.BsonRegularExpression
 import org.bson.Document
 import org.junit.jupiter.api.Test
 import org.springframework.data.mongodb.core.MongoTemplate
@@ -21,8 +22,12 @@ import java.util.regex.Pattern
  * FAILED with no `lastError` field at all (2026-11-11) and the old
  * negative-lookahead regex hid them from the re-grind pass forever.
  *
- * No Spring context and no Docker here: the behavioral proof against real
- * Mongo lives in JobStateRepositoryRegrindIT and runs in CI.
+ * The carrier type is part of the contract too: Mongo accepts only a regex or
+ * a document under `$not`, so a plain String payload would be rejected at
+ * runtime even though it contains the right text. This test pins both the
+ * `$not` shape and the regex carrier, because it is the only local gate (the
+ * behavioral proof against real Mongo lives in JobStateRepositoryRegrindIT and
+ * runs in CI).
  */
 class JobStateRepositoryRegrindQueryTest {
 
@@ -38,36 +43,41 @@ class JobStateRepositoryRegrindQueryTest {
         else -> emptyList()
     }
 
-    /**
-     * Spring stores a plain `.regex(...)` as a String and a `.not().regex(...)`
-     * as a nested document or a Pattern depending on the version, so compare
-     * the guard by what it means rather than by its carrier type.
-     */
-    private fun guardText(guard: Any?): String = when (guard) {
-        is Document -> guard.toJson()
-        is Pattern -> guard.pattern()
-        is String -> guard
-        else -> guard.toString()
+    /** The regex text of a carrier Spring is allowed to emit for a regex. */
+    private fun regexText(carrier: Any?): String? = when (carrier) {
+        is Pattern -> carrier.pattern()
+        is BsonRegularExpression -> carrier.pattern
+        else -> null
     }
 
     private fun assertBlockedGuardIsNotRegex(query: Query) {
-        val guards = lastErrorGuards(query.queryObject).map { guardText(it) }
+        val guards = lastErrorGuards(query.queryObject)
 
-        // FAILED branch: the blocked prefix wrapped in $not, so a document
-        // with no lastError field at all still matches.
-        assertThat(guards).anySatisfy {
-            assertThat(it).contains("\$not")
-            assertThat(it).contains("^blocked:")
-        }
-        // DEAD branch keeps its model-flake prefix guard, untouched.
-        assertThat(guards).contains("^model-flake failure")
+        // Exactly two guards: the FAILED branch and the untouched DEAD branch.
+        assertThat(guards).hasSize(2)
+
+        // FAILED branch: `$not` wrapping a real regex carrier. A bare regex
+        // would silently skip absent fields (the bug); a String payload would
+        // be rejected by Mongo at runtime.
+        val blockedGuard = guards.filterIsInstance<Document>().single()
+        assertThat(blockedGuard.keys).containsExactly("\$not")
+        assertThat(regexText(blockedGuard["\$not"]))
+            .describedAs("\$not must carry a regex carrier, not a plain String")
+            .isEqualTo("^blocked:")
+
+        // DEAD branch keeps its model-flake prefix guard, untouched: a bare
+        // regex carrier with no $not wrapper.
+        val deadGuard = guards.filterNot { it is Document }.single()
+        assertThat(regexText(deadGuard)).isEqualTo("^model-flake failure")
+
         // No negative lookahead survives: that form silently skips missing
         // fields, which is exactly the bug this test pins.
-        assertThat(guards).noneMatch { it.contains("(?!") }
+        assertThat(guards.mapNotNull { if (it is Document) regexText(it["\$not"]) else regexText(it) })
+            .noneMatch { it.contains("(?!") }
     }
 
     @Test
-    fun `failed candidate branch uses not-regex so a missing lastError still matches`() {
+    fun `failed candidate branch emits a not-regex guard so a missing lastError can match`() {
         val query = slot<Query>()
         every { mongo.find(capture(query), JobStateDocument::class.java) } returns emptyList()
 
