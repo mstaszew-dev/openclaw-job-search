@@ -381,6 +381,11 @@ class BrowserAgent(
          * so a flailing model can never produce a second portal submission. */
         var submitAssists: Int = 0
 
+        /** Corrective recipes handed to the model after an EMPTY submit assist
+         * on the profile_fill repeat (2026-11-10): capped at ONE per attempt
+         * so a stubborn model still converges to the relapse terminal. */
+        var profileFillNudges: Int = 0
+
         /** Wander-breaker state: consecutive READ-ONLY steps, whatever their tool mix. */
         var readStreak: Int = 0
 
@@ -992,6 +997,23 @@ class BrowserAgent(
                         state.profileFillStreak = 0
                         return ToolOutcome("profile_fill", assist, failed = false)
                     }
+                    // 2026-11-10 iteration: an EMPTY assist (no confirmation,
+                    // no clickable submit) used to kill the attempt outright -
+                    // pracuj attempt 1 died at step 5 after a correct fill
+                    // verdict, while attempt 2 on the SAME page state filled
+                    // the leftover field and submitted. Hand the model ONE
+                    // corrective recipe (mirroring the navigate guard) before
+                    // the terminal; the streak deliberately stays at the
+                    // limit, so the very next profile_fill takes the
+                    // unchanged relapse terminal.
+                    if (state.profileFillNudges == 0) {
+                        state.profileFillNudges += 1
+                        // Telemetry (review NICE-3): the step log prints this
+                        // as a plain "profile_fill ok", so the nudge delivery
+                        // needs its own line for postmortems.
+                        log.info("profile_fill corrective nudge delivered (streak {})", state.profileFillStreak)
+                        return ToolOutcome("profile_fill", PROFILE_FILL_NUDGE, failed = false)
+                    }
                     return relapseTerminal(
                         "profile_fill repeat: called ${state.profileFillStreak}x consecutively; its " +
                             "answer never changes on the same form - the model will not act",
@@ -1240,6 +1262,25 @@ class BrowserAgent(
 
     /** Consecutive identical profile_fill calls that end the attempt (2026-11-06 swidnik grind). */
     private const val PROFILE_FILL_REPEAT_LIMIT = 2
+
+        /**
+         * 2026-11-10: the corrective recipe returned for the profile_fill
+         * repeat when the submit assist came back empty. One per attempt; the
+         * streak stays at the limit so a repeat takes the relapse terminal.
+         * Wording follows the navigate guard (name the forbidden call, then
+         * the exact replacement actions), with the confirmation check FIRST:
+         * the nudge can also fire on a LATER relapse after the assist already
+         * clicked submit, so the click must not be the default instruction.
+         */
+        private const val PROFILE_FILL_NUDGE =
+            "profile_fill: the answer above is FINAL for this form - profile_fill always fills the " +
+                "same fields and reports the same missing ones; calling it again cannot change that. " +
+                "Do NOT call profile_fill again. Instead: take browser_snapshot FIRST; if it shows a " +
+                "confirmation or thank-you page, call record_submission NOW and do NOT click " +
+                "anything. Otherwise fill the remaining fields with browser_fill_form using element " +
+                "refs from that snapshot, handle REQUIRED consents, then click the submit control " +
+                "ONCE with browser_click. If the form cannot be completed, call skip_task with the " +
+                "blocker you see."
 
         private const val NAVIGATE_REPEAT_LIMIT = 2
 

@@ -1502,7 +1502,9 @@ class BrowserAgentTest {
     }
 
     /** The assist clicks ONCE per attempt: a second repeat with the assist
-     * already used takes the relapse terminal (no double-submit risk). */
+     * already used takes the corrective nudge, and the repeat after it the
+     * relapse terminal (no double-submit risk: the worker-side click stays
+     * capped at one). */
     @Test
     fun `a second submit assist in one attempt is refused`() {
         every { browser.callToolText(eq("browser_evaluate"), any(), any()) } answers {
@@ -1530,6 +1532,108 @@ class BrowserAgentTest {
 
         assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
         assertThat((result as ApplyResult.Transient).detail).contains("profile_fill repeat")
+    }
+
+    /**
+     * 2026-11-10 pracuj/hubquest/simplicity: the submit assist found nothing
+     * (no confirmation, no clickable submit) and the relapse terminal killed
+     * otherwise-productive applies - pracuj attempt 1 died at step 5 right
+     * after a correct fill verdict (missing=[city]), while attempt 2 on the
+     * SAME page state filled the leftover field with browser_fill_form and
+     * submitted. The empty assist now hands the model ONE corrective recipe
+     * (mirroring the navigate guard) instead of dying; a model that takes it
+     * completes the apply in the same attempt.
+     */
+    @Test
+    fun `an empty submit assist hands the model a corrective recipe before dying`() {
+        every { browser.callToolText(eq("browser_evaluate"), any(), any()) } returns "https://nofluffjobs.com/pl/job/x"
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("browser_fill_form", """{"fields":[{"name":"city","value":"Biala Parcela"}]}"""),
+                toolCallResponse(
+                    "record_submission",
+                    """{"confirmationUrl":"https://pracuj.pl/applied","confirmationText":"applied","ats":"pracuj"}""",
+                ),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Submitted::class.java)
+        // The nudge is the direct answer to the repeated profile_fill (the
+        // request right after the second fill), not a later-page artifact.
+        assertThat(transport.bodies[3]).contains("Do NOT call profile_fill again")
+        assertThat(transport.bodies[3]).contains("browser_fill_form")
+        assertThat(transport.bodies[3]).contains("record_submission")
+    }
+
+    /**
+     * Boundedness: the corrective recipe fires ONCE per attempt. A model
+     * that ignores it and calls profile_fill again takes the unchanged
+     * relapse terminal, so a genuinely stuck model still converges.
+     */
+    @Test
+    fun `ignoring the corrective recipe still ends the attempt at the relapse terminal`() {
+        every { browser.callToolText(eq("browser_evaluate"), any(), any()) } returns "https://nofluffjobs.com/pl/job/x"
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
+        assertThat((result as ApplyResult.Transient).detail).contains("profile_fill repeat")
+        // The recipe was delivered exactly once; the next repeat was terminal.
+        assertThat(transport.bodies.count { it.contains("Do NOT call profile_fill again") }).isEqualTo(1)
+    }
+
+    /**
+     * The interleaved relapse (review SHOULD-1, 2026-11-10): the model takes
+     * the nudge's snapshot, its fill misses on a stale ref, and it panics
+     * back into profile_fill. The intervening tool resets only the STREAK -
+     * the assist and nudge counters never reset - so the second relapse
+     * takes the terminal, not a second recipe and not a second assist.
+     */
+    @Test
+    fun `a relapse after an intervening tool takes the terminal not a second nudge`() {
+        var confirmProbes = 0
+        every { browser.callToolText(eq("browser_evaluate"), any(), any()) } answers {
+            val fn = secondArg<com.fasterxml.jackson.databind.JsonNode>().path("function").asText()
+            if (fn.contains(ProfileFiller.CONFIRM_MARKER)) confirmProbes += 1
+            "https://nofluffjobs.com/pl/job/x"
+        }
+        val transport = ScriptedTransport(
+            listOf(
+                toolCallResponse("open_listing", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("browser_snapshot", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+                toolCallResponse("profile_fill", "{}"),
+            ),
+        )
+
+        val result = run(agent(transport))
+
+        assertThat(result).isInstanceOf(ApplyResult.Transient::class.java)
+        assertThat((result as ApplyResult.Transient).detail).contains("profile_fill repeat")
+        // The recipe first appears as the direct answer to the second fill.
+        assertThat(transport.bodies.indexOfFirst { it.contains("Do NOT call profile_fill again") }).isEqualTo(3)
+        // Exactly ONE emission total: the phrase occurs once in the final
+        // request body's history (a second nudge would double it).
+        val last = transport.bodies.last()
+        assertThat(last.split("Do NOT call profile_fill again").size - 1).isEqualTo(1)
+        // The assist ran exactly once (confirm probe fired once), despite
+        // the guard arming twice.
+        assertThat(confirmProbes).isEqualTo(1)
     }
 
     /**
