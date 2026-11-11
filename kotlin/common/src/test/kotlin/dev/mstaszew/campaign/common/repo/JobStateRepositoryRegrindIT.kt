@@ -174,6 +174,41 @@ class JobStateRepositoryRegrindIT {
     }
 
     /**
+     * 2026-11-11 production evidence: 8 rows left FAILED by the Nov 6 00:19
+     * bulk failure carry no lastError field at all. Mongo's $regex never
+     * matches a missing field, so the old negative-lookahead guard hid them
+     * from this pass permanently. A blocked row must stay excluded, and its
+     * claim must be refused.
+     */
+    @Test
+    fun `failed rows with no lastError field are candidates and claimable, blocked rows are not`() {
+        val cutoff = Instant.now().minus(java.time.Duration.ofHours(1))
+        val strandedAfter = strandedBound()
+        failedRow("justjoin:no-error", attempts = 1)
+        mongo.updateFirst(
+            org.springframework.data.mongodb.core.query.Query.query(
+                org.springframework.data.mongodb.core.query.Criteria.where("_id").`is`("justjoin:no-error"),
+            ),
+            org.springframework.data.mongodb.core.query.Update().unset("lastError"),
+            JobStateDocument::class.java,
+        )
+        failedRow("justjoin:blocked", attempts = 1, lastError = "blocked: portal-block")
+
+        val candidates = rgrind.findRegrindCandidates(
+            maxAttemptsParam = 3,
+            olderThan = cutoff,
+            strandedAfter = strandedAfter,
+            limit = 10,
+        )
+
+        assertThat(candidates.map { it.id }).containsExactly("justjoin:no-error")
+        assertThat(rgrind.regrindClaim("justjoin:no-error", maxAttempts = 3, olderThan = cutoff, strandedAfter = strandedAfter)).isTrue()
+        mqttAssertStatus("justjoin:no-error", JobStatus.PENDING)
+        assertThat(rgrind.regrindClaim("justjoin:blocked", maxAttempts = 3, olderThan = cutoff, strandedAfter = strandedAfter)).isFalse()
+        mqttAssertStatus("justjoin:blocked", JobStatus.FAILED)
+    }
+
+    /**
      * Stranded-IN_FLIGHT bound in tests: comfortably beyond the worst-case
      * live attempt (AgentLoopBounds, 23h with default env), matching how
      * RegrindService derives it in production.
