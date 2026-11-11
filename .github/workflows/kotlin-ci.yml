@@ -37,3 +37,31 @@ jobs:
       # actually run, unlike on the dev Mac.
       - name: Build and test
         run: ./gradlew build
+
+      # disabledWithoutDocker turns a missing daemon into a silent skip, so a
+      # green build alone would not prove the ITs ran. Docker is present on
+      # this runner, so an empty or skipped IT result is a pipeline failure.
+      - name: Assert Testcontainers ITs actually ran
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find . -path '*/build/test-results/test/*IT.xml' -print)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no *IT.xml results found; Testcontainers ITs did not run"
+            exit 1
+          fi
+          python3 - "${files[@]}" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          bad = []
+          for path in sys.argv[1:]:
+              suite = ET.parse(path).getroot()
+              tests = int(suite.get("tests", "0"))
+              skipped = int(suite.get("skipped", "0"))
+              print(f"{path}: tests={tests} skipped={skipped}")
+              if tests == 0 or skipped > 0:
+                  bad.append(path)
+          if bad:
+              print("::error::integration tests skipped or empty: " + ", ".join(bad))
+              sys.exit(1)
+          PY
