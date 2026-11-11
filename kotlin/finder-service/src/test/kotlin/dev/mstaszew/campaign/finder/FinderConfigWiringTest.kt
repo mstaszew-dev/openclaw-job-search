@@ -5,37 +5,29 @@ import dev.mstaszew.campaign.finder.score.CvScorer
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.boot.autoconfigure.AutoConfigurations
-import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
-import org.springframework.context.annotation.Configuration
+import java.time.Duration
 
 /**
- * Guards the wiring the pause depends on: exactly one CvScorer bean, built from
- * FinderProperties, and the property really reaching the scorer. A rename or a
- * stray second definition must fail here rather than silently leave scoring on.
+ * Guards the wiring the pause depends on: exactly one CvScorer bean, built by
+ * the PRODUCTION FinderConfig from FinderProperties, and the properties
+ * really reaching the scorer. A rename or a stray second definition must
+ * fail here rather than silently leave scoring on.
+ *
+ * Review S1, 2026-11-11: this used to run a hand-copied mirror of the config,
+ * so a regression in the production bean (a hardcoded timeout, a dropped
+ * param) would have shipped silently - the same drift class as the Nov 4
+ * finder jar missing the Nov 5 regrind branch. The real config runs fine in
+ * a bare context: its beans need only the two property classes, and the MCP
+ * client process is spawned lazily per discovery run, never at bean
+ * creation.
  */
 class FinderConfigWiringTest {
 
-    /** Only the scorer beans; no Mongo, Kafka or web context. */
-    @Configuration
-    @EnableConfigurationProperties(FinderProperties::class)
-    class ScorerOnlyConfig {
-        @org.springframework.context.annotation.Bean
-        fun llmClient(props: FinderProperties) =
-            dev.mstaszew.campaign.common.net.LlmClient(
-                baseUrl = props.msrouterUrl,
-                apiKey = props.msrouterApiKey,
-                model = props.msrouterModel,
-            )
-
-        @org.springframework.context.annotation.Bean
-        fun cvScorer(llmClient: dev.mstaszew.campaign.common.net.LlmClient, props: FinderProperties) =
-            CvScorer(llmClient, scoringEnabled = props.scoringEnabled)
-    }
-
+    /** The production config itself; no Mongo, Kafka or web context. */
     private fun runner(vararg properties: String) = ApplicationContextRunner()
         .withConfiguration(AutoConfigurations.of())
-        .withUserConfiguration(ScorerOnlyConfig::class.java)
+        .withUserConfiguration(FinderConfig::class.java)
         .withPropertyValues(*properties)
 
     private fun score(scorer: CvScorer) = scorer.score(
@@ -62,6 +54,20 @@ class FinderConfigWiringTest {
             val result = score(context.getBean(CvScorer::class.java))
             assertThat(result.source).isEqualTo(CvScore.Source.FALLBACK)
             assertThat(result.reason).contains("scoring paused")
+        }
+    }
+
+    /**
+     * The timeout property must reach the PRODUCTION bean, not just bind:
+     * against the old mirror config, a hardcoded timeout in
+     * FinderConfig.cvScorer would have passed a properties-only assertion.
+     */
+    @Test
+    fun `production wiring passes the property-driven timeout to the scorer bean`() {
+        runner("finder.scorer-timeout-seconds=25").run { context ->
+            assertThat(context).hasSingleBean(CvScorer::class.java)
+            assertThat(context.getBean(CvScorer::class.java).requestTimeout)
+                .isEqualTo(Duration.ofSeconds(25))
         }
     }
 }

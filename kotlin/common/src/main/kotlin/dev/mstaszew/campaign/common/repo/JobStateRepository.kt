@@ -56,22 +56,36 @@ interface JobStateRepositoryCustom {
      * Rows for the periodic re-grind: FAILED on a transient issue (the worker
      * keeps portal blocks under a "blocked:" lastError prefix, which are
      * permanent and excluded) with attempts still inside [maxAttemptsParam],
-     * quiet since [olderThan] so a batch does not thrash the same jobs hour
-     * after hour. Oldest failure first, capped at [limit].
+     * DEAD rows whose death was a model flake, and IN_FLIGHT rows stranded
+     * with no pending Kafka record behind them.
+     *
+     * Two freshness bounds, not one: [olderThan] is the cooldown applied to
+     * FAILED and DEAD rows (they are never mid-attempt, so a short quiet
+     * window is enough), while [strandedAfter] is the staleness bound for
+     * IN_FLIGHT rows. A live attempt stamps updatedAt once, at attempt start,
+     * and can legitimately run to the AgentLoopBounds worst case, so
+     * [strandedAfter] must sit beyond worst-case-attempt plus cooldown or a
+     * live job gets re-enqueued mid-flight. Oldest first, capped at [limit].
      */
     fun findRegrindCandidates(
         maxAttemptsParam: Int,
         olderThan: Instant,
+        strandedAfter: Instant,
         limit: Int,
     ): List<RegrindCandidate>
 
     /**
-     * Atomically reclaims one FAILED row: FAILED -> PENDING only if the row is
-     * still FAILED and still has attempts left. Returns false when another
-     * pass won the row or the worker moved it on; the caller must not produce
-     * a Kafka message for a lost claim.
+     * Atomically reclaims one stranded row to PENDING: only if the row is
+     * still in a re-grindable branch (FAILED, a cooled model-flake DEAD row,
+     * or an IN_FLIGHT row stranded past [strandedAfter] with no live attempt
+     * refreshing it) and still has attempts left. [olderThan] is the cooldown
+     * guard for FAILED and DEAD rows; [strandedAfter] guards IN_FLIGHT rows
+     * so a live attempt cannot be claimed mid-flight. Returns false when
+     * another pass won the row, the worker moved it on, or it was touched
+     * inside the guard; the caller must not produce a Kafka message for a
+     * lost claim.
      */
-    fun regrindClaim(id: String, maxAttempts: Int): Boolean
+    fun regrindClaim(id: String, maxAttempts: Int, olderThan: Instant, strandedAfter: Instant): Boolean
 
     /**
      * Reverts a claimed row whose Kafka send failed. Guarded to still-PENDING

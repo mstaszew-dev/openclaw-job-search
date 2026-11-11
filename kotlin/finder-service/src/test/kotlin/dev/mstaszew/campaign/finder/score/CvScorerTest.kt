@@ -2,6 +2,7 @@ package dev.mstaszew.campaign.finder.score
 
 import dev.mstaszew.campaign.common.net.ChatTransport
 import dev.mstaszew.campaign.common.net.LlmClient
+import dev.mstaszew.campaign.common.net.LlmClientException
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.time.Duration
@@ -9,9 +10,20 @@ import java.time.Duration
 /** Counts gateway calls, so "paused" can be proven to mean zero spend. */
 private class CountingTransport(private val response: String) : ChatTransport {
     var calls = 0
+    var lastTimeout: Duration? = null
     override fun post(url: String, token: String?, body: String, timeout: Duration): String {
         calls++
+        lastTimeout = timeout
         return response
+    }
+}
+
+/** Fails every call, counting them: the circuit-breaker tests' hung gateway. */
+private class FailingTransport : ChatTransport {
+    var calls = 0
+    override fun post(url: String, token: String?, body: String, timeout: Duration): String {
+        calls++
+        throw LlmClientException("gateway hung")
     }
 }
 
@@ -20,7 +32,13 @@ private val SCORED_RESPONSE =
 
 class CvScorerTest {
 
-    private fun scorer(transport: ChatTransport, enabled: Boolean) = CvScorer(
+    private fun scorer(
+        transport: ChatTransport,
+        enabled: Boolean,
+        requestTimeout: Duration = Duration.ofSeconds(60),
+        circuitThreshold: Int = 3,
+        circuitOpen: Duration = Duration.ofMinutes(5),
+    ) = CvScorer(
         llm = LlmClient(
             baseUrl = "http://gateway.invalid/v1",
             apiKey = null,
@@ -31,6 +49,9 @@ class CvScorerTest {
             sleeper = {},
         ),
         scoringEnabled = enabled,
+        requestTimeout = requestTimeout,
+        circuitThreshold = circuitThreshold,
+        circuitOpen = circuitOpen,
     )
 
     private fun score(scorer: CvScorer) = scorer.score(
@@ -51,6 +72,70 @@ class CvScorerTest {
         assertThat(result.score).isEqualTo(82)
         assertThat(result.source).isEqualTo(CvScore.Source.LLM)
         assertThat(result.reason).isEqualTo("Java/Spring match")
+    }
+
+    /**
+     * 2026-11-11 finder wedge: one scoring call hung on the gateway for the
+     * client default 240s x 3 attempts (12+ minutes) while the discovery
+     * pass held and renewed the browser lease, starving the worker for the
+     * whole window. Scoring has a fallback answer; its gateway wait must be
+     * bounded well under the client default.
+     */
+    @Test
+    fun `scoring bounds the gateway wait instead of the client 4-minute default`() {
+        val transport = CountingTransport(SCORED_RESPONSE)
+
+        score(scorer(transport, enabled = true))
+
+        assertThat(transport.lastTimeout).isEqualTo(Duration.ofSeconds(60))
+    }
+
+    /** Review NICE 4: the property-driven path, not only the 60s default. */
+    @Test
+    fun `non-default scorer timeout reaches the gateway call`() {
+        val transport = CountingTransport(SCORED_RESPONSE)
+
+        score(scorer(transport, enabled = true, requestTimeout = Duration.ofSeconds(25)))
+
+        assertThat(transport.lastTimeout).isEqualTo(Duration.ofSeconds(25))
+    }
+
+    /**
+     * Review S2, 2026-11-11: the 60s per-call bound still leaves N x ~3.25
+     * minutes of browser-lease hold when the gateway hangs for a whole
+     * discovery pass, because scoring runs inside the lease and LlmClient
+     * retries 3x per call. After consecutive failures the scorer must stop
+     * calling the gateway at all and serve the fallback score for the rest
+     * of the pass.
+     */
+    @Test
+    fun `repeated gateway failures open the circuit and stop calling the gateway`() {
+        val transport = FailingTransport()
+        val scorer = scorer(transport, enabled = true, circuitThreshold = 2)
+
+        // chat retries 3x per score() call, so 2 score() calls = 6 posts
+        repeat(2) { score(scorer) }
+        assertThat(transport.calls).isEqualTo(6)
+
+        // circuit now open: the remaining candidates of the pass score
+        // without touching the gateway at all
+        repeat(3) { score(scorer) }
+        assertThat(transport.calls).isEqualTo(6)
+    }
+
+    /** The open circuit is a valve, not a switch: one retry after the window. */
+    @Test
+    fun `circuit reopens after the open window and retries the gateway`() {
+        val transport = FailingTransport()
+        val scorer = scorer(transport, enabled = true, circuitThreshold = 2, circuitOpen = Duration.ofMillis(30))
+
+        repeat(2) { score(scorer) }
+        assertThat(transport.calls).isEqualTo(6)
+
+        Thread.sleep(60)
+
+        score(scorer)
+        assertThat(transport.calls).isEqualTo(9)
     }
 
     @Test

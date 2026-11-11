@@ -92,6 +92,7 @@ class JobStateRepositoryRegrindIT {
         val candidates = rgrind.findRegrindCandidates(
             maxAttemptsParam = 3,
             olderThan = Instant.now().minus(java.time.Duration.ofHours(1)),
+            strandedAfter = strandedBound(),
             limit = 10,
         )
 
@@ -108,6 +109,7 @@ class JobStateRepositoryRegrindIT {
         val candidates = rgrind.findRegrindCandidates(
             maxAttemptsParam = 3,
             olderThan = Instant.now().minus(java.time.Duration.ofHours(1)),
+            strandedAfter = strandedBound(),
             limit = 4,
         )
 
@@ -119,30 +121,35 @@ class JobStateRepositoryRegrindIT {
         failedRow("justjoin:free", attempts = 1)
         failedRow("justjoin:gone", attempts = 3)
         failedRow("justjoin:inflight", attempts = 1)
+        val cutoff = Instant.now().minus(java.time.Duration.ofHours(1))
+        val strandedAfter = strandedBound()
 
-        assertThat(rgrind.regrindClaim("justjoin:free", maxAttempts = 3)).isTrue()
+        assertThat(rgrind.regrindClaim("justjoin:free", maxAttempts = 3, olderThan = cutoff, strandedAfter = strandedAfter)).isTrue()
         mqttAssertStatus("justjoin:free", JobStatus.PENDING)
 
         // attempts exhausted: claim must refuse and the row must stay FAILED
-        assertThat(rgrind.regrindClaim("justjoin:gone", maxAttempts = 3)).isFalse()
+        assertThat(rgrind.regrindClaim("justjoin:gone", maxAttempts = 3, olderThan = cutoff, strandedAfter = strandedAfter)).isFalse()
         mqttAssertStatus("justjoin:gone", JobStatus.FAILED)
 
-        // already moved on (IN_FLIGHT by the worker): claim must refuse
+        // already moved on (IN_FLIGHT by the worker, touched inside the
+        // cooldown): claim must refuse - freshness is the live-attempt guard
         mongo.updateFirst(
             org.springframework.data.mongodb.core.query.Query.query(
                 org.springframework.data.mongodb.core.query.Criteria.where("_id").`is`("justjoin:inflight"),
             ),
-            org.springframework.data.mongodb.core.query.Update().set("status", JobStatus.IN_FLIGHT.name),
+            org.springframework.data.mongodb.core.query.Update()
+                .set("status", JobStatus.IN_FLIGHT.name)
+                .set("updatedAt", Instant.now()),
             JobStateDocument::class.java,
         )
-        assertThat(rgrind.regrindClaim("justjoin:inflight", maxAttempts = 3)).isFalse()
+        assertThat(rgrind.regrindClaim("justjoin:inflight", maxAttempts = 3, olderThan = cutoff, strandedAfter = strandedAfter)).isFalse()
         mqttAssertStatus("justjoin:inflight", JobStatus.IN_FLIGHT)
     }
 
     @Test
     fun `revert moves a still-PENDING claimed row back to FAILED without reopening worker state`() {
         failedRow("justjoin:back", attempts = 1)
-        rgrind.regrindClaim("justjoin:back", maxAttempts = 3)
+        rgrind.regrindClaim("justjoin:back", maxAttempts = 3, olderThan = Instant.now().minus(java.time.Duration.ofHours(1)), strandedAfter = strandedBound())
 
         assertThat(rgrind.regrindRevert("justjoin:back")).isTrue()
         mqttAssertStatus("justjoin:back", JobStatus.FAILED)
@@ -150,7 +157,7 @@ class JobStateRepositoryRegrindIT {
 
         // a worker that already resumed the job (PENDING kept its attempts) must not be reverted
         failedRow("justjoin:running", attempts = 1)
-        rgrind.regrindClaim("justjoin:running", maxAttempts = 3)
+        rgrind.regrindClaim("justjoin:running", maxAttempts = 3, olderThan = Instant.now().minus(java.time.Duration.ofHours(1)), strandedAfter = strandedBound())
         mongo.updateFirst(
             org.springframework.data.mongodb.core.query.Query.query(
                 org.springframework.data.mongodb.core.query.Criteria.where("_id").`is`("justjoin:running"),
@@ -165,6 +172,13 @@ class JobStateRepositoryRegrindIT {
     private fun mqttAssertStatus(id: String, expected: JobStatus) {
         assertThat(mongo.findById(id, JobStateDocument::class.java)!!.status).isEqualTo(expected)
     }
+
+    /**
+     * Stranded-IN_FLIGHT bound in tests: comfortably beyond the worst-case
+     * live attempt (AgentLoopBounds, 23h with default env), matching how
+     * RegrindService derives it in production.
+     */
+    private fun strandedBound() = Instant.now().minus(java.time.Duration.ofHours(35))
 
     /**
      * 2026-11-05 specjalista: a model-flake failure exhausted maxAttempts and
@@ -192,6 +206,7 @@ class JobStateRepositoryRegrindIT {
         val candidates = rgrind.findRegrindCandidates(
             maxAttemptsParam = 3,
             olderThan = Instant.now().minus(java.time.Duration.ofHours(1)),
+            strandedAfter = strandedBound(),
             limit = 10,
         )
 
@@ -200,7 +215,64 @@ class JobStateRepositoryRegrindIT {
         // the FAILED branch (review N3).
         assertThat(candidates.map { it.id }).containsExactly("theprotocol:deadflake")
 
-        assertThat(rgrind.regrindClaim("theprotocol:deadflake", maxAttempts = 3)).isTrue()
+        assertThat(rgrind.regrindClaim("theprotocol:deadflake", maxAttempts = 3, olderThan = Instant.now().minus(java.time.Duration.ofHours(1)), strandedAfter = strandedBound())).isTrue()
         mqttAssertStatus("theprotocol:deadflake", JobStatus.PENDING)
+    }
+
+    /**
+     * 2026-11-11: ten rows sat IN_FLIGHT since the Nov 6-7 VM deaths -
+     * consumed, marked IN_FLIGHT, never acked, and no pending Kafka record
+     * remained (the offset-commit gap of the pre-2026-11-08 consumer).
+     * Nothing but this pass can revive that stranding.
+     *
+     * The line between stranded and racing a live attempt is NOT the regrind
+     * cooldown (review B1, 2026-11-11): a live attempt stamps updatedAt once,
+     * at attempt start, and can legitimately run to the AgentLoopBounds
+     * worst case (23h with default env). The stranded bound must sit beyond
+     * that, so a 20h-old IN_FLIGHT row - past any cooldown, still inside a
+     * legitimate attempt - must stay untouched.
+     */
+    @Test
+    fun `stranded in-flight rows are regrind candidates and claimable, live-attempt rows are not`() {
+        fun inFlightRow(id: String, updated: Instant, attempts: Int = 1) {
+            failedRow(id, attempts = attempts)
+            mongo.updateFirst(
+                org.springframework.data.mongodb.core.query.Query.query(
+                    org.springframework.data.mongodb.core.query.Criteria.where("_id").`is`(id),
+                ),
+                org.springframework.data.mongodb.core.query.Update()
+                    .set("status", JobStatus.IN_FLIGHT.name)
+                    .set("updatedAt", updated),
+                JobStateDocument::class.java,
+            )
+        }
+        val cutoff = Instant.now().minus(java.time.Duration.ofHours(1))
+        val strandedAfter = strandedBound()
+        inFlightRow("justjoin:stranded", Instant.parse("2026-11-06T12:00:00Z"))
+        inFlightRow("justjoin:live-worker", Instant.now())
+        // past the cooldown but INSIDE the worst-case attempt window (B1 pin)
+        inFlightRow("justjoin:long-attempt", Instant.now().minus(java.time.Duration.ofHours(20)))
+        // stranded like the first, but attempts exhausted (review NICE 1)
+        inFlightRow("justjoin:exhausted-stranded", Instant.parse("2026-11-06T12:00:00Z"), attempts = 3)
+
+        val candidates = rgrind.findRegrindCandidates(
+            maxAttemptsParam = 3,
+            olderThan = cutoff,
+            strandedAfter = strandedAfter,
+            limit = 10,
+        )
+
+        assertThat(candidates.map { it.id }).containsExactly("justjoin:stranded")
+
+        assertThat(rgrind.regrindClaim("justjoin:stranded", maxAttempts = 3, olderThan = cutoff, strandedAfter = strandedAfter)).isTrue()
+        mqttAssertStatus("justjoin:stranded", JobStatus.PENDING)
+
+        // mid-worst-case attempt: both the query above and the claim must
+        // refuse, or the job would be re-enqueued while still being applied
+        assertThat(rgrind.regrindClaim("justjoin:long-attempt", maxAttempts = 3, olderThan = cutoff, strandedAfter = strandedAfter)).isFalse()
+        mqttAssertStatus("justjoin:long-attempt", JobStatus.IN_FLIGHT)
+
+        assertThat(rgrind.regrindClaim("justjoin:live-worker", maxAttempts = 3, olderThan = cutoff, strandedAfter = strandedAfter)).isFalse()
+        mqttAssertStatus("justjoin:live-worker", JobStatus.IN_FLIGHT)
     }
 }

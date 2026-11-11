@@ -105,9 +105,11 @@ class JobStateRepositoryImpl(
     override fun findRegrindCandidates(
         maxAttemptsParam: Int,
         olderThan: Instant,
+        strandedAfter: Instant,
         limit: Int,
     ): List<RegrindCandidate> {
         // FAILED rows: the classic regrind, minus permanent "blocked:" walls.
+        // A FAILED row is never mid-attempt, so the cooldown bound is enough.
         val failedBranch = Criteria().andOperator(
             Criteria.where("status").`is`(JobStatus.FAILED.name),
             Criteria.where("attempts").lt(maxAttemptsParam),
@@ -115,6 +117,7 @@ class JobStateRepositoryImpl(
             // grinding those again burns an attempt for a known dead end.
             // Negative lookahead (PCRE) so this stays one criteria.
             Criteria.where("lastError").regex("""^(?!blocked:)"""),
+            Criteria.where("updatedAt").lt(olderThan),
         )
         // DEAD rows whose death was a MODEL flake (2026-11-05 specjalista:
         // navigate-grind exhausted maxAttempts and dead-lettered). The worker
@@ -129,11 +132,26 @@ class JobStateRepositoryImpl(
             Criteria.where("attempts").lt(maxAttemptsParam),
             Criteria.where("lastError").regex("""^model-flake failure"""),
             Criteria.where("regrindCycles").lt(MAX_REGRIND_CYCLES),
+            Criteria.where("updatedAt").lt(olderThan),
+        )
+        // 2026-11-11 stranding evidence: ten rows sat IN_FLIGHT since the
+        // Nov 6-7 VM deaths - consumed, marked IN_FLIGHT, never acked, with
+        // no pending Kafka record left behind (the pre-2026-11-08 consumer
+        // lost the seek-back and a later offset commit skipped past them).
+        // An IN_FLIGHT row CAN be mid-attempt: a live attempt stamps updatedAt
+        // once, at attempt start, and can legitimately run to the
+        // AgentLoopBounds worst case (23h default). So the stranded bound
+        // must sit beyond worst-case plus cooldown, or a live job gets
+        // re-enqueued mid-flight (review B1, 2026-11-11). The ten Nov 6-7
+        // rows are 5 days stale, so they clear even a 35h bound.
+        val strandedInFlightBranch = Criteria().andOperator(
+            Criteria.where("status").`is`(JobStatus.IN_FLIGHT.name),
+            Criteria.where("attempts").lt(maxAttemptsParam),
+            Criteria.where("updatedAt").lt(strandedAfter),
         )
         return mongo.find(
             Query.query(
-                Criteria().orOperator(failedBranch, deadModelFlakeBranch)
-                    .and("updatedAt").lt(olderThan),
+                Criteria().orOperator(failedBranch, deadModelFlakeBranch, strandedInFlightBranch),
             ).with(Sort.by(Sort.Direction.ASC, "updatedAt")).limit(limit),
             JobStateDocument::class.java,
         ).map { row ->
@@ -149,11 +167,16 @@ class JobStateRepositoryImpl(
         }
     }
 
-    override fun regrindClaim(id: String, maxAttempts: Int): Boolean {
+    override fun regrindClaim(id: String, maxAttempts: Int, olderThan: Instant, strandedAfter: Instant): Boolean {
         // Defense in depth (review S1, 2026-11-05): the claim mirrors the
         // candidate query's branch conditions, so a future caller (or an ops
         // script) cannot resurrect a permanently dead portal or a
-        // non-recoverable DEAD row through this gate.
+        // non-recoverable DEAD row through this gate. Each branch carries its
+        // own freshness bound: FAILED and DEAD use the cooldown
+        // [olderThan]; IN_FLIGHT uses [strandedAfter] so a live attempt cannot
+        // be claimed mid-flight. beginAttempt and markInFlight both stamp
+        // updatedAt, so an IN_FLIGHT row touched inside its bound is a live
+        // attempt, not a stranded one.
         val failedBranch = Criteria().andOperator(
             Criteria.where("status").`is`(JobStatus.FAILED.name),
             Criteria.where("lastError").regex("""^(?!blocked:)"""),
@@ -163,11 +186,18 @@ class JobStateRepositoryImpl(
             Criteria.where("lastError").regex("""^model-flake failure"""),
             Criteria.where("regrindCycles").lt(MAX_REGRIND_CYCLES),
         )
+        val strandedInFlightBranch = Criteria().andOperator(
+            Criteria.where("status").`is`(JobStatus.IN_FLIGHT.name),
+        )
         val result = mongo.updateFirst(
             Query.query(
                 Criteria.where("_id").`is`(id)
                     .and("attempts").lt(maxAttempts)
-                    .orOperator(failedBranch, deadBranch),
+                    .orOperator(
+                        Criteria().andOperator(failedBranch, Criteria.where("updatedAt").lt(olderThan)),
+                        Criteria().andOperator(deadBranch, Criteria.where("updatedAt").lt(olderThan)),
+                        Criteria().andOperator(strandedInFlightBranch, Criteria.where("updatedAt").lt(strandedAfter)),
+                    ),
             ),
             Update()
                 .set("status", JobStatus.PENDING.name)

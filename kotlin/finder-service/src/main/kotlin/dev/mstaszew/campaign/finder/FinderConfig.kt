@@ -12,6 +12,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.scheduling.annotation.EnableScheduling
+import java.time.Duration
 
 @Configuration
 @EnableScheduling
@@ -31,7 +32,11 @@ class FinderConfig {
     @Bean
     fun cvScorer(llmClient: LlmClient, props: FinderProperties): CvScorer {
         CvScorer.logPausedState(props.scoringEnabled)
-        return CvScorer(llmClient, scoringEnabled = props.scoringEnabled)
+        return CvScorer(
+            llmClient,
+            scoringEnabled = props.scoringEnabled,
+            requestTimeout = Duration.ofSeconds(props.scorerTimeoutSeconds),
+        )
     }
 
     /** Opens (and closes) a fresh MCP server process per discovery run. */

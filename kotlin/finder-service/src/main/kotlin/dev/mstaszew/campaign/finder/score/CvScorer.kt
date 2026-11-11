@@ -5,6 +5,8 @@ import dev.mstaszew.campaign.common.net.ChatMessage
 import dev.mstaszew.campaign.common.net.LlmClient
 import dev.mstaszew.campaign.common.net.LlmClientException
 import org.slf4j.LoggerFactory
+import java.time.Duration
+import java.time.Instant
 
 data class CvScore(val score: Int, val reason: String, val source: Source) {
     enum class Source { LLM, FALLBACK }
@@ -24,7 +26,25 @@ class CvScorer(
     private val llm: LlmClient,
     private val mapper: ObjectMapper = ObjectMapper(),
     private val scoringEnabled: Boolean = true,
+    /**
+     * Per-call gateway timeout. 2026-11-11: one hung scoring call sat on the
+     * client default (240s x 3 attempts, 12+ minutes) while the discovery
+     * pass held and renewed the browser lease, starving the worker for the
+     * whole window. Scoring has a fallback answer; the wait must be bounded.
+     */
+    internal val requestTimeout: Duration = Duration.ofSeconds(60),
+    /**
+     * Circuit breaker: after [circuitThreshold] consecutive gateway failures
+     * in one discovery pass, stop calling the gateway and serve the fallback
+     * score for [circuitOpen]. Keeps a hung gateway from starving the
+     * browser-lease pass N x ~3.25 minutes (review S2, 2026-11-11). Auto-closes
+     * after [circuitOpen] so a transient gateway blip self-heals.
+     */
+    private val circuitThreshold: Int = 3,
+    private val circuitOpen: Duration = Duration.ofMinutes(5),
 ) {
+    private var consecutiveFailures = 0
+    private var circuitOpenUntil: Instant = Instant.MIN
 
     fun score(
         company: String,
@@ -50,8 +70,15 @@ class CvScorer(
         salaryText: String?,
         applicantCvProfile: String,
     ): CvScore = try {
-        scoreWithLlm(company, roleTitle, stack, salaryText, applicantCvProfile)
+        if (Instant.now() < circuitOpenUntil) {
+            return CvScore(FALLBACK_SCORE, "fallback (scoring circuit open)", CvScore.Source.FALLBACK)
+        }
+        scoreWithLlm(company, roleTitle, stack, salaryText, applicantCvProfile).also { consecutiveFailures = 0 }
     } catch (e: LlmClientException) {
+        consecutiveFailures++
+        if (consecutiveFailures >= circuitThreshold) {
+            circuitOpenUntil = Instant.now().plus(circuitOpen)
+        }
         // Gateway down or output unusable: accept at fallback level so a bad
         // LLM day degrades to volume (fallback tasks are priority-0), never
         // to an empty pipeline.
@@ -86,6 +113,7 @@ class CvScorer(
         val result = llm.chat(
             listOf(ChatMessage("system", system), ChatMessage("user", user)),
             maxTokens = 200,
+            timeout = requestTimeout,
         )
         val content = result.content
         val node = try {

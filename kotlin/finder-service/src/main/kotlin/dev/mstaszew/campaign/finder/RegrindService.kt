@@ -1,5 +1,6 @@
 package dev.mstaszew.campaign.finder
 
+import dev.mstaszew.campaign.common.messaging.AgentLoopBounds
 import dev.mstaszew.campaign.common.messaging.JobMessage
 import dev.mstaszew.campaign.common.messaging.Topics
 import dev.mstaszew.campaign.common.repo.JobListingRepository
@@ -49,10 +50,17 @@ class RegrindService(
     )
     fun run() {
         if (!props.regrindEnabled) return
-        val cutoff = Instant.now().minus(Duration.ofHours(props.regrindCooldownHours))
+        val now = Instant.now()
+        val cutoff = now.minus(Duration.ofHours(props.regrindCooldownHours))
+        // B1, 2026-11-11: a live attempt stamps updatedAt once, at attempt
+        // start, and can run to AgentLoopBounds.worstCaseMs. The stranded
+        // bound sits beyond worst-case plus cooldown so a live job is never
+        // re-enqueued mid-flight.
+        val strandedAfter = now.minus(Duration.ofMillis(AgentLoopBounds.worstCaseMs).plus(Duration.ofHours(props.regrindCooldownHours)))
         val batch = jobState.findRegrindCandidates(
             maxAttemptsParam = props.regrindMaxAttempts,
             olderThan = cutoff,
+            strandedAfter = strandedAfter,
             limit = props.regrindBatchPerWindow,
         )
         if (batch.isEmpty()) return
@@ -60,7 +68,7 @@ class RegrindService(
         var produced = 0
         for (candidate in batch) {
             try {
-                if (regrind(candidate)) produced += 1
+                if (regrind(candidate, cutoff, strandedAfter)) produced += 1
             } catch (e: Exception) {
                 log.warn("re-grind {} failed: {}", candidate.id, e.message)
             }
@@ -69,7 +77,7 @@ class RegrindService(
     }
 
     /** Returns true when a message went out. */
-    internal fun regrind(candidate: RegrindCandidate): Boolean {
+    internal fun regrind(candidate: RegrindCandidate, cutoff: Instant, strandedAfter: Instant): Boolean {
         val listing = listings.findBySourceAndSourceJobId(candidate.source, candidate.sourceJobId)
         if (listing == null) {
             // No stored listing left to rebuild the self-contained payload
@@ -82,7 +90,7 @@ class RegrindService(
         // Claim before send: a lost claim means another pass or the worker
         // moved the row on between our query and now, and producing anyway
         // would double-bill an attempt.
-        if (!jobState.regrindClaim(candidate.id, candidate.maxAttempts)) {
+        if (!jobState.regrindClaim(candidate.id, candidate.maxAttempts, cutoff, strandedAfter)) {
             log.info("re-grind {}: claim lost; another pass or the worker moved it on", candidate.id)
             return false
         }

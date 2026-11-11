@@ -32,6 +32,10 @@ finder:
   msrouter-model: ${MSROUTER_MODEL:mst/free}
   # false = collect and produce, but never call the gateway. Costs no tokens.
   scoring-enabled: ${FINDER_SCORING_ENABLED:true}
+  # Per-call gateway timeout for CV scoring, seconds. Bounded well under the
+  # LlmClient default (240s x 3 attempts) so a hung gateway cannot starve the
+  # browser-lease pass; scoring degrades to its fallback score instead.
+  scorer-timeout-seconds: ${FINDER_SCORER_TIMEOUT_SECONDS:60}
   browser-cdp-url: ${BROWSER_CDP_URL:http://127.0.0.1:9222}
   # Mutual exclusion on the shared Chrome. A busy browser defers the whole
   # discovery window; renewal covers a scan that outlives the base ttl.

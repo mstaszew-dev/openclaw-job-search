@@ -15,6 +15,15 @@ data class FinderProperties(
      */
     var scoringEnabled: Boolean = true,
     /**
+     * Per-call gateway timeout for CV scoring, seconds. 2026-11-11: a hung
+     * gateway call cost the 240s client default x 3 attempts (12+ min)
+     * while the discovery pass held and renewed the browser lease, starving
+     * the worker for the window. 60s is roughly 10x the healthy scoring
+     * response time, and the scorer degrades to its fallback score rather
+     * than stalling the pass.
+     */
+    var scorerTimeoutSeconds: Long = 60,
+    /**
      * Browser-lease hold time for one discovery pass. The watchdog renews
      * while the scan runs, so this bounds only crash recovery: how long a
      * dead finder wedges the browser. Kept well above the longest scan.
