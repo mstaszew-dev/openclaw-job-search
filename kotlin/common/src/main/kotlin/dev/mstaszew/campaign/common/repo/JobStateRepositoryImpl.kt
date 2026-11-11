@@ -115,8 +115,12 @@ class JobStateRepositoryImpl(
             Criteria.where("attempts").lt(maxAttemptsParam),
             // "blocked:"-prefixed lastErrors are permanent portal blocks;
             // grinding those again burns an attempt for a known dead end.
-            // Negative lookahead (PCRE) so this stays one criteria.
-            Criteria.where("lastError").regex("""^(?!blocked:)"""),
+            // `$not` with a regex, not a negative-lookahead regex: Mongo
+            // regex operators never match a missing field, so 8 rows left
+            // FAILED with no lastError at all by the Nov 6 00:19 bulk
+            // failure were invisible to this pass forever (2026-11-11).
+            // `$not` matches absent fields and still excludes blocked rows.
+            Criteria.where("lastError").not().regex("""^blocked:"""),
             Criteria.where("updatedAt").lt(olderThan),
         )
         // DEAD rows whose death was a MODEL flake (2026-11-05 specjalista:
@@ -179,7 +183,9 @@ class JobStateRepositoryImpl(
         // attempt, not a stranded one.
         val failedBranch = Criteria().andOperator(
             Criteria.where("status").`is`(JobStatus.FAILED.name),
-            Criteria.where("lastError").regex("""^(?!blocked:)"""),
+            // Same `$not` guard as the candidate query: a FAILED row with no
+            // lastError field must stay claimable, blocked rows must not.
+            Criteria.where("lastError").not().regex("""^blocked:"""),
         )
         val deadBranch = Criteria().andOperator(
             Criteria.where("status").`is`(JobStatus.DEAD.name),
