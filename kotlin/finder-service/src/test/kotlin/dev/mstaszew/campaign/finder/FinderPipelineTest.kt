@@ -209,6 +209,21 @@ class FinderPipelineTest {
         verify(exactly = 2) { kafka.send(Topics.JOBS, "funds-tech", any<JobMessage>()) }
     }
 
+    /**
+     * 2026-11-13 supply widening: the window now also asks the RSS board for
+     * its remote slice. A source missing from the loop is a silent supply
+     * cut, so the window's source list is pinned here.
+     */
+    @Test
+    fun `the discovery window includes the rss board`() {
+        val asked = mutableListOf<String>()
+        val pipe = pipeline(collector = ListingCollector { source -> asked += source; emptyList() })
+
+        pipe.run()
+
+        assertThat(asked).containsExactly("nofluffjobs", "justjoin", "theprotocol", "pracuj", "solidjobs")
+    }
+
     @Test
     fun `low score stops the enqueue`() {
         val outcome = pipeline(score = 30).process(listing())
@@ -309,7 +324,9 @@ class FinderPipelineTest {
 
         pipeline(collector = collector).run()
 
-        assertThat(collectCalls).containsExactly("nofluffjobs", "justjoin", "theprotocol", "pracuj")
+        assertThat(collectCalls).containsExactly(
+            "nofluffjobs", "justjoin", "theprotocol", "pracuj", "solidjobs",
+        )
         // The whole finder acquire contract, pinned: instance-unique owner,
         // discovery op, 30min ttl, no waiting (busy means skip the window),
         // default 2s poll, renewal every 5min so a long scan is never stolen

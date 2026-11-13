@@ -3,6 +3,8 @@ package dev.mstaszew.campaign.finder
 import dev.mstaszew.campaign.common.mcp.McpStdioClient
 import dev.mstaszew.campaign.finder.collect.ListingCollector
 import dev.mstaszew.campaign.finder.collect.McpListingCollector
+import dev.mstaszew.campaign.finder.collect.RssListingCollector
+import dev.mstaszew.campaign.finder.collect.SourceRouterCollector
 import dev.mstaszew.campaign.finder.policy.EligibilityPolicy
 import dev.mstaszew.campaign.finder.policy.EligibilityProperties
 import dev.mstaszew.campaign.finder.score.CvScorer
@@ -41,10 +43,20 @@ class FinderConfig {
 
     /** Opens (and closes) a fresh MCP server process per discovery run. */
     @Bean
-    fun listingCollector(props: FinderProperties): ListingCollector = ListingCollector { source ->
-        McpListingCollector(
-            clientFactory = { McpStdioClient(props.mcpCommand.split(' ')) },
-            stacks = props.collectStacks,
-        ).collect(source)
+    fun listingCollector(props: FinderProperties, policy: EligibilityProperties): ListingCollector {
+        val browser = ListingCollector { source ->
+            McpListingCollector(
+                clientFactory = { McpStdioClient(props.mcpCommand.split(' ')) },
+                stacks = props.collectStacks,
+            ).collect(source)
+        }
+        // solid.jobs serves its catalogue as RSS, so it bypasses the browser
+        // (and its lease contention) entirely. The stack filter comes from
+        // the eligibility policy so the collector and the gate cannot drift.
+        val rss = RssListingCollector(
+            stackAllowlist = policy.stackAllowlist,
+            feedUrl = props.solidJobsFeedUrl,
+        )
+        return SourceRouterCollector(mapOf(RssListingCollector.SOURCE to rss), browser)
     }
 }

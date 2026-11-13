@@ -1,5 +1,8 @@
 package dev.mstaszew.campaign.finder
 
+import dev.mstaszew.campaign.finder.collect.ListingCollector
+import dev.mstaszew.campaign.finder.collect.RssListingCollector
+import dev.mstaszew.campaign.finder.collect.SourceRouterCollector
 import dev.mstaszew.campaign.finder.score.CvScore
 import dev.mstaszew.campaign.finder.score.CvScorer
 import org.assertj.core.api.Assertions.assertThat
@@ -44,6 +47,23 @@ class FinderConfigWiringTest {
         // and this test must not depend on a reachable one.
         runner().run { context ->
             assertThat(context).hasSingleBean(CvScorer::class.java)
+        }
+    }
+
+    /**
+     * 2026-11-13: the collector bean now routes by source, and solid.jobs is
+     * served by the RSS collector rather than the browser. A route dropped in
+     * the wiring would degrade to a logged collector failure every window
+     * (the pipeline keeps going), so the route is pinned here instead.
+     */
+    @Test
+    fun `the production collector routes the rss board`() {
+        runner().run { context ->
+            assertThat(context).hasSingleBean(ListingCollector::class.java)
+            val collector = context.getBean(ListingCollector::class.java)
+            assertThat(collector).isInstanceOf(SourceRouterCollector::class.java)
+            assertThat((collector as SourceRouterCollector).routesForTest())
+                .containsExactly(RssListingCollector.SOURCE)
         }
     }
 

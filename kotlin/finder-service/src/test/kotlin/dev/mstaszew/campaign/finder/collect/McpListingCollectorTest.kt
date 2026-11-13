@@ -123,9 +123,27 @@ class McpListingCollectorTest {
         )
     }
 
+    /**
+     * 2026-11-13 supply check: NFJ reports 145 remote java offers while page
+     * 1 renders 20, and its page param is cumulative (page N renders the
+     * first N x 20 cards, capped at 100 for page 5+). One visit to the
+     * deepest page therefore beats a page-1 walk: it adds depth without
+     * re-emitting the same cards into dupWindow. The board already carries a
+     * criteria query, so the variant appends with '&'.
+     */
     @Test
-    fun `other boards stay single page`() {
-        assertThat(McpListingCollector.pageVariants("nofluffjobs", "https://nofluffjobs.com/pl/java")).hasSize(1)
+    fun `nofluffjobs reads its deepest page in one visit`() {
+        val pages = McpListingCollector.pageVariants(
+            "nofluffjobs",
+            "https://nofluffjobs.com/pl/java?criteria=cityId%3Dremote",
+        )
+        assertThat(pages).containsExactly(
+            "https://nofluffjobs.com/pl/java?criteria=cityId%3Dremote&page=5",
+        )
+    }
+
+    @Test
+    fun `theprotocol stays single page`() {
         assertThat(McpListingCollector.pageVariants("theprotocol", "https://theprotocol.it/filtry/java")).hasSize(1)
     }
 
@@ -237,7 +255,7 @@ verify(exactly = 1) {
     }
 
     @Test
-    fun `nofluffjobs and theprotocol stay at one page per query`() {
+    fun `theprotocol stays at one page per query`() {
         val client = mockk<McpStdioClient>(relaxUnitFun = true) {
             every { callToolText(any(), any(), any()) } returns "### Result\n[]"
         }
@@ -591,19 +609,30 @@ verify(exactly = 1) {
         } throws McpClientException("initializeServer: Timeout 5000ms")
         val listingJson =
             """[{"remote":true,"id":"r1","title":"React Dev","company":"Acme","url":"https://x.com/r1"}]"""
-        // stacks iterate in order: java evaluates first (empty), php wedges at
-        // navigate so never evaluates, react evaluates second (the listing).
+        // Answer by the page that was just opened, not by call order: java
+        // pages yield nothing, react pages yield the listing, and php wedges
+        // at navigate so it never evaluates. Keyed by URL so this test does
+        // not pin how many pages a board serves.
+        var currentUrl = ""
+        every {
+            client.callToolText(eq("browser_navigate"), any(), any())
+        } answers {
+            currentUrl = secondArg<JsonNode>().path("url").asText()
+            "### Result\n"
+        }
+        every {
+            client.callToolText(eq("browser_navigate"), match { it.path("url").asText().contains("/php") }, any())
+        } throws McpClientException("initializeServer: Timeout 5000ms")
         every {
             client.callToolText(eq("browser_evaluate"), any(), any())
-        } returnsMany listOf(
-            "### Result\n[]",
-            "### Result\n" + ObjectMapper().writeValueAsString(listingJson),
-        )
+        } answers {
+            if (currentUrl.contains("/react")) "### Result\n" + ObjectMapper().writeValueAsString(listingJson)
+            else "### Result\n[]"
+        }
 
         val listings = McpListingCollector({ client }, stacks = listOf("java", "php", "react")).collect("nofluffjobs")
 
-        assertThat(listings).hasSize(1)
-        assertThat(listings[0].sourceJobId).isEqualTo("r1")
+        assertThat(listings.map { it.sourceJobId }).containsOnly("r1")
         verify {
             client.callToolText(eq("browser_navigate"), match { it.path("url").asText().contains("/react") }, any())
         }
@@ -700,5 +729,24 @@ verify(exactly = 1) {
         assertThat(l.sourceJobId).isEqualTo("senior-java-backend-developer-warszawa,oferta,1005179361")
         assertThat(l.company).isEqualTo("Edge One Solutions Sp. z o.o.")
         assertThat(l.remotePolicy).isEqualTo("remote")
+    }
+
+    /**
+     * theprotocol renders ~40 cards and loads the rest only on scroll (a
+     * curl of /filtry/java returns a 5.7 KB shell, so the shared Chrome is
+     * the only path). The card script scrolls to the bottom a bounded
+     * number of times before it collects; it returns the same card shape
+     * whether or not the board served more cards.
+     */
+    @Test
+    fun `theprotocol extraction scrolls before it collects`() {
+        val script = McpListingCollector.extractionScript("theprotocol", "java")
+        assertThat(script).contains("async function")
+        assertThat(script).contains("scrollTo")
+        assertThat(script).contains("setTimeout")
+        assertThat(script).contains("a[href*=\"/praca/\"]")
+        // The other boards keep the synchronous script.
+        assertThat(McpListingCollector.extractionScript("nofluffjobs", "java"))
+            .doesNotContain("async function")
     }
 }

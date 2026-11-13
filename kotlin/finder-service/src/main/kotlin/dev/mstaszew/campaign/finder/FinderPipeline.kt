@@ -81,9 +81,13 @@ class FinderPipeline(
 
     @Scheduled(fixedDelayString = "\${finder.run-interval-seconds:900}000", initialDelayString = "20000")
     fun run() {
-        // One lease for the whole pass: all three boards, then release. A
-        // live apply holding the Chrome defers the run to the next window
-        // rather than interleaving scans with a submission mid-flight.
+        // One lease for the whole pass: all boards, then release. A live
+        // apply holding the Chrome defers the run to the next window rather
+        // than interleaving scans with a submission mid-flight. The RSS
+        // board (solid.jobs) needs no browser but rides the same pass, so a
+        // busy browser also delays it by one window; that is supply, not
+        // correctness, and splitting the lease would let two transports
+        // write to the same dedupe state at once for no gain.
         val lease = chromeLease.acquire(
             owner = leaseOwner,
             op = "discover",
@@ -97,7 +101,7 @@ class FinderPipeline(
         try {
             seenThisWindow.clear()
             val summary = WindowSummary()
-            for (source in listOf("nofluffjobs", "justjoin", "theprotocol", "pracuj")) {
+            for (source in listOf("nofluffjobs", "justjoin", "theprotocol", "pracuj", "solidjobs")) {
                 val collected = try {
                     collector.collect(source)
                 } catch (e: Exception) {

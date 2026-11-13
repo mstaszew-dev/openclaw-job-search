@@ -37,6 +37,11 @@ data class FinderProperties(
     var mcpCommand: String = "node @playwright/mcp/cli.js --cdp-endpoint http://127.0.0.1:9222",
     var collectStacks: List<String> = listOf("java", "kotlin", "php", "node", "react"),
     /**
+     * solid.jobs publishes its whole catalogue as one RSS feed; the finder
+     * reads it directly, without the browser. 2026-11-13 supply widening.
+     */
+    var solidJobsFeedUrl: String = "https://solid.jobs/rss/job-offers",
+    /**
      * Enqueue gate for LLM CV-alignment scores (2026-11-08 scope increase):
      * a listing scoring below this is dropped as lowScore. Default 60
      * mirrors the original hardcoded gate; lower it (e.g. 50) when the

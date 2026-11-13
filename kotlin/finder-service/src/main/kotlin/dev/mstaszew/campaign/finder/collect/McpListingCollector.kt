@@ -228,12 +228,25 @@ class McpListingCollector(
          * covers pages 1-5. pracuj paginates with ?pn=N (verified live
          * 2026-11-08: page 2 serves a different offer set from page 1; the
          * user browsed relevant remote jobs on pages the collector never
-         * saw) and covers pages 1-3. The other boards have no verified page
-         * param yet: one page each.
+         * saw) and covers pages 1-3.
+         *
+         * 2026-11-13 depth check on the shallowest board: nofluffjobs
+         * paginates CUMULATIVELY - page N renders the first N x 20 cards,
+         * so page 1 is a strict subset of page 2, which is a subset of page
+         * 3 (verified on java: 20/40/60/80 distinct slugs for pages 1-4,
+         * and page 5 = 100, which is the board's cap; page 6+ serve the
+         * same 100). One visit to page 5 therefore yields 5x the depth of
+         * page 1 at the same navigation cost, and the other seven stacks
+         * are genuinely distinct (rust page 5 overlaps java page 5 on 9 of
+         * 100). Visiting pages 1-3 instead would re-emit 60 cards per stack
+         * into dupWindow without adding a single offer. theprotocol has no
+         * page param (it loads more on scroll, see extractionScript) and
+         * stays one page.
          */
         internal fun pageVariants(source: String, page: String): List<String> = when (source) {
             "justjoin" -> listOf(page, "$page?page=2", "$page?page=3", "$page?page=4", "$page?page=5")
             "pracuj" -> listOf(page, "$page?pn=2", "$page?pn=3")
+            "nofluffjobs" -> listOf("$page&page=5")
             else -> listOf(page)
         }
 
@@ -291,7 +304,7 @@ class McpListingCollector(
             // scraped category is emitted as the stack so titles without a
             // stack word still pass the eligibility stack gate.
             "justjoin" -> JUSTJOIN_JSONLD_SCRIPT.replace("__STACK__", justjoinCategory(stack))
-            "theprotocol" -> scriptFor("'a[href*=\"/praca/\"]'")
+            "theprotocol" -> scriptFor("'a[href*=\"/praca/\"]'", scrollRounds = 3)
             // Keyword-search board: the offer anchor itself carries the card
             // text (badge / title / salary? / company / city / employment
             // chips incl. "Praca zdalna"). Anchors inside dialogs are promo
@@ -369,9 +382,25 @@ class McpListingCollector(
             return JSON.stringify(out);
         })()"""
 
-        private fun scriptFor(selector: String): String = CARD_SCRIPT
-            .replace("__SELECTOR__", selector)
-            .replace("__BADGES__", chipBadgeAlternation())
+        private fun scriptFor(selector: String, scrollRounds: Int = 0): String {
+            val core = CARD_SCRIPT
+                .replace("__SELECTOR__", selector)
+                .replace("__BADGES__", chipBadgeAlternation())
+            if (scrollRounds <= 0) return core
+            // theprotocol renders ~40 cards and loads the rest only on
+            // scroll (a curl of /filtry/java returns a 5.7 KB shell). The
+            // scroll runs inside the same evaluate, so it adds no MCP round
+            // trip and no page variant: 3 rounds of 800ms is 2.4s against a
+            // 90s tool budget. If the board serves nothing more, the script
+            // returns exactly the cards page 1 already had.
+            return """(async function(){
+            for (let i = 0; i < $scrollRounds; i++) {
+                window.scrollTo(0, document.body.scrollHeight);
+                await new Promise(r => setTimeout(r, 800));
+            }
+            return $core;
+        })()"""
+        }
 
         /**
          * justjoin's redesigned listing page, validated against the live DOM
